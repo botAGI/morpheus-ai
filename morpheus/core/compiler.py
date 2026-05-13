@@ -150,7 +150,10 @@ def _iter_watch_paths(project_root: Path, watch_dirs: list[str] | None) -> list[
         if watch_path.is_file():
             paths.add(watch_path)
         elif watch_path.is_dir():
-            paths.update(watch_path.rglob("*"))
+            try:
+                paths.update(watch_path.rglob("*"))
+            except OSError:
+                continue
 
     return sorted(paths, key=lambda path: path.relative_to(project_root).as_posix())
 
