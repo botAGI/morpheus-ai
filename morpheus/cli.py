@@ -400,6 +400,24 @@ def train(
     )
 
 
+@app.command("eval")
+def eval_command(
+    adapter_path: Path = typer.Option(Path("morpheus_adapters"), help="LoRA adapter path"),
+    base_model: str = typer.Option("qwen2.5:7b", help="Base model"),
+    test_file: Path = typer.Option(Path("eval_questions.jsonl"), help="Test questions"),
+    output: Path = typer.Option(Path("eval_results.jsonl"), help="Results output"),
+):
+    """Evaluate a fine-tuned adapter on held-out questions."""
+    from morpheus.training.eval import run_eval
+
+    run_eval(
+        adapter_path=adapter_path,
+        base_model=base_model,
+        test_file=test_file,
+        output=output,
+    )
+
+
 @app.command()
 def version():
     """Show morpheus version."""
