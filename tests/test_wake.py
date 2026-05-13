@@ -1,10 +1,9 @@
 """
 Tests for morpheus.core.wake
 """
-import pytest
 from datetime import datetime, timezone
 from morpheus.core.wake import generate_wake_md
-from morpheus.core.models import Source, Claim, Evidence, ProjectState
+from morpheus.core.models import Source, Claim, ProjectState
 
 
 def test_generate_wake_md_basic():

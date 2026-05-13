@@ -18,7 +18,7 @@ from morpheus.core.wake import generate_wake_md
 from morpheus.core.provenance import compute_sha256_file, build_receipt, receipt_file_name
 from morpheus.core.verify import verify_receipt_chain
 from morpheus.training.consolidate import consolidate_sessions
-from morpheus.training.train import train, check_dependencies
+from morpheus.training.train import check_dependencies
 
 app = typer.Typer(
     help="Morpheus AI — Agent State Compiler with verifiable provenance",
@@ -46,7 +46,7 @@ def init(
     morpheus_dir = Path.cwd() / ".morpheus"
     
     if morpheus_dir.exists() and not force:
-        console.print(f"[yellow].morpheus/ already exists. Use --force to reinitialize.[/yellow]")
+        console.print("[yellow].morpheus/ already exists. Use --force to reinitialize.[/yellow]")
         raise typer.Exit(1)
     
     config = MorpheusConfig(project_root=Path.cwd())

@@ -4,13 +4,11 @@ QLoRA Fine-tuning Script for Morpheus.
 Fine-tunes a base model (Qwen2.5-7B or similar) with LoRA adapter
 on consolidated session data for "weights-as-memory" effect.
 """
-import json
 import subprocess
 from pathlib import Path
-from datetime import datetime
 import typer
 from rich.console import Console
-from rich.table import Table
+from rich.panel import Panel
 
 console = Console()
 

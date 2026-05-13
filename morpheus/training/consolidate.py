@@ -459,7 +459,7 @@ def consolidate_sessions(
     unique_pairs = deduplicate_pairs(all_pairs, stats)
 
     if verbose:
-        console.print(f"\n[cyan]Statistics:[/cyan]")
+        console.print("\n[cyan]Statistics:[/cyan]")
         console.print(f"  Files found: {stats.files_found}")
         console.print(f"  Files processed: {stats.files_processed}")
         console.print(f"  Files skipped by age: {stats.files_skipped_old}")

@@ -25,7 +25,6 @@ def compute_sha256(path: Path) -> str:
 
 def compile_project(project_root: Path) -> ProjectState:
     """Scan project sources and extract claims."""
-    morpheus_dir = project_root / ".morpheus"
     sources = []
     claims = []
     evidence = []

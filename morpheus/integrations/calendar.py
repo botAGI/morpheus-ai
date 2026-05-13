@@ -3,7 +3,6 @@ Google Calendar integration - reads events as evidence.
 """
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 
 class CalendarIntegration:
     SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]

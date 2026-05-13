@@ -1,7 +1,6 @@
 """
 Tests for morpheus.core.models
 """
-import pytest
 from datetime import datetime, timezone
 from morpheus.core.models import Source, Claim, Evidence, ProjectState, Receipt
 

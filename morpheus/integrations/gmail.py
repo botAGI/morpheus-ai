@@ -1,11 +1,8 @@
 """
 Gmail integration - reads emails and extracts evidence.
 """
-import os
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import Optional
-import httpx
 
 class GmailIntegration:
     SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
