@@ -47,6 +47,14 @@ def test_generate_training_script_shell_quotes_config_values(tmp_path):
     assert f"OUTPUT_DIR={shlex.quote(config['output_dir'])}" in script
 
 
+def test_generate_training_script_creates_parent_directory(tmp_path):
+    script_path = tmp_path / "scripts" / "morpheus_train.sh"
+
+    generate_training_script({}, script_path)
+
+    assert script_path.exists()
+
+
 def test_train_dry_run_generates_script_without_dependency_check(monkeypatch, tmp_path):
     dataset = tmp_path / "dataset.jsonl"
     dataset.write_text('{"instruction":"Q","output":"A"}\n')
