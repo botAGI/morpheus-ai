@@ -304,6 +304,31 @@ def test_consolidate_sessions_writes_stats_report(tmp_path):
     assert report["stats"] == stats.to_dict()
 
 
+def test_consolidate_sessions_reports_unwritable_dataset_output(tmp_path):
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    write_jsonl(
+        sessions_dir / "session.jsonl",
+        [
+            message("user", [{"type": "text", "text": "How should we improve consolidation?"}]),
+            message(
+                "assistant",
+                [{"type": "text", "text": "Implemented controlled output error handling for training datasets."}],
+            ),
+        ],
+    )
+    output_path = tmp_path / "dataset.jsonl"
+    output_path.mkdir()
+
+    with pytest.raises(click.exceptions.Exit):
+        consolidate_sessions(
+            sessions_dir=sessions_dir,
+            output_path=output_path,
+            days=1,
+            min_pairs=1,
+        )
+
+
 def test_consolidate_sessions_errors_when_no_pairs(tmp_path):
     sessions_dir = tmp_path / "sessions"
     sessions_dir.mkdir()
