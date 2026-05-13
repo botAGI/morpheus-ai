@@ -156,16 +156,20 @@ def compile(
     
     # Build receipt
     private_key_path = morpheus_dir / "keys" / "local.key"
-    receipt = build_receipt(
-        state_dump,
-        wake_md_sha,
-        sources_data,
-        private_key_path,
-        prev_hash,
-        receipt_id=receipt_id,
-        state_json_sha=state_json_sha,
-        evidence_jsonl_sha=evidence_jsonl_sha,
-    )
+    try:
+        receipt = build_receipt(
+            state_dump,
+            wake_md_sha,
+            sources_data,
+            private_key_path,
+            prev_hash,
+            receipt_id=receipt_id,
+            state_json_sha=state_json_sha,
+            evidence_jsonl_sha=evidence_jsonl_sha,
+        )
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]Signing failed:[/red] {exc}")
+        raise typer.Exit(1) from exc
     
     # Write WAKE.md
     wake_path = morpheus_dir / "WAKE.md"

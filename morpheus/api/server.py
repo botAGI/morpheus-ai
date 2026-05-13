@@ -121,16 +121,19 @@ def compile(request: CompileRequest):
     wake_sha = compute_sha256_bytes(wake_md.encode())
     
     private_key_path = morpheus_dir / "keys" / "local.key"
-    receipt = build_receipt(
-        state_dump,
-        wake_sha,
-        sources_data,
-        private_key_path,
-        prev_hash,
-        receipt_id=receipt_id,
-        state_json_sha=state_json_sha,
-        evidence_jsonl_sha=evidence_jsonl_sha,
-    )
+    try:
+        receipt = build_receipt(
+            state_dump,
+            wake_sha,
+            sources_data,
+            private_key_path,
+            prev_hash,
+            receipt_id=receipt_id,
+            state_json_sha=state_json_sha,
+            evidence_jsonl_sha=evidence_jsonl_sha,
+        )
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"Signing failed: {exc}") from exc
     
     # Write WAKE with real receipt
     (morpheus_dir / "WAKE.md").write_text(wake_md)
