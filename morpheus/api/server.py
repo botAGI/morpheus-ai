@@ -57,6 +57,17 @@ def latest_receipt_or_http_error(receipts_dir: Path) -> Path | None:
         raise HTTPException(status_code=400, detail=f"Receipt chain invalid: {exc}") from exc
 
 
+def load_json_object_or_http_error(path: Path, label: str) -> dict:
+    """Load a JSON object or fail with a client-visible API error."""
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail=f"{label} invalid: {exc}") from exc
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail=f"{label} invalid: expected JSON object")
+    return data
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "version": "0.1.0"}
@@ -202,7 +213,7 @@ def status(project_root: Optional[str] = None):
     if not state_path.exists():
         return {"initialized": False}
     
-    state = json.loads(state_path.read_text())
+    state = load_json_object_or_http_error(state_path, "State file")
     return {
         "initialized": True,
         "sources": len(state.get("sources", [])),
