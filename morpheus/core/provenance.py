@@ -46,6 +46,8 @@ def receipt_signature_payload(receipt: dict) -> bytes:
 
 def receipt_file_name(receipt_id: str) -> str:
     """Return a collision-resistant receipt artifact filename."""
+    if not receipt_id or receipt_id in {".", ".."} or "/" in receipt_id or "\\" in receipt_id:
+        raise ValueError(f"invalid receipt id: {receipt_id!r}")
     return f"receipt_{receipt_id}.json"
 
 
