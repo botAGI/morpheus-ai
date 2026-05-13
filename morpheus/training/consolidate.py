@@ -457,6 +457,11 @@ def consolidate_sessions(
         task = progress.add_task("[cyan]Processing sessions...", total=len(session_files))
 
         for session_path in session_files:
+            if session_path.is_symlink() or not session_path.is_file():
+                stats.files_unreadable += 1
+                progress.update(task, advance=1)
+                continue
+
             # Check file modification time
             try:
                 file_time = datetime.fromtimestamp(session_path.stat().st_mtime, tz=timezone.utc)
