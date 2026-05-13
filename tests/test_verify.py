@@ -93,6 +93,27 @@ def test_verify_receipt_chain_rejects_tampered_signed_metadata(tmp_path):
     assert "invalid ed25519 signature" in errors[0]
 
 
+def test_verify_receipt_chain_rejects_latest_wake_artifact_mismatch(tmp_path):
+    morpheus_dir = tmp_path / ".morpheus"
+    private_key_path = _write_keypair(morpheus_dir / "keys")
+    wake_path = morpheus_dir / "WAKE.md"
+    wake_path.write_text("# WAKE\n\nvalid\n")
+
+    receipt = build_receipt(
+        state_dict={"claims": [], "evidence": []},
+        wake_md_sha=compute_sha256_file(wake_path),
+        sources_data=[],
+        private_key_path=private_key_path,
+    )
+    _write_receipt(morpheus_dir / "receipts", "receipt_001.json", receipt)
+    wake_path.write_text("# WAKE\n\ntampered\n")
+
+    valid, errors = verify_receipt_chain(morpheus_dir)
+
+    assert not valid
+    assert "latest WAKE.md sha256 mismatch" in errors[0]
+
+
 def test_verify_receipt_chain_validates_previous_receipt_link(tmp_path):
     morpheus_dir = tmp_path / ".morpheus"
     private_key_path = _write_keypair(morpheus_dir / "keys")
