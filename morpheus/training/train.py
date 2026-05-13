@@ -74,28 +74,31 @@ def generate_training_script(config: dict, output_path: Path):
     """Generate LlamaFactory training script from config."""
     # Determine quantization bit
     quant_bit = 4 if config.get("quantization") == "4bit" else 8 if config.get("quantization") == "8bit" else 0
+
+    def quote(value) -> str:
+        return shlex.quote(str(value))
     
     # Handle lora_target (list or "all")
     lora_target = config.get("lora_target", "all")
     if isinstance(lora_target, list):
         lora_target = ",".join(lora_target)
-    lora_target = shlex.quote(str(lora_target))
+    lora_target = quote(lora_target)
     
     script_content = TRAINING_SCRIPT.format(
-        base_model=shlex.quote(str(config.get("base_model", "qwen2.5:7b"))),
-        output_dir=shlex.quote(str(config.get("output_dir", "./morpheus_adapters"))),
-        dataset=shlex.quote(str(config.get("dataset", "./dataset.jsonl"))),
-        lora_rank=config.get("lora_rank", 64),
-        lora_alpha=config.get("lora_alpha", 128),
-        lora_dropout=config.get("lora_dropout", 0.05),
+        base_model=quote(config.get("base_model", "qwen2.5:7b")),
+        output_dir=quote(config.get("output_dir", "./morpheus_adapters")),
+        dataset=quote(config.get("dataset", "./dataset.jsonl")),
+        lora_rank=quote(config.get("lora_rank", 64)),
+        lora_alpha=quote(config.get("lora_alpha", 128)),
+        lora_dropout=quote(config.get("lora_dropout", 0.05)),
         lora_target=lora_target,
-        quantization_bit=quant_bit,
-        batch_size=config.get("batch_size", 4),
-        learning_rate=config.get("learning_rate", 2e-4),
-        epochs=config.get("epochs", 3),
-        warmup_steps=config.get("warmup_steps", 100),
-        save_steps=config.get("save_steps", 500),
-        eval_steps=config.get("eval_steps", 500),
+        quantization_bit=quote(quant_bit),
+        batch_size=quote(config.get("batch_size", 4)),
+        learning_rate=quote(config.get("learning_rate", 2e-4)),
+        epochs=quote(config.get("epochs", 3)),
+        warmup_steps=quote(config.get("warmup_steps", 100)),
+        save_steps=quote(config.get("save_steps", 500)),
+        eval_steps=quote(config.get("eval_steps", 500)),
     )
     
     output_path.parent.mkdir(parents=True, exist_ok=True)

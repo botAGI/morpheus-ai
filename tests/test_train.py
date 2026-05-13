@@ -47,6 +47,17 @@ def test_generate_training_script_shell_quotes_config_values(tmp_path):
     assert f"OUTPUT_DIR={shlex.quote(config['output_dir'])}" in script
 
 
+def test_generate_training_script_shell_quotes_scalar_training_values(tmp_path):
+    script_path = tmp_path / "morpheus_train.sh"
+    config = {"lora_rank": "64 $(touch rank_pwned)"}
+
+    generate_training_script(config, script_path)
+
+    script = script_path.read_text()
+    assert f"--lora_rank {shlex.quote(config['lora_rank'])}" in script
+    assert "--lora_rank 64 $(touch rank_pwned)" not in script
+
+
 def test_generate_training_script_creates_parent_directory(tmp_path):
     script_path = tmp_path / "scripts" / "morpheus_train.sh"
 
