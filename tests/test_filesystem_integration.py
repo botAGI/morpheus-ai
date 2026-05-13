@@ -104,6 +104,15 @@ def test_extract_claims_ignores_excluded_internal_paths(tmp_path):
     assert claims == []
 
 
+def test_extract_claims_returns_empty_for_directories(tmp_path):
+    source_dir = tmp_path / "notes"
+    source_dir.mkdir()
+
+    claims = FileSystemWatcher(tmp_path).extract_claims("notes")
+
+    assert claims == []
+
+
 def test_extract_claims_returns_marker_locations(tmp_path):
     source = tmp_path / "notes.md"
     source.write_text("intro\nDECISION: use receipts\nplain\nXXX: investigate edge case\n")
