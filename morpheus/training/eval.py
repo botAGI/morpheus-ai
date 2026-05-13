@@ -162,10 +162,15 @@ def run_eval(
     console.print(table)
     
     # Save results
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with open(output, "w", encoding="utf-8") as f:
-        for r in results:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    try:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        with output.open("w", encoding="utf-8") as f:
+            for r in results:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    except OSError as exc:
+        console.print(f"[red]Evaluation output unwritable: {output}[/red]")
+        console.print(f"[yellow]{exc}[/yellow]")
+        raise typer.Exit(1) from exc
     
     console.print(f"\n[green]✓ Results saved to {output}[/green]")
 
