@@ -64,6 +64,19 @@ def test_scan_ignores_morpheus_cache_and_recovers_from_bad_cache(tmp_path):
     assert list(cache) == ["readme.md"]
 
 
+def test_scan_excludes_common_secret_and_generated_files(tmp_path):
+    (tmp_path / ".env").write_text("TODO: do not index env secrets\n")
+    (tmp_path / "local.key").write_text("TODO: do not index signing keys\n")
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / "node_modules" / "pkg.txt").write_text("TODO: do not index dependencies\n")
+    (tmp_path / "valid.txt").write_text("TODO: keep source\n")
+
+    changes = FileSystemWatcher(tmp_path).scan()
+
+    assert [change["path"] for change in changes] == ["valid.txt"]
+    assert FileSystemWatcher(tmp_path).extract_claims(".env") == []
+
+
 def test_scan_does_not_report_deleted_entries_for_excluded_cached_paths(tmp_path):
     morpheus_dir = tmp_path / ".morpheus"
     morpheus_dir.mkdir()

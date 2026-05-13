@@ -1,10 +1,43 @@
 """
 Filesystem integration - watches local files for changes.
 """
+from fnmatch import fnmatch
 import hashlib
 import json
 from pathlib import Path
 from datetime import datetime
+
+
+DEFAULT_EXCLUDE_PARTS = {
+    ".git",
+    ".morpheus",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".tox",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+    "node_modules",
+    "test-results",
+    "venv",
+}
+DEFAULT_EXCLUDE_PATTERNS = {
+    ".env",
+    ".env.*",
+    "*.crt",
+    "*.key",
+    "*.p12",
+    "*.pem",
+    "*.pfx",
+    "*.pyc",
+    "id_dsa",
+    "id_ecdsa",
+    "id_ed25519",
+    "id_rsa",
+}
+
 
 class FileSystemWatcher:
     def __init__(self, root: Path):
@@ -110,11 +143,18 @@ class FileSystemWatcher:
 
     def _is_excluded(self, path: Path) -> bool:
         try:
-            relative_parts = path.relative_to(self.root).parts
+            relative_path = path.relative_to(self.root)
         except ValueError:
-            relative_parts = path.parts
+            relative_path = path
 
-        return any(part in {".morpheus", ".git", "__pycache__"} for part in relative_parts)
+        if any(part in DEFAULT_EXCLUDE_PARTS for part in relative_path.parts):
+            return True
+
+        relative_text = relative_path.as_posix()
+        return any(
+            fnmatch(relative_text, pattern) or fnmatch(relative_path.name, pattern)
+            for pattern in DEFAULT_EXCLUDE_PATTERNS
+        )
 
     def _sha256(self, path: Path) -> str:
         digest = hashlib.sha256()
