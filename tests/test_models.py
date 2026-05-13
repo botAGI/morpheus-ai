@@ -2,7 +2,7 @@
 Tests for morpheus.core.models
 """
 import pytest
-from datetime import datetime
+from datetime import datetime, timezone
 from morpheus.core.models import Source, Claim, Evidence, ProjectState, Receipt
 
 
@@ -14,7 +14,7 @@ def test_source_model():
         sha256="abc123",
         size_bytes=1024,
         line_count=50,
-        modified_at=datetime.utcnow()
+        modified_at=datetime.now(timezone.utc)
     )
     assert s.id == "src_001"
     assert s.path == "README.md"
@@ -46,7 +46,7 @@ def test_evidence_model():
         excerpt="TODO: implement this",
         source_sha256="abc123",
         excerpt_sha256="def456",
-        timestamp=datetime.utcnow()
+        timestamp=datetime.now(timezone.utc)
     )
     assert e.id == "ev_001"
     assert e.claim_id == "clm_001"
@@ -60,7 +60,7 @@ def test_project_state():
         sha256="abc123",
         size_bytes=1024,
         line_count=50,
-        modified_at=datetime.utcnow()
+        modified_at=datetime.now(timezone.utc)
     )
     c = Claim(
         id="clm_001",
@@ -75,7 +75,7 @@ def test_project_state():
         sources=[s],
         claims=[c],
         evidence=[],
-        compiled_at=datetime.utcnow(),
+        compiled_at=datetime.now(timezone.utc),
         receipt_id="rcpt_test_001"
     )
     

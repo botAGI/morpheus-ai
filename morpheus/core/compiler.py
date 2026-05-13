@@ -3,7 +3,7 @@ Source compiler: extracts sources, claims, and evidence from project files.
 """
 import hashlib
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from morpheus.core.models import Source, Claim, Evidence, ProjectState
 
 
@@ -47,7 +47,7 @@ def compile_project(project_root: Path) -> ProjectState:
         sources=sources,
         claims=claims,
         evidence=evidence,
-        compiled_at=datetime.utcnow(),
+        compiled_at=datetime.now(timezone.utc),
     )
 
 
@@ -75,7 +75,7 @@ def _extract_claims(source: Source, lines: list[str], full_content: str):
                     category=marker.rstrip(":").lower(),
                     status="active",
                     inference=False,
-                    created_at=datetime.utcnow(),
+                    created_at=datetime.now(timezone.utc),
                 )
                 claims.append(claim)
 
@@ -91,7 +91,7 @@ def _extract_claims(source: Source, lines: list[str], full_content: str):
                     excerpt=line.strip(),
                     source_sha256=source.sha256,
                     excerpt_sha256=hl.sha256(exc).hexdigest(),
-                    timestamp=datetime.utcnow(),
+                    timestamp=datetime.now(timezone.utc),
                 )
                 evidence.append(ev)
     return claims, evidence
