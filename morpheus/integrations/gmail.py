@@ -2,7 +2,7 @@
 Gmail integration - reads emails and extracts evidence.
 """
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 class GmailIntegration:
     SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
@@ -35,9 +35,22 @@ class GmailIntegration:
     
     def _load_from_cache(self, cache_path: Path, days: int) -> list[dict]:
         import json
-        data = json.loads(cache_path.read_text())
-        cutoff = datetime.utcnow() - timedelta(days=days)
-        return [e for e in data if datetime.fromisoformat(e.get("date", "2000")) > cutoff]
+        try:
+            data = json.loads(cache_path.read_text())
+        except (OSError, json.JSONDecodeError):
+            return []
+        if not isinstance(data, list):
+            return []
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        emails = []
+        for email in data:
+            if not isinstance(email, dict):
+                continue
+            email_date = _parse_cache_datetime(email.get("date"))
+            if email_date and email_date > cutoff:
+                emails.append(email)
+        return emails
     
     def extract_evidence(self, email: dict) -> list[dict]:
         """Extract claim-like statements from email"""
@@ -54,3 +67,15 @@ class GmailIntegration:
                     "excerpt": text
                 })
         return evidence
+
+
+def _parse_cache_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed

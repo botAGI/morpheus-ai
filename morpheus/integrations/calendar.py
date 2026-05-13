@@ -31,9 +31,22 @@ class CalendarIntegration:
     
     def _load_from_cache(self, cache_path: Path, days: int) -> list[dict]:
         import json
-        data = json.loads(cache_path.read_text())
+        try:
+            data = json.loads(cache_path.read_text())
+        except (OSError, json.JSONDecodeError):
+            return []
+        if not isinstance(data, list):
+            return []
+
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-        return [e for e in data if datetime.fromisoformat(e.get("start", "2000")) > cutoff]
+        events = []
+        for event in data:
+            if not isinstance(event, dict):
+                continue
+            start = _parse_cache_datetime(event.get("start"))
+            if start and start > cutoff:
+                events.append(event)
+        return events
     
     def extract_evidence(self, event: dict) -> list[dict]:
         """Extract claim-like statements from event"""
@@ -49,3 +62,15 @@ class CalendarIntegration:
                     "excerpt": text[:500]
                 })
         return evidence
+
+
+def _parse_cache_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
