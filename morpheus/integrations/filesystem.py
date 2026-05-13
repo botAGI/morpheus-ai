@@ -69,7 +69,10 @@ class FileSystemWatcher:
         if full_path.is_symlink() or not full_path.is_file():
             return []
         
-        content = full_path.read_text("utf-8", errors="replace")
+        try:
+            content = full_path.read_text("utf-8", errors="replace")
+        except OSError:
+            return []
         lines = content.splitlines()
         claims = []
         
