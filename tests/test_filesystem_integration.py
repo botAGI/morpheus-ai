@@ -64,6 +64,19 @@ def test_scan_ignores_morpheus_cache_and_recovers_from_bad_cache(tmp_path):
     assert list(cache) == ["readme.md"]
 
 
+def test_scan_does_not_report_deleted_entries_for_excluded_cached_paths(tmp_path):
+    morpheus_dir = tmp_path / ".morpheus"
+    morpheus_dir.mkdir()
+    (morpheus_dir / "fs_cache.json").write_text(
+        json.dumps({".morpheus/internal.txt": "old-hash"})
+    )
+
+    changes = FileSystemWatcher(tmp_path).scan()
+
+    assert changes == []
+    assert json.loads((morpheus_dir / "fs_cache.json").read_text()) == {}
+
+
 def test_scan_ignores_symlinked_files_outside_root(tmp_path):
     watched = tmp_path / "watched"
     outside = tmp_path / "outside"
