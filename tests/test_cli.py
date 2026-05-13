@@ -657,3 +657,16 @@ def test_integrate_unknown_service_exits_with_error():
 
     assert result.exit_code == 1
     assert "Unknown integration service" in result.output
+
+
+def test_integrate_github_rejects_token_directory(monkeypatch, tmp_path):
+    runner = CliRunner()
+    token_path = tmp_path / ".morpheus" / "github_token.txt"
+    token_path.mkdir(parents=True)
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    result = runner.invoke(app, ["integrate", "github"])
+
+    assert result.exit_code == 1
+    assert "GitHub token path is not a file" in result.output
+    assert "already configured" not in result.output

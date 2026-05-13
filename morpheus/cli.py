@@ -365,8 +365,11 @@ def integrate(
     
     if service == "github":
         token_path = Path.home() / ".morpheus" / "github_token.txt"
-        if token_path.exists():
+        if token_path.is_file():
             console.print("[green]✓ GitHub token already configured[/green]")
+        elif token_path.exists():
+            console.print(f"[red]GitHub token path is not a file:[/red] {token_path}")
+            raise typer.Exit(1)
         else:
             console.print("[yellow]GitHub PAT required[/yellow]")
             console.print("1. Go to https://github.com/settings/tokens")
