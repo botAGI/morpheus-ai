@@ -491,7 +491,12 @@ def consolidate_sessions(
         console.print("[yellow]Try increasing --days or check session directory[/yellow]")
         raise typer.Exit(1)
 
-    write_dataset(output_path, unique_pairs)
+    try:
+        write_dataset(output_path, unique_pairs)
+    except OSError as exc:
+        console.print(f"[red]Dataset output write failed: {output_path}[/red]")
+        console.print(f"[yellow]{exc}[/yellow]")
+        raise typer.Exit(1) from exc
 
     if stats_output_path:
         write_stats_report(
