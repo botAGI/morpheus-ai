@@ -36,6 +36,7 @@ morpheus status
 | `morpheus integrate --list` | Show available integrations |
 | `morpheus consolidate --days 7` | Sessions → training dataset |
 | `morpheus train --epochs 3` | QLoRA fine-tuning |
+| `morpheus eval --test-file eval_questions.jsonl` | Evaluate adapter quality |
 | `morpheus version` | Show version |
 
 ## Training Pipeline (Phase 3)

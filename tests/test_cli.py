@@ -327,6 +327,50 @@ def test_train_dry_run_accepts_lora_alpha_option(tmp_path, monkeypatch):
         assert "--lora_alpha 256" in Path("morpheus_train.sh").read_text()
 
 
+def test_eval_command_forwards_options(monkeypatch):
+    runner = CliRunner()
+    calls = []
+
+    def fake_run_eval(adapter_path, base_model, test_file, output):
+        calls.append(
+            {
+                "adapter_path": adapter_path,
+                "base_model": base_model,
+                "test_file": test_file,
+                "output": output,
+            }
+        )
+
+    import morpheus.training.eval as eval_module
+
+    monkeypatch.setattr(eval_module, "run_eval", fake_run_eval)
+
+    result = runner.invoke(
+        app,
+        [
+            "eval",
+            "--adapter-path",
+            "adapter-dir",
+            "--base-model",
+            "qwen2.5:14b",
+            "--test-file",
+            "questions.jsonl",
+            "--output",
+            "results.jsonl",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls == [
+        {
+            "adapter_path": Path("adapter-dir"),
+            "base_model": "qwen2.5:14b",
+            "test_file": Path("questions.jsonl"),
+            "output": Path("results.jsonl"),
+        }
+    ]
+
+
 def test_integrate_list_does_not_require_service_argument():
     runner = CliRunner()
 
