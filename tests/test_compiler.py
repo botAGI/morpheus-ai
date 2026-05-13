@@ -144,6 +144,30 @@ def test_compile_project_excludes():
         assert "__pycache__/mod.pyc" not in valid_paths
 
 
+def test_compile_project_excludes_common_local_tool_outputs_by_default():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        ignored_dirs = [
+            ".pytest_cache",
+            ".ruff_cache",
+            ".mypy_cache",
+            "test-results",
+            "build",
+            "dist",
+        ]
+        for ignored_dir in ignored_dirs:
+            path = tmppath / ignored_dir
+            path.mkdir()
+            (path / "generated.txt").write_text("TODO: ignore generated local output\n")
+
+        (tmppath / "valid.txt").write_text("TODO: keep source\n")
+
+        state = compile_project(tmppath)
+
+        assert {source.path for source in state.sources} == {"valid.txt"}
+        assert [claim.excerpt for claim in state.claims] == ["TODO: keep source"]
+
+
 def test_compile_project_extracts_claims():
     with tempfile.TemporaryDirectory() as tmpdir:
         tmppath = Path(tmpdir)

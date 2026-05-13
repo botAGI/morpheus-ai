@@ -17,10 +17,16 @@ DEFAULT_EXCLUDE_PATTERNS = {
     "node_modules",
     "__pycache__",
     ".morpheus",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
     ".venv",
     "venv",
     ".tox",
     ".eggs",
+    "build",
+    "dist",
+    "test-results",
     "*.pyc",
 }
 MARKER_CATEGORIES = {
