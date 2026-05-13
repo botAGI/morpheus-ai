@@ -202,6 +202,10 @@ def extract_text_from_content(content_blocks: list) -> str:
     """Extract text from OpenClaw content blocks format."""
     if isinstance(content_blocks, str):
         return normalize_whitespace(content_blocks)
+    if isinstance(content_blocks, dict):
+        content_blocks = [content_blocks]
+    if not isinstance(content_blocks, list):
+        return ""
     
     texts = []
     for block in content_blocks:
