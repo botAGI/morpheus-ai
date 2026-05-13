@@ -144,6 +144,18 @@ def test_scan_skips_files_that_cannot_be_hashed(tmp_path, monkeypatch):
     }
 
 
+def test_scan_reports_changes_when_cache_file_cannot_be_written(tmp_path):
+    morpheus_dir = tmp_path / ".morpheus"
+    morpheus_dir.mkdir()
+    (morpheus_dir / "fs_cache.json").mkdir()
+    (tmp_path / "readme.md").write_text("TODO: keep scanning despite cache write failure\n")
+
+    changes = FileSystemWatcher(tmp_path).scan()
+
+    assert [change["path"] for change in changes] == ["readme.md"]
+    assert changes[0]["status"] == "new"
+
+
 def test_extract_claims_rejects_paths_outside_root(tmp_path):
     watched = tmp_path / "watched"
     outside = tmp_path / "outside"
