@@ -306,7 +306,11 @@ def wake():
         console.print("[red]No WAKE.md found. Run 'morpheus compile'[/red]")
         raise typer.Exit(1)
     
-    content = wake_path.read_text()
+    try:
+        content = wake_path.read_text()
+    except OSError as exc:
+        console.print(f"[red]WAKE.md unreadable:[/red] {exc}")
+        raise typer.Exit(1) from exc
     syntax = Syntax(content, "markdown", theme="monokai", line_numbers=False)
     console.print(syntax)
 
