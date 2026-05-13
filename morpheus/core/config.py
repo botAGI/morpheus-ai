@@ -22,6 +22,8 @@ class MorpheusConfig(BaseModel):
         receipts_dir = morpheus_dir / "receipts"
         receipts_dir.mkdir(exist_ok=True)
         config_path = morpheus_dir / "morpheus.toml"
+        if config_path.exists() and not config_path.is_file():
+            raise ValueError(f"Config path is not a file: {config_path}")
         if not config_path.exists():
             config_path.write_text(toml.dumps(self.model_dump(exclude={"project_root"})))
         # Generate ed25519 keypair if not exists
