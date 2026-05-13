@@ -435,6 +435,27 @@ def test_verify_receipt_chain_reports_unreadable_receipt_files(tmp_path):
     assert any("receipt_bad.json: unreadable receipt" in error for error in errors)
 
 
+def test_verify_receipt_chain_rejects_symlinked_receipt_files(tmp_path):
+    morpheus_dir = tmp_path / ".morpheus"
+    private_key_path = _write_keypair(morpheus_dir / "keys")
+    receipt = build_receipt(
+        state_dict={"claims": [], "evidence": []},
+        wake_md_sha="f" * 64,
+        sources_data=[],
+        private_key_path=private_key_path,
+    )
+    outside_receipt = tmp_path / "outside-receipt.json"
+    outside_receipt.write_text(json.dumps(receipt))
+    receipts_dir = morpheus_dir / "receipts"
+    receipts_dir.mkdir(parents=True)
+    (receipts_dir / "receipt_outside.json").symlink_to(outside_receipt)
+
+    valid, errors = verify_receipt_chain(morpheus_dir)
+
+    assert not valid
+    assert "receipt_outside.json: must not be a symlink" in errors
+
+
 def test_verify_receipt_chain_rejects_receipts_path_file(tmp_path):
     morpheus_dir = tmp_path / ".morpheus"
     _write_keypair(morpheus_dir / "keys")

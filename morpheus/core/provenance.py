@@ -74,6 +74,9 @@ def latest_receipt_file(receipts_dir: Path) -> Path | None:
 
     records = []
     for receipt_file in receipt_files:
+        if receipt_file.is_symlink():
+            raise ValueError(f"{receipt_file.name}: must not be a symlink")
+
         try:
             receipt_text = receipt_file.read_text()
         except OSError as exc:

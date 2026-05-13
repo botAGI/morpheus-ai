@@ -81,6 +81,17 @@ def test_latest_receipt_file_reports_unreadable_receipt_files(tmp_path):
         latest_receipt_file(receipts_dir)
 
 
+def test_latest_receipt_file_rejects_symlinked_receipt_file(tmp_path):
+    receipts_dir = tmp_path / "receipts"
+    receipts_dir.mkdir()
+    outside_receipt = tmp_path / "outside-receipt.json"
+    outside_receipt.write_text('{"receipt_id": "outside", "previous_receipt_sha256": null}')
+    (receipts_dir / "receipt_outside.json").symlink_to(outside_receipt)
+
+    with pytest.raises(ValueError, match="receipt_outside.json: must not be a symlink"):
+        latest_receipt_file(receipts_dir)
+
+
 def test_latest_receipt_file_rejects_receipts_path_file(tmp_path):
     receipts_dir = tmp_path / "receipts"
     receipts_dir.write_text("not a directory")

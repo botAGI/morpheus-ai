@@ -32,6 +32,10 @@ def verify_receipt_chain(morpheus_dir: Path) -> tuple[bool, list[str]]:
     receipt_records = []
 
     for receipt_file in receipt_files:
+        if receipt_file.is_symlink():
+            errors.append(f"{receipt_file.name}: must not be a symlink")
+            continue
+
         try:
             receipt_text = receipt_file.read_text()
         except OSError as exc:
