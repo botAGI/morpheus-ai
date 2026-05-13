@@ -144,6 +144,14 @@ def compile(request: CompileRequest):
 @app.get("/wake/{project}")
 def get_wake(project: str):
     """Get WAKE.md for a project"""
+    project_path = Path(project)
+    if (
+        project in ("", ".", "..")
+        or project_path.is_absolute()
+        or project_path.name != project
+    ):
+        raise HTTPException(status_code=400, detail="Invalid project name")
+
     # Look for project in common locations
     possible_paths = [
         Path.home() / ".morpheus" / project / "WAKE.md",

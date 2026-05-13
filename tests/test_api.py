@@ -177,3 +177,16 @@ def test_compile_returns_bad_request_for_broken_receipt_chain(tmp_path):
     assert response.status_code == 400
     assert "Receipt chain invalid" in response.json()["detail"]
     assert "expected exactly one receipt chain tail" in response.json()["detail"]
+
+
+def test_get_wake_rejects_project_path_traversal(tmp_path, monkeypatch):
+    safe_dir = tmp_path / "safe"
+    safe_dir.mkdir()
+    (tmp_path / "WAKE.md").write_text("secret parent wake")
+    monkeypatch.chdir(safe_dir)
+    client = api_client()
+
+    response = client.get("/wake/%2E%2E")
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid project name"
