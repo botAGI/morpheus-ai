@@ -103,6 +103,7 @@ def build_receipt(
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     receipt_id = receipt_id or new_receipt_id()
+    receipt_file_name(receipt_id)
 
     if not private_key_path.exists():
         raise FileNotFoundError(f"private signing key not found: {private_key_path}")
