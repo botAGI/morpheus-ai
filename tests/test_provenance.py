@@ -71,6 +71,14 @@ def test_latest_receipt_file_rejects_non_object_receipt_json(tmp_path):
         latest_receipt_file(receipts_dir)
 
 
+def test_latest_receipt_file_reports_unreadable_receipt_files(tmp_path):
+    receipts_dir = tmp_path / "receipts"
+    (receipts_dir / "receipt_bad.json").mkdir(parents=True)
+
+    with pytest.raises(ValueError, match="receipt_bad.json: unreadable receipt"):
+        latest_receipt_file(receipts_dir)
+
+
 def test_latest_receipt_file_rejects_non_string_previous_hash(tmp_path):
     receipts_dir = tmp_path / "receipts"
     receipts_dir.mkdir()
