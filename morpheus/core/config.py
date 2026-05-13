@@ -28,6 +28,8 @@ class MorpheusConfig(BaseModel):
             raise ValueError(f"Receipts path must not be a symlink: {receipts_dir}")
         receipts_dir.mkdir(exist_ok=True)
         config_path = morpheus_dir / "morpheus.toml"
+        if config_path.is_symlink():
+            raise ValueError(f"Config path must not be a symlink: {config_path}")
         if config_path.exists() and not config_path.is_file():
             raise ValueError(f"Config path is not a file: {config_path}")
         if not config_path.exists():
@@ -35,6 +37,10 @@ class MorpheusConfig(BaseModel):
         # Generate ed25519 keypair if not exists
         private_key_path = keys_dir / "local.key"
         public_key_path = keys_dir / "local.pub"
+        if private_key_path.is_symlink():
+            raise ValueError(f"Private key path must not be a symlink: {private_key_path}")
+        if public_key_path.is_symlink():
+            raise ValueError(f"Public key path must not be a symlink: {public_key_path}")
         if private_key_path.exists() and not private_key_path.is_file():
             raise ValueError(f"Private key path is not a file: {private_key_path}")
         if public_key_path.exists() and not public_key_path.is_file():
@@ -64,7 +70,12 @@ class MorpheusConfig(BaseModel):
 
     def load(self) -> "MorpheusConfig":
         """Load config from .morpheus/morpheus.toml."""
-        config_path = self.project_root / ".morpheus" / "morpheus.toml"
+        morpheus_dir = self.project_root / ".morpheus"
+        if morpheus_dir.is_symlink():
+            raise ValueError(".morpheus path must not be a symlink")
+        config_path = morpheus_dir / "morpheus.toml"
+        if config_path.is_symlink():
+            raise ValueError(f"Config path must not be a symlink: {config_path}")
         if config_path.exists():
             try:
                 data = toml.loads(config_path.read_text())
