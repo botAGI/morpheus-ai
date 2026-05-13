@@ -21,7 +21,7 @@
 **Files:**
 - Create: `.gitignore`
 
-- [ ] **Step 1: Create `.gitignore`**
+- [x] **Step 1: Create `.gitignore`**
 
 Use this exact content:
 
@@ -31,6 +31,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+test-results/
 .mypy_cache/
 .ruff_cache/
 .coverage
@@ -69,7 +70,7 @@ ui/dist/
 .vscode/
 ```
 
-- [ ] **Step 2: Check ignored cache files**
+- [x] **Step 2: Check ignored cache files**
 
 Run:
 
@@ -84,7 +85,7 @@ Expected: both paths are printed.
 **Files:**
 - Modify git index only: tracked files matching `(^|/)__pycache__/|\.pyc$|\.pyo$`
 
-- [ ] **Step 1: List tracked bytecode**
+- [x] **Step 1: List tracked bytecode**
 
 Run:
 
@@ -92,9 +93,9 @@ Run:
 git ls-files | rg '(^|/)__pycache__/|\.pyc$|\.pyo$'
 ```
 
-Expected: current tracked Python cache files are printed.
+Expected: no paths are printed after cleanup; historical tracked Python cache files were removed from the index.
 
-- [ ] **Step 2: Remove tracked bytecode from index**
+- [x] **Step 2: Remove tracked bytecode from index**
 
 Run:
 
@@ -104,7 +105,7 @@ git ls-files -z | rg -z '(^|/)__pycache__/|\.pyc$|\.pyo$' | xargs -0 git rm --ca
 
 Expected: git prints `rm` lines for tracked cache files. Source files remain on disk.
 
-- [ ] **Step 3: Verify no tracked bytecode remains**
+- [x] **Step 3: Verify no tracked bytecode remains**
 
 Run:
 
@@ -119,17 +120,17 @@ Expected: command exits with status 1 because no paths match.
 **Files:**
 - No source changes.
 
-- [ ] **Step 1: Run tests**
+- [x] **Step 1: Run tests**
 
 Run:
 
 ```bash
-python3 -m pytest tests/ -q
+.venv/bin/python -m pytest tests/ -q --junitxml=test-results/pytest/results.xml
 ```
 
 Expected: all tests pass.
 
-- [ ] **Step 2: Check git status**
+- [x] **Step 2: Check git status**
 
 Run:
 
@@ -137,9 +138,9 @@ Run:
 git status --short
 ```
 
-Expected: status contains `.gitignore`, docs, and staged bytecode removals. It does not contain untracked or modified `__pycache__` files.
+Expected: no untracked or modified `__pycache__` files.
 
-- [ ] **Step 3: Commit hygiene change**
+- [x] **Step 3: Commit hygiene change**
 
 Run:
 
