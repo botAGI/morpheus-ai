@@ -86,7 +86,7 @@ def run_eval(
     total = 0
     passed = 0
     
-    with open(test_file) as f:
+    with open(test_file, encoding="utf-8") as f:
         lines = f.readlines()
     
     console.print(f"[blue]Running evaluation on {len(lines)} questions...[/blue]\n")
@@ -94,10 +94,19 @@ def run_eval(
     for i, line in enumerate(lines, 1):
         try:
             item = json.loads(line)
-            question = item["question"]
-            expected = item.get("expected_keywords", [])
         except json.JSONDecodeError:
             continue
+        if not isinstance(item, dict):
+            continue
+
+        question = item.get("question")
+        if not isinstance(question, str) or not question.strip():
+            continue
+
+        expected = item.get("expected_keywords", [])
+        if not isinstance(expected, list):
+            expected = []
+        expected = [str(keyword) for keyword in expected]
         
         total += 1
         prompt = EVAL_PROMPT.format(question=question)
@@ -136,7 +145,7 @@ def run_eval(
     
     # Save results
     output.parent.mkdir(parents=True, exist_ok=True)
-    with open(output, "w") as f:
+    with open(output, "w", encoding="utf-8") as f:
         for r in results:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
     
@@ -152,7 +161,7 @@ def create_sample_eval():
     ]
     
     output_path = Path("eval_questions.jsonl")
-    with open(output_path, "w") as f:
+    with open(output_path, "w", encoding="utf-8") as f:
         for item in sample:
             f.write(json.dumps(item, ensure_ascii=False) + "\n")
     
