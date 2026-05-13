@@ -387,6 +387,20 @@ def test_status_handles_non_list_state_collections_without_traceback(tmp_path):
         assert "Project Status" in result.output
 
 
+def test_wake_reports_unreadable_wake_file_without_traceback(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        init_result = runner.invoke(app, ["init"])
+        assert init_result.exit_code == 0, init_result.output
+        (Path.cwd() / ".morpheus" / "WAKE.md").mkdir()
+
+        result = runner.invoke(app, ["wake"])
+
+        assert result.exit_code == 1
+        assert "WAKE.md unreadable" in result.output
+
+
 def test_train_dry_run_skips_cli_dependency_check(tmp_path, monkeypatch):
     runner = CliRunner()
 
