@@ -106,3 +106,4 @@ def test_train_non_dry_run_checks_dependencies_first(monkeypatch, tmp_path):
             epochs=3,
             dry_run=False,
         )
+    assert not (tmp_path / "morpheus_train.sh").exists()
