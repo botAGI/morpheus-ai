@@ -383,6 +383,27 @@ integrations = {}
         assert state.evidence == []
 
 
+def test_compile_project_ignores_blank_configured_evidence_markers():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        morpheus_dir = tmppath / ".morpheus"
+        morpheus_dir.mkdir()
+        (morpheus_dir / "morpheus.toml").write_text(
+            """
+watch_dirs = ["."]
+exclude_patterns = [".git", "node_modules", "__pycache__", ".morpheus"]
+evidence_markers = ["", "   ", "TODO:"]
+integrations = {}
+"""
+        )
+        (tmppath / "notes.md").write_text("plain line\nTODO: keep marker\n")
+
+        state = compile_project(tmppath)
+
+        assert [claim.excerpt for claim in state.claims] == ["TODO: keep marker"]
+        assert [evidence.excerpt for evidence in state.evidence] == ["TODO: keep marker"]
+
+
 def test_compile_project_respects_configured_watch_dirs():
     with tempfile.TemporaryDirectory() as tmpdir:
         tmppath = Path(tmpdir)
