@@ -32,3 +32,58 @@ def test_run_eval_skips_malformed_question_rows(monkeypatch, tmp_path):
     rows = [json.loads(line) for line in output.read_text().splitlines()]
     assert [row["question"] for row in rows] == ["How is provenance verified?"]
     assert rows[0]["score"] == 1
+
+
+def test_query_model_reports_missing_ollama(monkeypatch):
+    def raise_missing_executable(*args, **kwargs):
+        raise FileNotFoundError("ollama")
+
+    monkeypatch.setattr(eval_module.subprocess, "run", raise_missing_executable)
+
+    result = eval_module.query_model("prompt")
+
+    assert result == "Error: ollama executable not found"
+
+
+def test_query_model_uses_ollama_run(monkeypatch):
+    calls = []
+
+    class Completed:
+        returncode = 0
+        stdout = "answer\n"
+        stderr = ""
+
+    def fake_run(cmd, **kwargs):
+        calls.append((cmd, kwargs))
+        return Completed()
+
+    monkeypatch.setattr(eval_module.subprocess, "run", fake_run)
+
+    result = eval_module.query_model("prompt", base_model="qwen2.5:7b")
+
+    assert result == "answer"
+    assert calls == [
+        (
+            ["ollama", "run", "qwen2.5:7b", "prompt"],
+            {"capture_output": True, "text": True, "timeout": 60},
+        )
+    ]
+
+
+def test_query_model_prints_adapter_path_in_manual_load_hint(monkeypatch, tmp_path, capsys):
+    adapter_dir = tmp_path / "adapter"
+    adapter_dir.mkdir()
+
+    class Completed:
+        returncode = 0
+        stdout = "answer\n"
+        stderr = ""
+
+    monkeypatch.setattr(eval_module.subprocess, "run", lambda *args, **kwargs: Completed())
+
+    eval_module.query_model("prompt", adapter_path=adapter_dir)
+
+    captured = capsys.readouterr().out
+    assert str(adapter_dir) in captured.replace("\n", "")
+    assert "Load manually:" in captured
+    assert "{adapter_path}" not in captured
