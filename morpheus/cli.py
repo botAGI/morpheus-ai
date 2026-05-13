@@ -59,7 +59,7 @@ def init(
 ):
     """Initialize morpheus in current directory.
     
-    Creates .morpheus/ with config.toml and ed25519 keys.
+    Creates .morpheus/ with morpheus.toml and ed25519 keys.
     """
     morpheus_dir = Path.cwd() / ".morpheus"
     

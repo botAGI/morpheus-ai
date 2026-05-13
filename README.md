@@ -84,7 +84,7 @@ morpheus-ai/
 │   ├── api/             # FastAPI server
 │   └── training/        # Phase 3: QLoRA pipeline
 ├── ui/                  # Tauri desktop app
-├── tests/               # 19 tests
+├── tests/               # pytest suite
 └── scripts/             # Automation scripts
 ```
 
