@@ -83,6 +83,20 @@ def test_init_force_reports_key_generation_failures_without_traceback(tmp_path):
         assert "Initialization failed" in result.output
 
 
+def test_init_force_reports_invalid_config_path_without_success(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        config_path = Path.cwd() / ".morpheus" / "morpheus.toml"
+        config_path.mkdir(parents=True)
+
+        result = runner.invoke(app, ["init", "--force"])
+
+        assert result.exit_code == 1
+        assert "Initialization failed" in result.output
+        assert "morpheus.toml" in result.output
+
+
 def test_compile_preserves_receipts_with_same_timestamp(tmp_path, monkeypatch):
     runner = CliRunner()
     receipt_ids = [
