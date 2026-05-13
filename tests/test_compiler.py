@@ -168,6 +168,28 @@ def test_compile_project_excludes_common_local_tool_outputs_by_default():
         assert [claim.excerpt for claim in state.claims] == ["TODO: keep source"]
 
 
+def test_compile_project_excludes_common_secret_files_by_default():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        for file_name in [
+            ".env",
+            ".env.local",
+            "local.key",
+            "identity.pem",
+            "id_rsa",
+            "id_ed25519",
+            "certificate.p12",
+            "keystore.pfx",
+        ]:
+            (tmppath / file_name).write_text("TODO: do not compile secrets\n")
+        (tmppath / "valid.txt").write_text("TODO: keep source\n")
+
+        state = compile_project(tmppath)
+
+        assert {source.path for source in state.sources} == {"valid.txt"}
+        assert [claim.excerpt for claim in state.claims] == ["TODO: keep source"]
+
+
 def test_compile_project_extracts_claims():
     with tempfile.TemporaryDirectory() as tmpdir:
         tmppath = Path(tmpdir)
