@@ -153,3 +153,49 @@ def test_compile_project_generates_stable_unique_claim_and_evidence_ids():
         assert [e.id for e in state.evidence] == ["ev_0001", "ev_0002", "ev_0003"]
         assert len({c.id for c in state.claims}) == len(state.claims)
         assert len({e.id for e in state.evidence}) == len(state.evidence)
+
+
+def test_compile_project_respects_configured_exclude_patterns():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        morpheus_dir = tmppath / ".morpheus"
+        morpheus_dir.mkdir()
+        (morpheus_dir / "morpheus.toml").write_text(
+            """
+watch_dirs = ["."]
+exclude_patterns = [".git", "node_modules", "__pycache__", ".morpheus", "generated", "*.log"]
+evidence_markers = ["TODO:", "DECISION:", "FIXME:", "NOTE:", "HACK:"]
+integrations = {}
+"""
+        )
+        (tmppath / "generated").mkdir()
+        (tmppath / "generated" / "ignored.py").write_text("TODO: ignore generated output\n")
+        (tmppath / "debug.log").write_text("TODO: ignore logs\n")
+        (tmppath / "src").mkdir()
+        (tmppath / "src" / "keep.py").write_text("TODO: keep source\n")
+
+        state = compile_project(tmppath)
+
+        assert [source.path for source in state.sources] == ["src/keep.py"]
+        assert [claim.excerpt for claim in state.claims] == ["TODO: keep source"]
+
+
+def test_compile_project_respects_configured_evidence_markers():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        morpheus_dir = tmppath / ".morpheus"
+        morpheus_dir.mkdir()
+        (morpheus_dir / "morpheus.toml").write_text(
+            """
+watch_dirs = ["."]
+exclude_patterns = [".git", "node_modules", "__pycache__", ".morpheus"]
+evidence_markers = ["ACTION:"]
+integrations = {}
+"""
+        )
+        (tmppath / "notes.md").write_text("TODO: ignore default marker\nACTION: follow up\n")
+
+        state = compile_project(tmppath)
+
+        assert [claim.excerpt for claim in state.claims] == ["ACTION: follow up"]
+        assert state.claims[0].category == "action"
