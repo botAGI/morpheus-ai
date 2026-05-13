@@ -307,3 +307,21 @@ def test_train_dry_run_skips_cli_dependency_check(tmp_path, monkeypatch):
         script = Path("morpheus_train.sh").read_text()
         assert "OptionInfo" not in script
         assert "--lora_alpha 128" in script
+
+
+def test_train_dry_run_accepts_lora_alpha_option(tmp_path, monkeypatch):
+    runner = CliRunner()
+    monkeypatch.setattr(cli_module, "check_dependencies", lambda: (_ for _ in ()).throw(
+        AssertionError("dry-run should not check runtime training dependencies")
+    ))
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        Path("dataset.jsonl").write_text('{"instruction":"Q","output":"A"}\n')
+
+        result = runner.invoke(
+            app,
+            ["train", "--dataset", "dataset.jsonl", "--lora-alpha", "256", "--dry-run"],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "--lora_alpha 256" in Path("morpheus_train.sh").read_text()
