@@ -4,6 +4,8 @@ Gmail integration - reads emails and extracts evidence.
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
+from morpheus.core.safe_io import reject_symlink_paths
+
 class GmailIntegration:
     SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
     
@@ -13,7 +15,7 @@ class GmailIntegration:
     
     def authenticate(self):
         """OAuth2 flow - for now just check if token exists"""
-        if not self.token_path.is_file():
+        if self.token_path.is_symlink() or not self.token_path.is_file():
             raise RuntimeError(
                 "Gmail not authenticated. Run: morpheus integrate gmail\n"
                 "You need credentials.json from Google Cloud Console"
@@ -38,8 +40,9 @@ class GmailIntegration:
     def _load_from_cache(self, cache_path: Path, days: int) -> list[dict]:
         import json
         try:
+            reject_symlink_paths([cache_path], "Gmail cache path")
             data = json.loads(cache_path.read_text())
-        except (OSError, json.JSONDecodeError):
+        except (OSError, ValueError, json.JSONDecodeError):
             return []
         if not isinstance(data, list):
             return []

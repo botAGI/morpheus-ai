@@ -11,7 +11,7 @@ class GitHubIntegration:
         self.api_url = "https://api.github.com"
     
     def authenticate(self) -> bool:
-        return self.token_path.is_file()
+        return self.token_path.is_file() and not self.token_path.is_symlink()
     
     def get_repo(self, owner: str, repo: str) -> dict:
         """Get repo info"""
@@ -77,7 +77,7 @@ class GitHubIntegration:
         return [pull for pull in data if isinstance(pull, dict)]
     
     def _get_token(self) -> Optional[str]:
-        if self.token_path.is_file():
+        if self.authenticate():
             try:
                 return self.token_path.read_text().strip()
             except OSError:
