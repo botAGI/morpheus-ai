@@ -48,15 +48,18 @@ def query_model(
         console.print(f"[yellow]Note: Adapter {adapter_path} not auto-loaded in Ollama[/yellow]")
         console.print(f"[yellow]Load manually: ollama run qwen2.5:7b --adapter {adapter_path}[/yellow]")
     
+    timeout_seconds = 60
     try:
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
-            timeout=60
+            timeout=timeout_seconds
         )
     except FileNotFoundError:
         return "Error: ollama executable not found"
+    except subprocess.TimeoutExpired:
+        return f"Error: model query timed out after {timeout_seconds}s"
     
     if result.returncode != 0:
         return f"Error: {result.stderr}"
