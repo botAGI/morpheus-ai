@@ -1,9 +1,11 @@
 """
 Tests for morpheus.core.provenance
 """
-import pytest
 import tempfile
 from pathlib import Path
+
+import pytest
+
 from morpheus.core.provenance import (
     compute_sha256_file,
     compute_sha256_bytes,
@@ -100,17 +102,14 @@ def test_build_receipt_with_previous():
         assert receipt["previous_receipt_sha256"] == "rcpt_previous_123"
 
 
-def test_build_receipt_no_key():
+def test_build_receipt_requires_private_key():
     state = {"project": {"name": "test"}, "claims": [], "evidence": []}
-    
-    receipt = build_receipt(
-        state_dict=state,
-        wake_md_sha="wake_sha",
-        sources_data=[],
-        private_key_path=Path("/nonexistent/key"),
-        prev_hash=None
-    )
-    
-    # Should still build receipt, just with empty signature
-    assert receipt["schema_version"] == "morpheus-receipt/1"
-    assert receipt["signature"]["signature_b64"] == ""
+
+    with pytest.raises(FileNotFoundError, match="private signing key"):
+        build_receipt(
+            state_dict=state,
+            wake_md_sha="wake_sha",
+            sources_data=[],
+            private_key_path=Path("/nonexistent/key"),
+            prev_hash=None,
+        )

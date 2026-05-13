@@ -35,14 +35,14 @@ def build_receipt(state_dict: dict, wake_md_sha: str, sources_data: list, privat
     short_hash = wake_md_sha[:8]
     receipt_id = f"rcpt_{ts}_{short_hash}"
 
-    payload = f"{wake_md_sha}{state_sha}{evidence_sha}{prev_hash or ''}".encode()
-    signature_b64 = ""
+    if not private_key_path.exists():
+        raise FileNotFoundError(f"private signing key not found: {private_key_path}")
 
-    if private_key_path.exists():
-        private_bytes = private_key_path.read_bytes()
-        private_key = ed25519.Ed25519PrivateKey.from_private_bytes(private_bytes)
-        sig = private_key.sign(payload)
-        signature_b64 = base64.b64encode(sig).decode()
+    payload = f"{wake_md_sha}{state_sha}{evidence_sha}{prev_hash or ''}".encode()
+    private_bytes = private_key_path.read_bytes()
+    private_key = ed25519.Ed25519PrivateKey.from_private_bytes(private_bytes)
+    sig = private_key.sign(payload)
+    signature_b64 = base64.b64encode(sig).decode()
 
     tool_info = {"name": "morpheus", "version": "0.1.0"}
 
