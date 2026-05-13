@@ -291,6 +291,26 @@ def test_verify_receipt_chain_requires_key_for_signed_receipts(tmp_path):
     assert "missing local public key" in errors[0]
 
 
+def test_verify_receipt_chain_reports_unreadable_public_key(tmp_path):
+    morpheus_dir = tmp_path / ".morpheus"
+    private_key_path = _write_keypair(morpheus_dir / "keys")
+
+    receipt = build_receipt(
+        state_dict={"claims": [], "evidence": []},
+        wake_md_sha="f" * 64,
+        sources_data=[],
+        private_key_path=private_key_path,
+    )
+    (morpheus_dir / "keys" / "local.pub").unlink()
+    (morpheus_dir / "keys" / "local.pub").mkdir()
+    _write_receipt(morpheus_dir / "receipts", "receipt_001.json", receipt)
+
+    valid, errors = verify_receipt_chain(morpheus_dir)
+
+    assert not valid
+    assert any("failed to load ed25519 key" in error for error in errors)
+
+
 def test_verify_receipt_chain_rejects_unsigned_receipt(tmp_path):
     morpheus_dir = tmp_path / ".morpheus"
     private_key_path = _write_keypair(morpheus_dir / "keys")
