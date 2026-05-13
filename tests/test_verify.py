@@ -7,7 +7,7 @@ from pathlib import Path
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.hazmat.primitives import serialization
 
-from morpheus.core.provenance import build_receipt
+from morpheus.core.provenance import build_receipt, compute_sha256_file
 from morpheus.core.verify import verify_receipt_chain
 
 
@@ -30,9 +30,11 @@ def _write_keypair(keys_dir: Path) -> Path:
     return private_key_path
 
 
-def _write_receipt(receipts_dir: Path, name: str, receipt: dict) -> None:
+def _write_receipt(receipts_dir: Path, name: str, receipt: dict) -> Path:
     receipts_dir.mkdir(parents=True, exist_ok=True)
-    (receipts_dir / name).write_text(json.dumps(receipt))
+    receipt_path = receipts_dir / name
+    receipt_path.write_text(json.dumps(receipt))
+    return receipt_path
 
 
 def test_verify_receipt_chain_accepts_valid_signed_receipt(tmp_path):
@@ -82,20 +84,54 @@ def test_verify_receipt_chain_validates_previous_receipt_link(tmp_path):
         sources_data=[],
         private_key_path=private_key_path,
     )
+    first_path = _write_receipt(morpheus_dir / "receipts", "receipt_001.json", first)
     second = build_receipt(
         state_dict={"claims": [], "evidence": []},
         wake_md_sha="e" * 64,
         sources_data=[],
         private_key_path=private_key_path,
-        prev_hash=first["receipt_id"],
+        prev_hash=compute_sha256_file(first_path),
     )
-    _write_receipt(morpheus_dir / "receipts", "receipt_001.json", first)
     _write_receipt(morpheus_dir / "receipts", "receipt_002.json", second)
 
     valid, errors = verify_receipt_chain(morpheus_dir)
 
     assert valid
     assert errors == []
+
+
+def test_verify_receipt_chain_detects_previous_receipt_file_tampering(tmp_path):
+    morpheus_dir = tmp_path / ".morpheus"
+    private_key_path = _write_keypair(morpheus_dir / "keys")
+
+    first = build_receipt(
+        state_dict={"claims": [], "evidence": []},
+        wake_md_sha="1" * 64,
+        sources_data=[],
+        private_key_path=private_key_path,
+    )
+    first_path = _write_receipt(morpheus_dir / "receipts", "receipt_001.json", first)
+    second = build_receipt(
+        state_dict={"claims": [], "evidence": []},
+        wake_md_sha="2" * 64,
+        sources_data=[],
+        private_key_path=private_key_path,
+        prev_hash=compute_sha256_file(first_path),
+    )
+    _write_receipt(morpheus_dir / "receipts", "receipt_002.json", second)
+
+    valid_before_tamper, errors_before_tamper = verify_receipt_chain(morpheus_dir)
+    assert valid_before_tamper
+    assert errors_before_tamper == []
+
+    tampered_first = dict(first)
+    tampered_first["sources"] = [{"id": "src_tampered", "path": "tampered.md"}]
+    first_path.write_text(json.dumps(tampered_first))
+
+    valid, errors = verify_receipt_chain(morpheus_dir)
+
+    assert not valid
+    assert "previous_receipt_sha256 mismatch" in errors[0]
 
 
 def test_verify_receipt_chain_requires_key_for_signed_receipts(tmp_path):

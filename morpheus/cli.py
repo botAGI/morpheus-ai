@@ -84,10 +84,8 @@ def compile(
     if receipts_dir.exists():
         existing = sorted(receipts_dir.glob("receipt_*.json"))
         if existing:
-            import json
             last = sorted(existing)[-1]
-            last_receipt = json.loads(last.read_text())
-            prev_hash = last_receipt.get("receipt_id")
+            prev_hash = compute_sha256_file(last)
     
     # Build sources list
     sources_data = [{

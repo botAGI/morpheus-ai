@@ -64,8 +64,7 @@ def compile(request: CompileRequest):
     if receipts_dir.exists():
         existing = sorted(receipts_dir.glob("receipt_*.json"))
         if existing:
-            last_receipt = json.loads(existing[-1].read_text())
-            prev_hash = last_receipt.get("receipt_id")
+            prev_hash = compute_sha256_file(existing[-1])
     
     # Build sources
     sources_data = [{
