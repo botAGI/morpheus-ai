@@ -9,6 +9,24 @@ from morpheus.integrations.github import GitHubIntegration
 from morpheus.integrations.gmail import GmailIntegration
 
 
+def test_github_get_repo_returns_empty_dict_for_non_object_response(monkeypatch, tmp_path):
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return ["not", "a", "repo"]
+
+    monkeypatch.setattr("httpx.get", lambda *args, **kwargs: Response())
+
+    repo = GitHubIntegration(token_path=tmp_path / "missing-token").get_repo(
+        "owner",
+        "repo",
+    )
+
+    assert repo == {}
+
+
 def test_gmail_cache_loads_timezone_dates_and_skips_invalid_rows(tmp_path):
     now = datetime.now(timezone.utc)
     cache_path = tmp_path / "gmail_cache.json"

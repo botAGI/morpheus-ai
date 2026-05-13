@@ -20,7 +20,8 @@ class GitHubIntegration:
         headers = {"Authorization": f"token {token}"} if token else {}
         resp = httpx.get(f"{self.api_url}/repos/{owner}/{repo}", headers=headers, timeout=10)
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+        return data if isinstance(data, dict) else {}
     
     def get_issues(self, owner: str, repo: str, state: str = "all", days: int = 30) -> list[dict]:
         """Get issues"""
