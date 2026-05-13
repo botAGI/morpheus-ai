@@ -142,3 +142,16 @@ def test_build_receipt_requires_private_key():
             private_key_path=Path("/nonexistent/key"),
             prev_hash=None,
         )
+
+
+def test_build_receipt_rejects_invalid_receipt_id_before_signing(tmp_path):
+    private_key_path = tmp_path / "private.key"
+
+    with pytest.raises(ValueError, match="invalid receipt id"):
+        build_receipt(
+            state_dict={"claims": [], "evidence": []},
+            wake_md_sha="wake_sha",
+            sources_data=[],
+            private_key_path=private_key_path,
+            receipt_id="../evil",
+        )
