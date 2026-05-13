@@ -72,10 +72,15 @@ def latest_receipt_file(receipts_dir: Path) -> Path | None:
         receipt = json.loads(receipt_file.read_text())
         if not isinstance(receipt, dict):
             raise ValueError(f"{receipt_file.name}: expected JSON object")
+        previous = receipt.get("previous_receipt_sha256")
+        if previous not in (None, "") and not isinstance(previous, str):
+            raise ValueError(
+                f"{receipt_file.name}: previous_receipt_sha256 must be string or null"
+            )
         records.append({
             "path": receipt_file,
             "sha256": compute_sha256_file(receipt_file),
-            "previous": receipt.get("previous_receipt_sha256"),
+            "previous": previous,
         })
 
     referenced_hashes = {

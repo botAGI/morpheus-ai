@@ -71,6 +71,20 @@ def test_latest_receipt_file_rejects_non_object_receipt_json(tmp_path):
         latest_receipt_file(receipts_dir)
 
 
+def test_latest_receipt_file_rejects_non_string_previous_hash(tmp_path):
+    receipts_dir = tmp_path / "receipts"
+    receipts_dir.mkdir()
+    (receipts_dir / "receipt_bad.json").write_text(
+        '{"receipt_id": "bad", "previous_receipt_sha256": {"not": "a hash"}}'
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="receipt_bad.json: previous_receipt_sha256 must be string or null",
+    ):
+        latest_receipt_file(receipts_dir)
+
+
 def test_build_receipt_basic():
     state = {
         "project": {"name": "test-project"},
