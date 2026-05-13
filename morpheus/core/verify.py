@@ -9,7 +9,7 @@ from pathlib import Path
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
-from morpheus.core.provenance import compute_sha256_file
+from morpheus.core.provenance import compute_sha256_file, receipt_signature_payload
 
 
 def verify_receipt_chain(morpheus_dir: Path) -> tuple[bool, list[str]]:
@@ -94,15 +94,8 @@ def _verify_receipt_signature(
     except (KeyError, ValueError, binascii.Error) as exc:
         return f"invalid base64 signature ({exc})"
 
-    payload = (
-        f"{receipt.get('wake_md_sha256', '')}"
-        f"{receipt.get('state_json_sha256', '')}"
-        f"{receipt.get('evidence_jsonl_sha256', '')}"
-        f"{receipt.get('previous_receipt_sha256') or ''}"
-    ).encode()
-
     try:
-        public_key.verify(signature_bytes, payload)
+        public_key.verify(signature_bytes, receipt_signature_payload(receipt))
     except InvalidSignature:
         return "invalid ed25519 signature"
 
