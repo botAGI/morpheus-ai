@@ -54,6 +54,8 @@ def compile_project(project_root: Path) -> ProjectState:
     evidence_counter = 0
 
     for path in _iter_watch_paths(project_root, config.watch_dirs):
+        if path.is_symlink():
+            continue
         if path.is_file() and not _is_excluded(path, project_root, exclude_patterns):
             stat = path.stat()
             sha = compute_sha256(path)
