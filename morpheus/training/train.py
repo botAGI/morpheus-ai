@@ -139,6 +139,10 @@ def train(
     - llamafactory-cli installed (pip install llamafactory)
     - Sufficient GPU VRAM (7B model ≈ 6-8GB with 4bit)
     """
+    if not base_model.strip():
+        console.print("[red]base_model must not be blank[/red]")
+        raise typer.Exit(1)
+
     for name, value in {
         "lora_rank": lora_rank,
         "lora_alpha": lora_alpha,

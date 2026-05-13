@@ -166,6 +166,25 @@ def test_train_rejects_non_positive_numeric_options(monkeypatch, tmp_path, optio
     assert not (tmp_path / "morpheus_train.sh").exists()
 
 
+def test_train_rejects_blank_base_model(monkeypatch, tmp_path):
+    dataset = tmp_path / "dataset.jsonl"
+    dataset.write_text('{"instruction":"Q","output":"A"}\n')
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(click.exceptions.Exit):
+        train_module.train(
+            base_model="   ",
+            dataset=dataset,
+            output_dir=tmp_path / "adapter",
+            lora_rank=64,
+            lora_alpha=128,
+            epochs=3,
+            dry_run=True,
+        )
+
+    assert not (tmp_path / "morpheus_train.sh").exists()
+
+
 def test_train_reports_unwritable_training_script(monkeypatch, tmp_path):
     dataset = tmp_path / "dataset.jsonl"
     dataset.write_text('{"instruction":"Q","output":"A"}\n')
