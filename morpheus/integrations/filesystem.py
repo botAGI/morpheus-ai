@@ -21,7 +21,7 @@ class FileSystemWatcher:
         current_hashes = {}
         
         for path in sorted(self.root.rglob("*")):
-            if not path.is_file() or self._is_excluded(path):
+            if path.is_symlink() or not path.is_file() or self._is_excluded(path):
                 continue
             
             rel_path = str(path.relative_to(self.root))
@@ -60,7 +60,7 @@ class FileSystemWatcher:
     def extract_claims(self, path: str) -> list[dict]:
         """Extract claims from a file"""
         full_path = self.root / path
-        if not full_path.exists():
+        if full_path.is_symlink() or not full_path.exists():
             return []
         
         content = full_path.read_text("utf-8", errors="replace")
