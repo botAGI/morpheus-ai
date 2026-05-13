@@ -8,6 +8,13 @@ from morpheus.core.models import Source, Claim, Evidence, ProjectState
 
 
 EVIDENCE_MARKERS = ["TODO:", "DECISION:", "FIXME:", "NOTE:", "HACK:"]
+MARKER_CATEGORIES = {
+    "TODO:": "task",
+    "DECISION:": "decision",
+    "FIXME:": "fixme",
+    "NOTE:": "note",
+    "HACK:": "hack",
+}
 
 
 def compute_sha256(path: Path) -> str:
@@ -23,7 +30,10 @@ def compile_project(project_root: Path) -> ProjectState:
     claims = []
     evidence = []
 
-    for path in project_root.rglob("*"):
+    claim_counter = 0
+    evidence_counter = 0
+
+    for path in sorted(project_root.rglob("*")):
         if path.is_file() and not _is_excluded(path):
             sha = compute_sha256(path)
             content = path.read_text(errors="ignore")
@@ -39,9 +49,16 @@ def compile_project(project_root: Path) -> ProjectState:
             )
             sources.append(src)
 
-            file_claims, file_evidence = _extract_claims(src, lines, content)
+            file_claims, file_evidence = _extract_claims(
+                src,
+                lines,
+                claim_start=claim_counter,
+                evidence_start=evidence_counter,
+            )
             claims.extend(file_claims)
             evidence.extend(file_evidence)
+            claim_counter += len(file_claims)
+            evidence_counter += len(file_evidence)
 
     return ProjectState(
         sources=sources,
@@ -56,15 +73,22 @@ def _is_excluded(path: Path) -> bool:
     return any(part in exclusions or path.match(pat) for part in path.parts for pat in exclusions)
 
 
-def _extract_claims(source: Source, lines: list[str], full_content: str):
+def _extract_claims(
+    source: Source,
+    lines: list[str],
+    claim_start: int = 0,
+    evidence_start: int = 0,
+):
     claims = []
     evidence = []
-    claim_id_counter = len(source.path)  # simple seed
+    claim_id_counter = claim_start
+    evidence_id_counter = evidence_start
 
     for i, line in enumerate(lines, 1):
         for marker in EVIDENCE_MARKERS:
             if marker in line:
                 claim_id_counter += 1
+                evidence_id_counter += 1
                 cid = f"clm_{claim_id_counter:04d}"
                 claim = Claim(
                     id=cid,
@@ -72,7 +96,7 @@ def _extract_claims(source: Source, lines: list[str], full_content: str):
                     line_start=i,
                     line_end=i,
                     excerpt=line.strip(),
-                    category=marker.rstrip(":").lower(),
+                    category=MARKER_CATEGORIES[marker],
                     status="active",
                     inference=False,
                     created_at=datetime.now(timezone.utc),
@@ -82,7 +106,7 @@ def _extract_claims(source: Source, lines: list[str], full_content: str):
                 import hashlib as hl
                 exc = line.strip().encode()
                 ev = Evidence(
-                    id=f"ev_{len(evidence)+1:04d}",
+                    id=f"ev_{evidence_id_counter:04d}",
                     claim_id=cid,
                     source_id=source.id,
                     path=source.path,
