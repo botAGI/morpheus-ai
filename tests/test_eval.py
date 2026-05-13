@@ -45,6 +45,17 @@ def test_query_model_reports_missing_ollama(monkeypatch):
     assert result == "Error: ollama executable not found"
 
 
+def test_query_model_reports_timeout(monkeypatch):
+    def raise_timeout(*args, **kwargs):
+        raise eval_module.subprocess.TimeoutExpired(cmd=["ollama"], timeout=60)
+
+    monkeypatch.setattr(eval_module.subprocess, "run", raise_timeout)
+
+    result = eval_module.query_model("prompt")
+
+    assert result == "Error: model query timed out after 60s"
+
+
 def test_query_model_uses_ollama_run(monkeypatch):
     calls = []
 
