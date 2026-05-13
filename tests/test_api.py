@@ -49,6 +49,22 @@ def test_health_returns_version():
     assert response.json() == {"status": "ok", "version": "0.1.0"}
 
 
+def test_cors_preflight_does_not_allow_credentials_for_wildcard_origins():
+    client = api_client()
+
+    response = client.options(
+        "/health",
+        headers={
+            "Origin": "https://example.com",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "*"
+    assert "access-control-allow-credentials" not in response.headers
+
+
 def test_compile_persists_state_and_receipt_for_status_and_verify(tmp_path):
     MorpheusConfig(project_root=tmp_path).init_default()
     (tmp_path / "README.md").write_text("TODO: compile through API\n")
