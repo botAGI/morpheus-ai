@@ -4,6 +4,8 @@ Morpheus CLI - morpheus <command>
 
 Agent State Compiler with verifiable provenance.
 """
+import json
+
 import typer
 from pathlib import Path
 from rich.console import Console
@@ -101,6 +103,9 @@ def compile(
         "line_count": s.line_count
     } for s in state.sources]
     
+    state_json = json.dumps(state.model_dump(), indent=2, default=str)
+    state_json_sha = compute_sha256_bytes(state_json.encode())
+
     # Generate final WAKE.md before signing so the receipt hashes the artifact on disk.
     receipt_id = new_receipt_id()
     wake_md = generate_wake_md(state, receipt_id)
@@ -115,6 +120,7 @@ def compile(
         private_key_path,
         prev_hash,
         receipt_id=receipt_id,
+        state_json_sha=state_json_sha,
     )
     
     # Write WAKE.md
@@ -123,8 +129,7 @@ def compile(
     
     # Save state
     state_path = morpheus_dir / "state.json"
-    import json
-    state_path.write_text(json.dumps(state.model_dump(), indent=2, default=str))
+    state_path.write_text(state_json)
     
     # Save receipt
     receipt_path = receipts_dir / receipt_file_name(receipt["receipt_id"])

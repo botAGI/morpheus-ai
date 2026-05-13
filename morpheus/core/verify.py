@@ -73,24 +73,42 @@ def verify_receipt_chain(morpheus_dir: Path) -> tuple[bool, list[str]]:
             if signature_error:
                 errors.append(f"{receipt_file.name}: {signature_error}")
 
-    _verify_latest_wake_artifact(morpheus_dir, ordered_records, errors)
+    _verify_latest_artifact_hash(
+        morpheus_dir=morpheus_dir,
+        ordered_records=ordered_records,
+        relative_path="WAKE.md",
+        receipt_hash_field="wake_md_sha256",
+        error_label="latest WAKE.md sha256 mismatch",
+        errors=errors,
+    )
+    _verify_latest_artifact_hash(
+        morpheus_dir=morpheus_dir,
+        ordered_records=ordered_records,
+        relative_path="state.json",
+        receipt_hash_field="state_json_sha256",
+        error_label="latest state.json sha256 mismatch",
+        errors=errors,
+    )
 
     return (len(errors) == 0, errors)
 
 
-def _verify_latest_wake_artifact(
+def _verify_latest_artifact_hash(
     morpheus_dir: Path,
     ordered_records: list[dict],
+    relative_path: str,
+    receipt_hash_field: str,
+    error_label: str,
     errors: list[str],
 ) -> None:
-    wake_path = morpheus_dir / "WAKE.md"
-    if not ordered_records or not wake_path.exists():
+    artifact_path = morpheus_dir / relative_path
+    if not ordered_records or not artifact_path.exists():
         return
 
     latest_receipt = ordered_records[-1]["receipt"]
-    actual_wake_sha = compute_sha256_file(wake_path)
-    if latest_receipt.get("wake_md_sha256") != actual_wake_sha:
-        errors.append("latest WAKE.md sha256 mismatch")
+    actual_sha = compute_sha256_file(artifact_path)
+    if latest_receipt.get(receipt_hash_field) != actual_sha:
+        errors.append(error_label)
 
 
 def _order_receipt_records(records: list[dict]) -> tuple[list[dict], list[str]]:

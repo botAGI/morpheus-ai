@@ -76,10 +76,11 @@ def build_receipt(
     private_key_path: Path,
     prev_hash: str = None,
     receipt_id: str | None = None,
+    state_json_sha: str | None = None,
 ) -> dict:
     """Build and sign a receipt."""
     state_json_bytes = json.dumps(state_dict, default=str).encode()
-    state_sha = compute_sha256_bytes(state_json_bytes)
+    state_sha = state_json_sha or compute_sha256_bytes(state_json_bytes)
 
     evidence_items = [e for e in state_dict.get("evidence", [])]
     evidence_bytes = json.dumps(evidence_items, default=str).encode()
