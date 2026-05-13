@@ -64,6 +64,8 @@ class FileSystemWatcher:
             full_path.resolve().relative_to(self.root.resolve())
         except ValueError:
             return []
+        if self._is_excluded(full_path):
+            return []
         if full_path.is_symlink() or not full_path.exists():
             return []
         
