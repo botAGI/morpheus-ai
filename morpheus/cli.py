@@ -38,7 +38,7 @@ console = Console()
 def ensure_initialized():
     """Check if morpheus is initialized in current directory."""
     morpheus_dir = Path.cwd() / ".morpheus"
-    if not morpheus_dir.is_dir():
+    if morpheus_dir.is_symlink() or not morpheus_dir.is_dir():
         console.print("[red]Not initialized. Run 'morpheus init' first.[/red]")
         raise typer.Exit(1)
     return morpheus_dir
@@ -88,6 +88,10 @@ def init(
     """
     morpheus_dir = Path.cwd() / ".morpheus"
     
+    if morpheus_dir.is_symlink():
+        console.print("[red].morpheus path must not be a symlink[/red]")
+        raise typer.Exit(1)
+
     if morpheus_dir.exists() and not morpheus_dir.is_dir():
         console.print("[red].morpheus path is not a directory[/red]")
         raise typer.Exit(1)
@@ -294,7 +298,7 @@ def status():
     """Show current project state summary."""
     morpheus_dir = Path.cwd() / ".morpheus"
     
-    if not morpheus_dir.is_dir():
+    if morpheus_dir.is_symlink() or not morpheus_dir.is_dir():
         console.print("[yellow]Not initialized[/yellow]")
         return
     

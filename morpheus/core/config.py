@@ -16,6 +16,8 @@ class MorpheusConfig(BaseModel):
     def init_default(self) -> None:
         """Initialize .morpheus directory with default config."""
         morpheus_dir = self.project_root / ".morpheus"
+        if morpheus_dir.is_symlink():
+            raise ValueError(".morpheus path must not be a symlink")
         morpheus_dir.mkdir(exist_ok=True)
         keys_dir = morpheus_dir / "keys"
         keys_dir.mkdir(exist_ok=True)

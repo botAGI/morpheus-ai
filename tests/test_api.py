@@ -216,6 +216,18 @@ def test_verify_returns_bad_request_for_morpheus_state_file(tmp_path):
     assert "Not initialized" in response.json()["detail"]
 
 
+def test_verify_returns_bad_request_for_morpheus_symlink(tmp_path):
+    outside = tmp_path / "outside-morpheus"
+    outside.mkdir()
+    (tmp_path / ".morpheus").symlink_to(outside, target_is_directory=True)
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post("/verify", params={"project_root": str(tmp_path)})
+
+    assert response.status_code == 400
+    assert "Not initialized" in response.json()["detail"]
+
+
 def test_verify_returns_invalid_response_for_receipts_path_file(tmp_path):
     MorpheusConfig(project_root=tmp_path).init_default()
     receipts_dir = tmp_path / ".morpheus" / "receipts"
@@ -247,6 +259,20 @@ def test_compile_returns_bad_request_for_broken_receipt_chain(tmp_path):
 
 def test_compile_returns_bad_request_for_morpheus_state_file(tmp_path):
     (tmp_path / ".morpheus").write_text("not a directory")
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post("/compile", json={"project_root": str(tmp_path)})
+
+    assert response.status_code == 400
+    assert "Not initialized" in response.json()["detail"]
+    assert "Signing failed" not in response.json()["detail"]
+
+
+def test_compile_returns_bad_request_for_morpheus_symlink(tmp_path):
+    (tmp_path / "README.md").write_text("TODO: compile with symlinked state\n")
+    outside = tmp_path / "outside-morpheus"
+    outside.mkdir()
+    (tmp_path / ".morpheus").symlink_to(outside, target_is_directory=True)
     client = api_client(raise_server_exceptions=False)
 
     response = client.post("/compile", json={"project_root": str(tmp_path)})
@@ -425,6 +451,28 @@ def test_status_returns_bad_request_for_invalid_state_json(tmp_path):
 
     assert response.status_code == 400
     assert "State file invalid" in response.json()["detail"]
+
+
+def test_status_treats_morpheus_symlink_as_uninitialized(tmp_path):
+    outside = tmp_path / "outside-morpheus"
+    outside.mkdir()
+    (outside / "state.json").write_text(
+        json.dumps(
+            {
+                "sources": [],
+                "claims": [],
+                "evidence": [],
+                "compiled_at": "2026-05-13T00:00:00Z",
+            }
+        )
+    )
+    (tmp_path / ".morpheus").symlink_to(outside, target_is_directory=True)
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.get("/status", params={"project_root": str(tmp_path)})
+
+    assert response.status_code == 200
+    assert response.json() == {"initialized": False}
 
 
 def test_status_counts_only_list_state_collections(tmp_path):

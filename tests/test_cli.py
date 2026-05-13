@@ -96,6 +96,22 @@ def test_init_force_rejects_morpheus_state_file_without_traceback(tmp_path):
         assert "Initialization failed" not in result.output
 
 
+def test_init_force_rejects_morpheus_symlink_without_writing_target(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        outside = tmp_path / "outside-morpheus"
+        outside.mkdir()
+        Path(".morpheus").symlink_to(outside, target_is_directory=True)
+
+        result = runner.invoke(app, ["init", "--force"])
+
+        assert result.exit_code == 1
+        assert ".morpheus path must not be a symlink" in result.output
+        assert not (outside / "morpheus.toml").exists()
+        assert not (outside / "keys").exists()
+
+
 def test_init_force_reports_key_generation_failures_without_traceback(tmp_path):
     runner = CliRunner()
 
@@ -270,6 +286,22 @@ def test_compile_rejects_morpheus_state_file_without_signing_error(tmp_path):
 
     with runner.isolated_filesystem(temp_dir=tmp_path):
         Path(".morpheus").write_text("not a directory")
+
+        result = runner.invoke(app, ["compile"])
+
+        assert result.exit_code == 1
+        assert "Not initialized" in result.output
+        assert "Signing failed" not in result.output
+
+
+def test_compile_rejects_morpheus_symlink_without_signing_error(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        Path("README.md").write_text("TODO: compile with symlinked state\n")
+        outside = tmp_path / "outside-morpheus"
+        outside.mkdir()
+        Path(".morpheus").symlink_to(outside, target_is_directory=True)
 
         result = runner.invoke(app, ["compile"])
 
@@ -467,6 +499,31 @@ def test_status_rejects_morpheus_state_file_without_compile_message(tmp_path):
         assert result.exit_code == 0, result.output
         assert "Not initialized" in result.output
         assert "No compilation yet" not in result.output
+
+
+def test_status_rejects_morpheus_symlink_without_reading_target(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        outside = tmp_path / "outside-morpheus"
+        outside.mkdir()
+        (outside / "state.json").write_text(
+            json.dumps(
+                {
+                    "sources": [],
+                    "claims": [],
+                    "evidence": [],
+                    "compiled_at": "2026-05-13T00:00:00Z",
+                }
+            )
+        )
+        Path(".morpheus").symlink_to(outside, target_is_directory=True)
+
+        result = runner.invoke(app, ["status"])
+
+        assert result.exit_code == 0, result.output
+        assert "Not initialized" in result.output
+        assert "Project Status" not in result.output
 
 
 def test_verify_quick_reports_invalid_receipt_chain_without_traceback(tmp_path):
