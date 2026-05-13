@@ -204,7 +204,7 @@ def _load_public_key(keys_dir: Path) -> tuple[ed25519.Ed25519PublicKey | None, s
         if private_key_path.exists():
             private_key = ed25519.Ed25519PrivateKey.from_private_bytes(private_key_path.read_bytes())
             return private_key.public_key(), None
-    except ValueError as exc:
+    except (OSError, ValueError) as exc:
         return None, f"failed to load ed25519 key ({exc})"
 
     return None, "missing local public key for ed25519 signature verification"
