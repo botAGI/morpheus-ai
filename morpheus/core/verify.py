@@ -126,10 +126,19 @@ def _verify_latest_artifact_hash(
 
 def _order_receipt_records(records: list[dict]) -> tuple[list[dict], list[str]]:
     """Order receipt records by previous_receipt_sha256 links instead of filename."""
+    errors = []
+    for record in records:
+        prev_sha = record["receipt"].get("previous_receipt_sha256")
+        if prev_sha not in (None, "") and not isinstance(prev_sha, str):
+            errors.append(
+                f"{record['path'].name}: previous_receipt_sha256 must be string or null"
+            )
+    if errors:
+        return sorted(records, key=lambda record: record["path"].name), errors
+
     if len(records) <= 1:
         return records, []
 
-    errors = []
     roots = [
         record for record in records
         if record["receipt"].get("previous_receipt_sha256") in (None, "")
