@@ -325,3 +325,12 @@ def test_train_dry_run_accepts_lora_alpha_option(tmp_path, monkeypatch):
 
         assert result.exit_code == 0, result.output
         assert "--lora_alpha 256" in Path("morpheus_train.sh").read_text()
+
+
+def test_integrate_list_does_not_require_service_argument():
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["integrate", "--list"])
+
+    assert result.exit_code == 0, result.output
+    assert "Available Integrations" in result.output
