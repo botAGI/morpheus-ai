@@ -10,7 +10,8 @@ import pytest
 from morpheus.core.provenance import (
     compute_sha256_file,
     compute_sha256_bytes,
-    build_receipt
+    build_receipt,
+    receipt_file_name,
 )
 
 
@@ -52,6 +53,12 @@ def test_compute_sha256_file_streams_large_files(monkeypatch):
         assert result == hashlib.sha256(content).hexdigest()
     finally:
         path.unlink()
+
+
+def test_receipt_file_name_rejects_path_separators():
+    for receipt_id in ["../evil", "nested/evil", "nested\\evil", "", ".", ".."]:
+        with pytest.raises(ValueError, match="invalid receipt id"):
+            receipt_file_name(receipt_id)
 
 
 def test_build_receipt_basic():
