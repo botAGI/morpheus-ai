@@ -377,11 +377,12 @@ def train(
     """
     from morpheus.training.train import train as run_train
     
-    ok, missing = check_dependencies()
-    if not ok:
-        console.print(f"[red]Missing: {', '.join(missing)}[/red]")
-        console.print("[yellow]Install: pip install llamafactory[/yellow]")
-        raise typer.Exit(1)
+    if not dry_run:
+        ok, missing = check_dependencies()
+        if not ok:
+            console.print(f"[red]Missing: {', '.join(missing)}[/red]")
+            console.print("[yellow]Install: pip install llamafactory[/yellow]")
+            raise typer.Exit(1)
     
     run_train(
         base_model=base_model,

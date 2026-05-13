@@ -1,9 +1,15 @@
 """
 Tests for morpheus.training.train.
 """
+import importlib
 import shlex
 
+import click
+import pytest
+
 from morpheus.training.train import generate_training_script
+
+train_module = importlib.import_module("morpheus.training.train")
 
 
 def test_generate_training_script_quotes_shell_path_variables(tmp_path):
@@ -39,3 +45,45 @@ def test_generate_training_script_shell_quotes_config_values(tmp_path):
     assert f"BASE_MODEL={shlex.quote(config['base_model'])}" in script
     assert f"DATASET={shlex.quote(config['dataset'])}" in script
     assert f"OUTPUT_DIR={shlex.quote(config['output_dir'])}" in script
+
+
+def test_train_dry_run_generates_script_without_dependency_check(monkeypatch, tmp_path):
+    dataset = tmp_path / "dataset.jsonl"
+    dataset.write_text('{"instruction":"Q","output":"A"}\n')
+    monkeypatch.chdir(tmp_path)
+
+    def fail_dependency_check():
+        raise AssertionError("dry-run should not check runtime training dependencies")
+
+    monkeypatch.setattr(train_module, "check_dependencies", fail_dependency_check)
+
+    train_module.train(
+        base_model="qwen2.5:7b",
+        dataset=dataset,
+        output_dir=tmp_path / "adapter",
+        lora_rank=64,
+        lora_alpha=128,
+        epochs=3,
+        dry_run=True,
+    )
+
+    assert (tmp_path / "morpheus_train.sh").exists()
+
+
+def test_train_non_dry_run_checks_dependencies_first(monkeypatch, tmp_path):
+    dataset = tmp_path / "dataset.jsonl"
+    dataset.write_text('{"instruction":"Q","output":"A"}\n')
+    monkeypatch.chdir(tmp_path)
+
+    monkeypatch.setattr(train_module, "check_dependencies", lambda: (False, ["llamafactory-cli"]))
+
+    with pytest.raises(click.exceptions.Exit):
+        train_module.train(
+            base_model="qwen2.5:7b",
+            dataset=dataset,
+            output_dir=tmp_path / "adapter",
+            lora_rank=64,
+            lora_alpha=128,
+            epochs=3,
+            dry_run=False,
+        )

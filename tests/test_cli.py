@@ -287,3 +287,20 @@ def test_status_reports_invalid_state_json_without_traceback(tmp_path):
 
         assert result.exit_code == 1
         assert "State file invalid" in result.output
+
+
+def test_train_dry_run_skips_cli_dependency_check(tmp_path, monkeypatch):
+    runner = CliRunner()
+
+    def fail_dependency_check():
+        raise AssertionError("dry-run should not check runtime training dependencies")
+
+    monkeypatch.setattr(cli_module, "check_dependencies", fail_dependency_check)
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        Path("dataset.jsonl").write_text('{"instruction":"Q","output":"A"}\n')
+
+        result = runner.invoke(app, ["train", "--dataset", "dataset.jsonl", "--dry-run"])
+
+        assert result.exit_code == 0, result.output
+        assert Path("morpheus_train.sh").exists()
