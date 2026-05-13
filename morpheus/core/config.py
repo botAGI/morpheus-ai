@@ -29,6 +29,10 @@ class MorpheusConfig(BaseModel):
         # Generate ed25519 keypair if not exists
         private_key_path = keys_dir / "local.key"
         public_key_path = keys_dir / "local.pub"
+        if private_key_path.exists() and not private_key_path.is_file():
+            raise ValueError(f"Private key path is not a file: {private_key_path}")
+        if public_key_path.exists() and not public_key_path.is_file():
+            raise ValueError(f"Public key path is not a file: {public_key_path}")
         if not private_key_path.exists():
             from cryptography.hazmat.primitives.asymmetric import ed25519
             from cryptography.hazmat.primitives import serialization
