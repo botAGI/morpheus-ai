@@ -209,7 +209,7 @@ def consolidate_sessions(
         for session_path in session_files:
             # Check file modification time
             try:
-                file_time = datetime.fromtimestamp(session_path.stat().st_mtime)
+                file_time = datetime.fromtimestamp(session_path.stat().st_mtime, tz=timezone.utc)
                 if file_time < cutoff:
                     progress.update(task, advance=1)
                     continue
