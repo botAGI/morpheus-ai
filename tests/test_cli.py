@@ -402,6 +402,27 @@ def test_compile_reports_invalid_signing_key_without_traceback(tmp_path):
         assert "Signing failed" in result.output
 
 
+def test_compile_rejects_symlinked_signing_key_without_creating_receipt(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        Path("README.md").write_text("TODO: compile with symlinked signing key\n")
+        init_result = runner.invoke(app, ["init"])
+        assert init_result.exit_code == 0, init_result.output
+        morpheus_dir = Path.cwd() / ".morpheus"
+        external_key = tmp_path / "external-local.key"
+        local_key = morpheus_dir / "keys" / "local.key"
+        local_key.replace(external_key)
+        local_key.symlink_to(external_key)
+
+        result = runner.invoke(app, ["compile"])
+
+        assert result.exit_code == 1
+        assert "Signing failed" in result.output
+        assert "private signing key must not be a symlink" in result.output
+        assert not list((morpheus_dir / "receipts").glob("receipt_*.json"))
+
+
 def test_compile_reports_output_write_failures_without_traceback(tmp_path):
     runner = CliRunner()
 

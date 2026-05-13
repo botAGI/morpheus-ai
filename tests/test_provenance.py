@@ -6,6 +6,8 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ed25519
 
 from morpheus.core.provenance import (
     compute_sha256_file,
@@ -87,6 +89,16 @@ def test_latest_receipt_file_rejects_receipts_path_file(tmp_path):
         latest_receipt_file(receipts_dir)
 
 
+def test_latest_receipt_file_rejects_receipts_path_symlink(tmp_path):
+    outside_receipts = tmp_path / "outside-receipts"
+    outside_receipts.mkdir()
+    receipts_dir = tmp_path / "receipts"
+    receipts_dir.symlink_to(outside_receipts, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="receipts path must not be a symlink"):
+        latest_receipt_file(receipts_dir)
+
+
 def test_latest_receipt_file_rejects_non_string_previous_hash(tmp_path):
     receipts_dir = tmp_path / "receipts"
     receipts_dir.mkdir()
@@ -130,8 +142,6 @@ def test_build_receipt_basic():
         priv_path = Path(tmpdir) / "private.key"
         
         # Generate a test key - RAW bytes format (32 bytes)
-        from cryptography.hazmat.primitives.asymmetric import ed25519
-        from cryptography.hazmat.primitives import serialization
         private_key = ed25519.Ed25519PrivateKey.generate()
         priv_bytes = private_key.private_bytes(
             serialization.Encoding.Raw,
@@ -163,8 +173,6 @@ def test_build_receipt_with_previous():
     with tempfile.TemporaryDirectory() as tmpdir:
         priv_path = Path(tmpdir) / "private.key"
         
-        from cryptography.hazmat.primitives.asymmetric import ed25519
-        from cryptography.hazmat.primitives import serialization
         private_key = ed25519.Ed25519PrivateKey.generate()
         priv_bytes = private_key.private_bytes(
             serialization.Encoding.Raw,
@@ -186,9 +194,6 @@ def test_build_receipt_with_previous():
 
 
 def test_build_receipt_ignores_malformed_claims_and_evidence(tmp_path):
-    from cryptography.hazmat.primitives.asymmetric import ed25519
-    from cryptography.hazmat.primitives import serialization
-
     private_key = ed25519.Ed25519PrivateKey.generate()
     private_key_path = tmp_path / "private.key"
     private_key_path.write_bytes(
@@ -226,6 +231,28 @@ def test_build_receipt_requires_private_key():
             sources_data=[],
             private_key_path=Path("/nonexistent/key"),
             prev_hash=None,
+        )
+
+
+def test_build_receipt_rejects_private_key_symlink(tmp_path):
+    private_key = ed25519.Ed25519PrivateKey.generate()
+    outside_key = tmp_path / "outside.key"
+    outside_key.write_bytes(
+        private_key.private_bytes(
+            serialization.Encoding.Raw,
+            serialization.PrivateFormat.Raw,
+            serialization.NoEncryption(),
+        )
+    )
+    private_key_path = tmp_path / "private.key"
+    private_key_path.symlink_to(outside_key)
+
+    with pytest.raises(ValueError, match="private signing key must not be a symlink"):
+        build_receipt(
+            state_dict={"claims": [], "evidence": []},
+            wake_md_sha="wake_sha",
+            sources_data=[],
+            private_key_path=private_key_path,
         )
 
 
