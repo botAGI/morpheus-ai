@@ -13,7 +13,7 @@ class GmailIntegration:
     
     def authenticate(self):
         """OAuth2 flow - for now just check if token exists"""
-        if not self.token_path.exists():
+        if not self.token_path.is_file():
             raise RuntimeError(
                 "Gmail not authenticated. Run: morpheus integrate gmail\n"
                 "You need credentials.json from Google Cloud Console"

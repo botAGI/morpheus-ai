@@ -27,6 +27,13 @@ def test_github_get_repo_returns_empty_dict_for_non_object_response(monkeypatch,
     assert repo == {}
 
 
+def test_github_authenticate_requires_token_file(tmp_path):
+    token_path = tmp_path / "github_token.txt"
+    token_path.mkdir()
+
+    assert not GitHubIntegration(token_path=token_path).authenticate()
+
+
 def test_gmail_cache_loads_timezone_dates_and_skips_invalid_rows(tmp_path):
     now = datetime.now(timezone.utc)
     cache_path = tmp_path / "gmail_cache.json"
@@ -70,6 +77,18 @@ def test_gmail_get_emails_respects_max_results_for_cache(tmp_path):
     emails = GmailIntegration(token_path=token_path).get_emails(days=30, max_results=1)
 
     assert [email["id"] for email in emails] == ["first"]
+
+
+def test_gmail_authenticate_rejects_token_directory(tmp_path):
+    token_path = tmp_path / "gmail_token.json"
+    token_path.mkdir()
+
+    try:
+        GmailIntegration(token_path=token_path).authenticate()
+    except RuntimeError as exc:
+        assert "Gmail not authenticated" in str(exc)
+    else:
+        raise AssertionError("authenticate should reject token directories")
 
 
 def test_gmail_extract_evidence_handles_null_snippet(tmp_path):
@@ -123,6 +142,18 @@ def test_calendar_get_events_respects_max_results_for_cache(tmp_path):
     events = CalendarIntegration(token_path=token_path).get_events(days=30, max_results=1)
 
     assert [event["id"] for event in events] == ["first"]
+
+
+def test_calendar_authenticate_rejects_token_directory(tmp_path):
+    token_path = tmp_path / "calendar_token.json"
+    token_path.mkdir()
+
+    try:
+        CalendarIntegration(token_path=token_path).authenticate()
+    except RuntimeError as exc:
+        assert "Calendar not authenticated" in str(exc)
+    else:
+        raise AssertionError("authenticate should reject token directories")
 
 
 def test_calendar_extract_evidence_handles_null_text_fields(tmp_path):

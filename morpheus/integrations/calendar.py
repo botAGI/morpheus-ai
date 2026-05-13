@@ -12,7 +12,7 @@ class CalendarIntegration:
         self.credentials_path = Path.home() / ".morpheus" / "calendar_credentials.json"
     
     def authenticate(self):
-        if not self.token_path.exists():
+        if not self.token_path.is_file():
             raise RuntimeError(
                 "Calendar not authenticated. Run: morpheus integrate calendar"
             )
