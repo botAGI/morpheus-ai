@@ -3,15 +3,26 @@ Tests for morpheus.api.server.
 """
 import json
 
-from fastapi.testclient import TestClient
+import pytest
 
-from morpheus.api.server import app
 from morpheus.core.config import MorpheusConfig
 from morpheus.core.provenance import compute_sha256_file
 
+fastapi_testclient = pytest.importorskip(
+    "fastapi.testclient",
+    reason="API tests require fastapi to be installed",
+)
+TestClient = fastapi_testclient.TestClient
+
+
+def api_client() -> TestClient:
+    from morpheus.api.server import app
+
+    return TestClient(app)
+
 
 def test_health_returns_version():
-    client = TestClient(app)
+    client = api_client()
 
     response = client.get("/health")
 
@@ -22,7 +33,7 @@ def test_health_returns_version():
 def test_compile_persists_state_and_receipt_for_status_and_verify(tmp_path):
     MorpheusConfig(project_root=tmp_path).init_default()
     (tmp_path / "README.md").write_text("TODO: compile through API\n")
-    client = TestClient(app)
+    client = api_client()
 
     compile_response = client.post("/compile", json={"project_root": str(tmp_path)})
     status_response = client.get("/status", params={"project_root": str(tmp_path)})
@@ -48,7 +59,7 @@ def test_compile_persists_state_and_receipt_for_status_and_verify(tmp_path):
 def test_compile_receipt_hashes_final_wake_file(tmp_path):
     MorpheusConfig(project_root=tmp_path).init_default()
     (tmp_path / "README.md").write_text("TODO: hash final API wake\n")
-    client = TestClient(app)
+    client = api_client()
 
     response = client.post("/compile", json={"project_root": str(tmp_path)})
 
