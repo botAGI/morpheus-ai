@@ -110,7 +110,7 @@ NOTE: remember to document
         assert len(state.claims) >= 3
         
         categories = {c.category for c in state.claims}
-        assert "todo" in categories
+        assert "task" in categories
         assert "decision" in categories
         assert "fixme" in categories
         assert "note" in categories
@@ -139,3 +139,19 @@ def test_evidence_markers():
     assert "TODO:" in EVIDENCE_MARKERS
     assert "DECISION:" in EVIDENCE_MARKERS
     assert "FIXME:" in EVIDENCE_MARKERS
+
+
+def test_compile_project_generates_stable_unique_claim_and_evidence_ids():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+
+        (tmppath / "b.py").write_text("TODO: second file\nFIXME: second fix\n")
+        (tmppath / "a.py").write_text("TODO: first file\n")
+
+        state = compile_project(tmppath)
+
+        assert [s.path for s in state.sources] == ["a.py", "b.py"]
+        assert [c.id for c in state.claims] == ["clm_0001", "clm_0002", "clm_0003"]
+        assert [e.id for e in state.evidence] == ["ev_0001", "ev_0002", "ev_0003"]
+        assert len({c.id for c in state.claims}) == len(state.claims)
+        assert len({e.id for e in state.evidence}) == len(state.evidence)
