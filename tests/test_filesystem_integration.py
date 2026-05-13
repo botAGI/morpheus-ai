@@ -82,6 +82,29 @@ def test_scan_ignores_symlinked_files_outside_root(tmp_path):
     assert changes == []
 
 
+def test_scan_skips_files_that_cannot_be_hashed(tmp_path, monkeypatch):
+    bad = tmp_path / "bad.md"
+    good = tmp_path / "good.md"
+    bad.write_text("TODO: transient unreadable file\n")
+    good.write_text("TODO: keep scanning readable files\n")
+    watcher = FileSystemWatcher(tmp_path)
+    original_sha256 = FileSystemWatcher._sha256
+
+    def raise_for_bad_file(self, path):
+        if path == bad:
+            raise OSError("permission denied")
+        return original_sha256(self, path)
+
+    monkeypatch.setattr(FileSystemWatcher, "_sha256", raise_for_bad_file)
+
+    changes = watcher.scan()
+
+    assert [change["path"] for change in changes] == ["good.md"]
+    assert json.loads((tmp_path / ".morpheus" / "fs_cache.json").read_text()) == {
+        "good.md": changes[0]["hash"]
+    }
+
+
 def test_extract_claims_rejects_paths_outside_root(tmp_path):
     watched = tmp_path / "watched"
     outside = tmp_path / "outside"
