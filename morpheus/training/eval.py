@@ -42,18 +42,21 @@ def query_model(
 ) -> str:
     """Query the model with optional LoRA adapter."""
     # Ollama command
-    cmd = ["ollama", "generate", base_model, prompt]
+    cmd = ["ollama", "run", base_model, prompt]
     
     if adapter_path and adapter_path.exists():
         console.print(f"[yellow]Note: Adapter {adapter_path} not auto-loaded in Ollama[/yellow]")
-        console.print("[yellow]Load manually: ollama run qwen2.5:7b --adapter {adapter_path}[/yellow]")
+        console.print(f"[yellow]Load manually: ollama run qwen2.5:7b --adapter {adapter_path}[/yellow]")
     
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=60
-    )
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+    except FileNotFoundError:
+        return "Error: ollama executable not found"
     
     if result.returncode != 0:
         return f"Error: {result.stderr}"
