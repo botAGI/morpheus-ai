@@ -62,7 +62,11 @@ def compile_project(project_root: Path) -> ProjectState:
     project_root = project_root.resolve()
     config = MorpheusConfig(project_root=project_root).load()
     exclude_patterns = DEFAULT_EXCLUDE_PATTERNS | set(config.exclude_patterns)
-    evidence_markers = config.evidence_markers or EVIDENCE_MARKERS
+    evidence_markers = (
+        config.evidence_markers
+        if config.evidence_markers is not None
+        else EVIDENCE_MARKERS
+    )
     sources = []
     claims = []
     evidence = []
@@ -174,7 +178,7 @@ def _extract_claims(
     evidence = []
     claim_id_counter = claim_start
     evidence_id_counter = evidence_start
-    markers = evidence_markers or EVIDENCE_MARKERS
+    markers = evidence_markers if evidence_markers is not None else EVIDENCE_MARKERS
 
     for i, line in enumerate(lines, 1):
         for marker in markers:
