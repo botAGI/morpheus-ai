@@ -216,6 +216,22 @@ def test_verify_returns_bad_request_for_morpheus_state_file(tmp_path):
     assert "Not initialized" in response.json()["detail"]
 
 
+def test_verify_returns_invalid_response_for_receipts_path_file(tmp_path):
+    MorpheusConfig(project_root=tmp_path).init_default()
+    receipts_dir = tmp_path / ".morpheus" / "receipts"
+    receipts_dir.rmdir()
+    receipts_dir.write_text("not a directory")
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post("/verify", params={"project_root": str(tmp_path)})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["valid"] is False
+    assert payload["receipt_id"] == "none"
+    assert payload["errors"] == ["receipts path is not a directory"]
+
+
 def test_compile_returns_bad_request_for_broken_receipt_chain(tmp_path):
     MorpheusConfig(project_root=tmp_path).init_default()
     (tmp_path / "README.md").write_text("TODO: do not compile onto broken chain\n")
@@ -238,6 +254,23 @@ def test_compile_returns_bad_request_for_morpheus_state_file(tmp_path):
     assert response.status_code == 400
     assert "Not initialized" in response.json()["detail"]
     assert "Signing failed" not in response.json()["detail"]
+
+
+def test_compile_returns_bad_request_for_receipts_path_file(tmp_path):
+    MorpheusConfig(project_root=tmp_path).init_default()
+    (tmp_path / "README.md").write_text("TODO: compile with invalid receipts path\n")
+    receipts_dir = tmp_path / ".morpheus" / "receipts"
+    receipts_dir.rmdir()
+    receipts_dir.write_text("not a directory")
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post("/compile", json={"project_root": str(tmp_path)})
+
+    assert response.status_code == 400
+    assert "Receipt chain invalid" in response.json()["detail"]
+    assert "receipts path is not a directory" in response.json()["detail"]
+    assert "Signing failed" not in response.json()["detail"]
+    assert "Output write failed" not in response.json()["detail"]
 
 
 def test_compile_returns_bad_request_when_previous_receipt_hash_fails(

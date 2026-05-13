@@ -391,3 +391,15 @@ def test_verify_receipt_chain_reports_unreadable_receipt_files(tmp_path):
 
     assert not valid
     assert any("receipt_bad.json: unreadable receipt" in error for error in errors)
+
+
+def test_verify_receipt_chain_rejects_receipts_path_file(tmp_path):
+    morpheus_dir = tmp_path / ".morpheus"
+    _write_keypair(morpheus_dir / "keys")
+    receipts_dir = morpheus_dir / "receipts"
+    receipts_dir.write_text("not a directory")
+
+    valid, errors = verify_receipt_chain(morpheus_dir)
+
+    assert not valid
+    assert errors == ["receipts path is not a directory"]

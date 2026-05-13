@@ -237,7 +237,13 @@ def verify(
     morpheus_dir = ensure_initialized()
     receipts_dir = morpheus_dir / "receipts"
     
-    if not receipts_dir.exists() or not list(receipts_dir.glob("receipt_*.json")):
+    if not receipts_dir.exists():
+        console.print("[yellow]No receipts found[/yellow]")
+        raise typer.Exit(1)
+    if not receipts_dir.is_dir():
+        console.print("[red]Receipt chain invalid:[/red] receipts path is not a directory")
+        raise typer.Exit(1)
+    if not list(receipts_dir.glob("receipt_*.json")):
         console.print("[yellow]No receipts found[/yellow]")
         raise typer.Exit(1)
     

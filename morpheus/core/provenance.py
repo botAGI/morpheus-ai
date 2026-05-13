@@ -63,6 +63,9 @@ def new_receipt_id() -> str:
 
 def latest_receipt_file(receipts_dir: Path) -> Path | None:
     """Return the receipt chain tail by previous hash links."""
+    if receipts_dir.exists() and not receipts_dir.is_dir():
+        raise ValueError("receipts path is not a directory")
+
     receipt_files = sorted(receipts_dir.glob("receipt_*.json"))
     if not receipt_files:
         return None
