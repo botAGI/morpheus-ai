@@ -319,6 +319,10 @@ def integrate(
     if service is None:
         console.print("[red]Service required. Use --list to show available integrations.[/red]")
         raise typer.Exit(1)
+    if service not in {"gmail", "calendar", "github"}:
+        console.print(f"[red]Unknown integration service:[/red] {service}")
+        console.print("[yellow]Use --list to show available integrations.[/yellow]")
+        raise typer.Exit(1)
     
     console.print(f"[blue]Setting up {service} integration...[/blue]")
     
