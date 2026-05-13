@@ -340,3 +340,15 @@ def test_verify_receipt_chain_rejects_non_object_receipt_json(tmp_path):
 
     assert not valid
     assert "receipt_bad.json: expected JSON object" in errors
+
+
+def test_verify_receipt_chain_reports_unreadable_receipt_files(tmp_path):
+    morpheus_dir = tmp_path / ".morpheus"
+    _write_keypair(morpheus_dir / "keys")
+    receipts_dir = morpheus_dir / "receipts"
+    (receipts_dir / "receipt_bad.json").mkdir(parents=True)
+
+    valid, errors = verify_receipt_chain(morpheus_dir)
+
+    assert not valid
+    assert any("receipt_bad.json: unreadable receipt" in error for error in errors)
