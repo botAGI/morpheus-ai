@@ -195,6 +195,20 @@ def test_compile_reports_invalid_config_without_traceback(tmp_path):
         assert "Config invalid" in result.output
 
 
+def test_compile_reports_invalid_config_types_without_traceback(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        init_result = runner.invoke(app, ["init"])
+        assert init_result.exit_code == 0, init_result.output
+        (Path.cwd() / ".morpheus" / "morpheus.toml").write_text("watch_dirs = 123")
+
+        result = runner.invoke(app, ["compile"])
+
+        assert result.exit_code == 1
+        assert "Config invalid" in result.output
+
+
 def test_compile_reports_invalid_signing_key_without_traceback(tmp_path):
     runner = CliRunner()
 

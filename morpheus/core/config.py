@@ -3,7 +3,7 @@ Morpheus configuration management.
 """
 import toml
 from pathlib import Path
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 
 class MorpheusConfig(BaseModel):
@@ -58,5 +58,8 @@ class MorpheusConfig(BaseModel):
                 data = toml.loads(config_path.read_text())
             except toml.TomlDecodeError as exc:
                 raise ValueError(f"Config invalid: {exc}") from exc
-            return MorpheusConfig(project_root=self.project_root, **data)
+            try:
+                return MorpheusConfig(project_root=self.project_root, **data)
+            except ValidationError as exc:
+                raise ValueError(f"Config invalid: {exc}") from exc
         return self
