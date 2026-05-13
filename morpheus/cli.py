@@ -135,7 +135,14 @@ def compile(
     if receipts_dir.exists():
         latest = latest_receipt_or_exit(receipts_dir)
         if latest:
-            prev_hash = compute_sha256_file(latest)
+            try:
+                prev_hash = compute_sha256_file(latest)
+            except OSError as exc:
+                console.print(
+                    f"[red]Receipt chain invalid:[/red] {latest.name}: "
+                    f"unreadable receipt ({exc})"
+                )
+                raise typer.Exit(1) from exc
     
     # Build sources list
     sources_data = [{
