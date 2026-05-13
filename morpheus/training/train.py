@@ -157,8 +157,8 @@ def train(
     }
     
     # Check dataset exists
-    if not dataset.exists():
-        console.print(f"[red]Dataset not found: {dataset}[/red]")
+    if not dataset.is_file():
+        console.print(f"[red]Dataset file not found: {dataset}[/red]")
         console.print("[yellow]Run 'morpheus consolidate' first[/yellow]")
         raise typer.Exit(1)
 
