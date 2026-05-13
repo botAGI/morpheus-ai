@@ -53,6 +53,19 @@ def latest_receipt_or_exit(receipts_dir: Path) -> Path | None:
         raise typer.Exit(1) from exc
 
 
+def load_json_or_exit(path: Path, label: str) -> dict:
+    """Load a JSON object or exit with a user-facing error."""
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        console.print(f"[red]{label} invalid:[/red] {exc}")
+        raise typer.Exit(1) from exc
+    if not isinstance(data, dict):
+        console.print(f"[red]{label} invalid:[/red] expected JSON object")
+        raise typer.Exit(1)
+    return data
+
+
 @app.command()
 def init(
     force: bool = typer.Option(False, "--force", "-f", help="Reinitialize even if already initialized")
@@ -216,7 +229,7 @@ def verify(
     else:
         # Quick check
         latest = latest_receipt_or_exit(receipts_dir)
-        receipt = json.loads(latest.read_text())
+        receipt = load_json_or_exit(latest, "Receipt file")
         
         if verbose:
             table = Table(title="Latest Receipt")
@@ -245,8 +258,7 @@ def status():
         console.print("[yellow]No compilation yet. Run 'morpheus compile'[/yellow]")
         return
     
-    import json
-    state = json.loads(state_path.read_text())
+    state = load_json_or_exit(state_path, "State file")
     
     receipts_dir = morpheus_dir / "receipts"
     receipt_path = latest_receipt_or_exit(receipts_dir) if receipts_dir.exists() else None

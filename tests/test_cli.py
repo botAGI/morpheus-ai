@@ -258,3 +258,18 @@ def test_status_reports_invalid_receipt_chain_without_traceback(tmp_path):
         assert result.exit_code == 1
         assert "Receipt chain invalid" in result.output
         assert "expected exactly one receipt chain tail" in result.output
+
+
+def test_status_reports_invalid_state_json_without_traceback(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        init_result = runner.invoke(app, ["init"])
+        assert init_result.exit_code == 0, init_result.output
+        morpheus_dir = Path.cwd() / ".morpheus"
+        (morpheus_dir / "state.json").write_text("{not json")
+
+        result = runner.invoke(app, ["status"])
+
+        assert result.exit_code == 1
+        assert "State file invalid" in result.output
