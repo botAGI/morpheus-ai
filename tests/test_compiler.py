@@ -96,6 +96,22 @@ def test_compile_project_records_actual_file_size_for_non_utf8_bytes():
         assert source.size_bytes == len(data)
 
 
+def test_compile_project_ignores_symlinked_files_outside_project():
+    with tempfile.TemporaryDirectory() as project_dir, tempfile.TemporaryDirectory() as outside_dir:
+        project_path = Path(project_dir)
+        secret_path = Path(outside_dir) / "secret.txt"
+        secret_path.write_text("TODO: do not compile external symlink\n")
+        link_path = project_path / "linked-secret.txt"
+        try:
+            link_path.symlink_to(secret_path)
+        except OSError as exc:
+            pytest.skip(f"symlink creation unsupported: {exc}")
+
+        state = compile_project(project_path)
+
+        assert "linked-secret.txt" not in {source.path for source in state.sources}
+
+
 def test_compile_project_excludes():
     with tempfile.TemporaryDirectory() as tmpdir:
         tmppath = Path(tmpdir)
