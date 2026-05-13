@@ -99,6 +99,25 @@ def test_run_eval_exits_when_model_query_errors(monkeypatch, tmp_path):
     assert not output.exists()
 
 
+def test_run_eval_exits_when_output_file_unwritable(monkeypatch, tmp_path):
+    adapter_dir = tmp_path / "adapter"
+    adapter_dir.mkdir()
+    (adapter_dir / "adapter.safetensors").write_text("stub")
+    test_file = tmp_path / "eval_questions.jsonl"
+    output = tmp_path / "eval_results.jsonl"
+    test_file.write_text('{"question":"What changed?","expected_keywords":["receipt"]}\n')
+    output.mkdir()
+    monkeypatch.setattr(eval_module, "query_model", lambda *args, **kwargs: "receipt chain")
+
+    with pytest.raises(click.exceptions.Exit):
+        eval_module.run_eval(
+            adapter_path=adapter_dir,
+            base_model="qwen2.5:7b",
+            test_file=test_file,
+            output=output,
+        )
+
+
 def test_query_model_reports_missing_ollama(monkeypatch):
     def raise_missing_executable(*args, **kwargs):
         raise FileNotFoundError("ollama")
