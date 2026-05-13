@@ -283,6 +283,25 @@ def test_verify_receipt_chain_rejects_unsigned_receipt(tmp_path):
     assert "missing ed25519 signature" in errors[0]
 
 
+def test_verify_receipt_chain_rejects_non_object_signature(tmp_path):
+    morpheus_dir = tmp_path / ".morpheus"
+    private_key_path = _write_keypair(morpheus_dir / "keys")
+
+    receipt = build_receipt(
+        state_dict={"claims": [], "evidence": []},
+        wake_md_sha="0" * 64,
+        sources_data=[],
+        private_key_path=private_key_path,
+    )
+    receipt["signature"] = "not a signature object"
+    _write_receipt(morpheus_dir / "receipts", "receipt_001.json", receipt)
+
+    valid, errors = verify_receipt_chain(morpheus_dir)
+
+    assert not valid
+    assert "receipt_001.json: signature must be JSON object" in errors
+
+
 def test_verify_receipt_chain_rejects_non_object_receipt_json(tmp_path):
     morpheus_dir = tmp_path / ".morpheus"
     _write_keypair(morpheus_dir / "keys")
