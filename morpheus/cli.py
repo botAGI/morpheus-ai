@@ -171,27 +171,31 @@ def compile(
         console.print(f"[red]Signing failed:[/red] {exc}")
         raise typer.Exit(1) from exc
     
-    # Write WAKE.md
-    wake_path = morpheus_dir / "WAKE.md"
-    wake_path.write_text(wake_md)
-    
-    # Save state
-    state_path = morpheus_dir / "state.json"
-    state_path.write_text(state_json)
+    try:
+        # Write WAKE.md
+        wake_path = morpheus_dir / "WAKE.md"
+        wake_path.write_text(wake_md)
+        
+        # Save state
+        state_path = morpheus_dir / "state.json"
+        state_path.write_text(state_json)
 
-    # Save evidence
-    evidence_path = morpheus_dir / "evidence.jsonl"
-    evidence_path.write_bytes(evidence_jsonl)
-    
-    # Save receipt
-    receipt_path = receipts_dir / receipt_file_name(receipt["receipt_id"])
-    receipt_path.parent.mkdir(parents=True, exist_ok=True)
-    receipt_path.write_text(json.dumps(receipt, indent=2, default=str))
-    
-    # Update audit log
-    audit_log = receipts_dir / "audit.log"
-    with open(audit_log, "a") as f:
-        f.write(f"{receipt['issued_at']} {receipt['receipt_id']}\n")
+        # Save evidence
+        evidence_path = morpheus_dir / "evidence.jsonl"
+        evidence_path.write_bytes(evidence_jsonl)
+        
+        # Save receipt
+        receipt_path = receipts_dir / receipt_file_name(receipt["receipt_id"])
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        receipt_path.write_text(json.dumps(receipt, indent=2, default=str))
+        
+        # Update audit log
+        audit_log = receipts_dir / "audit.log"
+        with open(audit_log, "a") as f:
+            f.write(f"{receipt['issued_at']} {receipt['receipt_id']}\n")
+    except OSError as exc:
+        console.print(f"[red]Output write failed:[/red] {exc}")
+        raise typer.Exit(1) from exc
     
     # Output
     if verbose:

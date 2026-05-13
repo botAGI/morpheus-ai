@@ -224,6 +224,21 @@ def test_compile_reports_invalid_signing_key_without_traceback(tmp_path):
         assert "Signing failed" in result.output
 
 
+def test_compile_reports_output_write_failures_without_traceback(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        Path("README.md").write_text("TODO: compile with blocked output path\n")
+        init_result = runner.invoke(app, ["init"])
+        assert init_result.exit_code == 0, init_result.output
+        (Path.cwd() / ".morpheus" / "WAKE.md").mkdir()
+
+        result = runner.invoke(app, ["compile"])
+
+        assert result.exit_code == 1
+        assert "Output write failed" in result.output
+
+
 def test_verify_quick_reports_receipt_chain_tail_not_filename_latest(tmp_path):
     runner = CliRunner()
 
