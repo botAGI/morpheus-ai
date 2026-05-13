@@ -34,7 +34,9 @@ MARKER_CATEGORIES = {
 
 def compute_sha256(path: Path) -> str:
     h = hashlib.sha256()
-    h.update(path.read_bytes())
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            h.update(chunk)
     return h.hexdigest()
 
 

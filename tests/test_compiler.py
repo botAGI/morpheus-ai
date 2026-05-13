@@ -1,8 +1,12 @@
 """
 Tests for morpheus.core.compiler
 """
+import hashlib
 import tempfile
 from pathlib import Path
+
+import pytest
+
 from morpheus.core.compiler import (
     compute_sha256,
     compile_project,
@@ -38,6 +42,29 @@ def test_compute_sha256():
             path2.unlink()
     finally:
         path.unlink()
+
+
+def test_compute_sha256_streams_large_files(monkeypatch):
+    content = b"a" * (1024 * 1024 + 17)
+    with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".bin") as f:
+        f.write(content)
+        f.flush()
+        path = Path(f.name)
+
+    def fail_read_bytes(self):
+        raise AssertionError("compute_sha256 should stream file content")
+
+    monkeypatch.setattr(Path, "read_bytes", fail_read_bytes)
+
+    try:
+        hash1 = compute_sha256(path)
+        assert len(hash1) == 64
+        assert hash1 == hashlib.sha256(content).hexdigest()
+    finally:
+        try:
+            path.unlink()
+        except AssertionError:
+            pytest.fail("temporary file cleanup should not use patched read_bytes")
 
 
 def test_compile_project_basic():
