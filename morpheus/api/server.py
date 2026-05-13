@@ -97,7 +97,13 @@ def compile(request: CompileRequest):
     if receipts_dir.exists():
         latest = latest_receipt_or_http_error(receipts_dir)
         if latest:
-            prev_hash = compute_sha256_file(latest)
+            try:
+                prev_hash = compute_sha256_file(latest)
+            except OSError as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Receipt chain invalid: {latest.name}: unreadable receipt ({exc})",
+                ) from exc
     
     # Build sources
     sources_data = [{
