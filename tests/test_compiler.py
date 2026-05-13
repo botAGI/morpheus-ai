@@ -379,3 +379,25 @@ integrations = {}
             "DECISION: watched file",
             "TODO: watched source",
         ]
+
+
+def test_compile_project_respects_empty_configured_watch_dirs():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        morpheus_dir = tmppath / ".morpheus"
+        morpheus_dir.mkdir()
+        (morpheus_dir / "morpheus.toml").write_text(
+            """
+watch_dirs = []
+exclude_patterns = [".git", "node_modules", "__pycache__", ".morpheus"]
+evidence_markers = ["TODO:"]
+integrations = {}
+"""
+        )
+        (tmppath / "README.md").write_text("TODO: not watched\n")
+
+        state = compile_project(tmppath)
+
+        assert state.sources == []
+        assert state.claims == []
+        assert state.evidence == []
