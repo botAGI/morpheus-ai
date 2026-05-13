@@ -57,8 +57,9 @@ def latest_receipt_or_exit(receipts_dir: Path) -> Path | None:
 def load_json_or_exit(path: Path, label: str) -> dict:
     """Load a JSON object or exit with a user-facing error."""
     try:
+        reject_symlink_paths([path], label)
         data = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
         console.print(f"[red]{label} invalid:[/red] {exc}")
         raise typer.Exit(1) from exc
     if not isinstance(data, dict):
@@ -343,8 +344,9 @@ def wake():
         raise typer.Exit(1)
     
     try:
+        reject_symlink_paths([wake_path], "WAKE.md")
         content = wake_path.read_text()
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         console.print(f"[red]WAKE.md unreadable:[/red] {exc}")
         raise typer.Exit(1) from exc
     syntax = Syntax(content, "markdown", theme="monokai", line_numbers=False)

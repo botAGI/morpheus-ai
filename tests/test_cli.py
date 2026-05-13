@@ -651,6 +651,33 @@ def test_status_reports_invalid_state_json_without_traceback(tmp_path):
         assert "State file invalid" in result.output
 
 
+def test_status_rejects_symlinked_state_file_without_reading_target(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        init_result = runner.invoke(app, ["init"])
+        assert init_result.exit_code == 0, init_result.output
+        external_state = tmp_path / "external-state.json"
+        external_state.write_text(
+            json.dumps(
+                {
+                    "sources": [],
+                    "claims": [],
+                    "evidence": [],
+                    "compiled_at": "2026-05-13T00:00:00Z",
+                }
+            )
+        )
+        (Path.cwd() / ".morpheus" / "state.json").symlink_to(external_state)
+
+        result = runner.invoke(app, ["status"])
+
+        assert result.exit_code == 1
+        assert "State file invalid" in result.output
+        assert "must not be a symlink" in result.output
+        assert "Project Status" not in result.output
+
+
 def test_status_handles_non_string_compiled_at_without_traceback(tmp_path):
     runner = CliRunner()
 
@@ -711,6 +738,24 @@ def test_wake_reports_unreadable_wake_file_without_traceback(tmp_path):
 
         assert result.exit_code == 1
         assert "WAKE.md unreadable" in result.output
+
+
+def test_wake_rejects_symlinked_wake_file_without_reading_target(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        init_result = runner.invoke(app, ["init"])
+        assert init_result.exit_code == 0, init_result.output
+        external_wake = tmp_path / "external-WAKE.md"
+        external_wake.write_text("secret wake")
+        (Path.cwd() / ".morpheus" / "WAKE.md").symlink_to(external_wake)
+
+        result = runner.invoke(app, ["wake"])
+
+        assert result.exit_code == 1
+        assert "WAKE.md unreadable" in result.output
+        assert "must not be a symlink" in result.output
+        assert "secret wake" not in result.output
 
 
 def test_wake_rejects_morpheus_state_file_without_missing_wake_message(tmp_path):

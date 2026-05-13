@@ -61,8 +61,9 @@ def latest_receipt_or_http_error(receipts_dir: Path) -> Path | None:
 def load_json_object_or_http_error(path: Path, label: str) -> dict:
     """Load a JSON object or fail with a client-visible API error."""
     try:
+        reject_symlink_paths([path], label)
         data = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
         raise HTTPException(status_code=400, detail=f"{label} invalid: {exc}") from exc
     if not isinstance(data, dict):
         raise HTTPException(status_code=400, detail=f"{label} invalid: expected JSON object")
