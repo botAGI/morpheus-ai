@@ -91,9 +91,11 @@ class FileSystemWatcher:
                     "modified": None,
                 })
         
-        # Save new hashes
-        self.cache_file.parent.mkdir(parents=True, exist_ok=True)
-        self.cache_file.write_text(json.dumps(current_hashes, indent=2))
+        try:
+            self.cache_file.parent.mkdir(parents=True, exist_ok=True)
+            self.cache_file.write_text(json.dumps(current_hashes, indent=2))
+        except OSError:
+            pass
         self.file_hashes = current_hashes
         
         return changed
