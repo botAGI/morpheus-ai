@@ -371,6 +371,62 @@ def test_eval_command_forwards_options(monkeypatch):
     ]
 
 
+def test_consolidate_command_forwards_min_pairs_option(monkeypatch):
+    runner = CliRunner()
+    calls = []
+
+    def fake_consolidate_sessions(
+        sessions_dir,
+        output_path,
+        days,
+        min_pairs,
+        stats_output_path,
+        verbose,
+    ):
+        calls.append(
+            {
+                "sessions_dir": sessions_dir,
+                "output_path": output_path,
+                "days": days,
+                "min_pairs": min_pairs,
+                "stats_output_path": stats_output_path,
+                "verbose": verbose,
+            }
+        )
+
+    monkeypatch.setattr(cli_module, "consolidate_sessions", fake_consolidate_sessions)
+
+    result = runner.invoke(
+        app,
+        [
+            "consolidate",
+            "--sessions-dir",
+            "sessions",
+            "--output",
+            "dataset.jsonl",
+            "--days",
+            "14",
+            "--min-pairs",
+            "3",
+            "--stats-output",
+            "stats.json",
+            "--verbose",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls == [
+        {
+            "sessions_dir": Path("sessions"),
+            "output_path": Path("dataset.jsonl"),
+            "days": 14,
+            "min_pairs": 3,
+            "stats_output_path": Path("stats.json"),
+            "verbose": True,
+        }
+    ]
+
+
 def test_integrate_list_does_not_require_service_argument():
     runner = CliRunner()
 

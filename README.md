@@ -43,7 +43,7 @@ morpheus status
 
 ```bash
 # 1. Consolidate sessions
-morpheus consolidate --days 7 --output dataset.jsonl --stats-output reports/consolidation.json
+morpheus consolidate --days 7 --min-pairs 10 --output dataset.jsonl --stats-output reports/consolidation.json
 
 # 2. Train adapter
 morpheus train --base-model qwen2.5:7b --dataset dataset.jsonl
