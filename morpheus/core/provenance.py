@@ -63,6 +63,8 @@ def new_receipt_id() -> str:
 
 def latest_receipt_file(receipts_dir: Path) -> Path | None:
     """Return the receipt chain tail by previous hash links."""
+    if receipts_dir.is_symlink():
+        raise ValueError("receipts path must not be a symlink")
     if receipts_dir.exists() and not receipts_dir.is_dir():
         raise ValueError("receipts path is not a directory")
 
@@ -135,6 +137,8 @@ def build_receipt(
     if prev_hash is not None and not isinstance(prev_hash, str):
         raise ValueError("previous_receipt_sha256 must be string or null")
 
+    if private_key_path.is_symlink():
+        raise ValueError("private signing key must not be a symlink")
     if not private_key_path.exists():
         raise FileNotFoundError(f"private signing key not found: {private_key_path}")
 

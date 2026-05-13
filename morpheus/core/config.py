@@ -20,8 +20,12 @@ class MorpheusConfig(BaseModel):
             raise ValueError(".morpheus path must not be a symlink")
         morpheus_dir.mkdir(exist_ok=True)
         keys_dir = morpheus_dir / "keys"
+        if keys_dir.is_symlink():
+            raise ValueError(f"Keys path must not be a symlink: {keys_dir}")
         keys_dir.mkdir(exist_ok=True)
         receipts_dir = morpheus_dir / "receipts"
+        if receipts_dir.is_symlink():
+            raise ValueError(f"Receipts path must not be a symlink: {receipts_dir}")
         receipts_dir.mkdir(exist_ok=True)
         config_path = morpheus_dir / "morpheus.toml"
         if config_path.exists() and not config_path.is_file():

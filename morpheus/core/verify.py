@@ -19,6 +19,8 @@ def verify_receipt_chain(morpheus_dir: Path) -> tuple[bool, list[str]]:
 
     if not receipts_dir.exists():
         return False, ["receipts dir missing"]
+    if receipts_dir.is_symlink():
+        return False, ["receipts path must not be a symlink"]
     if not receipts_dir.is_dir():
         return False, ["receipts path is not a directory"]
 
@@ -200,6 +202,9 @@ def _order_receipt_records(records: list[dict]) -> tuple[list[dict], list[str]]:
 
 def _load_public_key(keys_dir: Path) -> tuple[ed25519.Ed25519PublicKey | None, str | None]:
     """Load the local public key, deriving it from the private key for older projects."""
+    if keys_dir.is_symlink():
+        return None, "keys path must not be a symlink"
+
     public_key_path = keys_dir / "local.pub"
     private_key_path = keys_dir / "local.key"
 

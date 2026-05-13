@@ -330,6 +330,27 @@ def test_verify_receipt_chain_reports_unreadable_public_key(tmp_path):
     assert any("failed to load ed25519 key" in error for error in errors)
 
 
+def test_verify_receipt_chain_rejects_keys_path_symlink(tmp_path):
+    morpheus_dir = tmp_path / ".morpheus"
+    morpheus_dir.mkdir()
+    outside_keys = tmp_path / "outside-keys"
+    private_key_path = _write_keypair(outside_keys)
+    (morpheus_dir / "keys").symlink_to(outside_keys, target_is_directory=True)
+
+    receipt = build_receipt(
+        state_dict={"claims": [], "evidence": []},
+        wake_md_sha="f" * 64,
+        sources_data=[],
+        private_key_path=private_key_path,
+    )
+    _write_receipt(morpheus_dir / "receipts", "receipt_001.json", receipt)
+
+    valid, errors = verify_receipt_chain(morpheus_dir)
+
+    assert not valid
+    assert any("keys path must not be a symlink" in error for error in errors)
+
+
 def test_verify_receipt_chain_rejects_unsigned_receipt(tmp_path):
     morpheus_dir = tmp_path / ".morpheus"
     private_key_path = _write_keypair(morpheus_dir / "keys")
@@ -403,3 +424,17 @@ def test_verify_receipt_chain_rejects_receipts_path_file(tmp_path):
 
     assert not valid
     assert errors == ["receipts path is not a directory"]
+
+
+def test_verify_receipt_chain_rejects_receipts_path_symlink(tmp_path):
+    morpheus_dir = tmp_path / ".morpheus"
+    _write_keypair(morpheus_dir / "keys")
+    outside_receipts = tmp_path / "outside-receipts"
+    outside_receipts.mkdir()
+    receipts_dir = morpheus_dir / "receipts"
+    receipts_dir.symlink_to(outside_receipts, target_is_directory=True)
+
+    valid, errors = verify_receipt_chain(morpheus_dir)
+
+    assert not valid
+    assert errors == ["receipts path must not be a symlink"]
