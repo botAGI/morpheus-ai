@@ -120,6 +120,9 @@ def build_receipt(
     receipt_id = receipt_id or new_receipt_id()
     receipt_file_name(receipt_id)
 
+    if prev_hash is not None and not isinstance(prev_hash, str):
+        raise ValueError("previous_receipt_sha256 must be string or null")
+
     if not private_key_path.exists():
         raise FileNotFoundError(f"private signing key not found: {private_key_path}")
 
