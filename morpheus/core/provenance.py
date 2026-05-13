@@ -30,6 +30,11 @@ def receipt_signature_payload(receipt: dict) -> bytes:
     ).encode()
 
 
+def receipt_file_name(receipt_id: str) -> str:
+    """Return a collision-resistant receipt artifact filename."""
+    return f"receipt_{receipt_id}.json"
+
+
 def build_receipt(state_dict: dict, wake_md_sha: str, sources_data: list, private_key_path: Path, prev_hash: str = None) -> dict:
     """Build and sign a receipt."""
     state_json_bytes = json.dumps(state_dict, default=str).encode()

@@ -119,6 +119,32 @@ def test_verify_receipt_chain_validates_previous_receipt_link(tmp_path):
     assert errors == []
 
 
+def test_verify_receipt_chain_orders_receipts_by_previous_hash_not_filename(tmp_path):
+    morpheus_dir = tmp_path / ".morpheus"
+    private_key_path = _write_keypair(morpheus_dir / "keys")
+
+    first = build_receipt(
+        state_dict={"claims": [], "evidence": []},
+        wake_md_sha="4" * 64,
+        sources_data=[],
+        private_key_path=private_key_path,
+    )
+    first_path = _write_receipt(morpheus_dir / "receipts", "receipt_z_first.json", first)
+    second = build_receipt(
+        state_dict={"claims": [], "evidence": []},
+        wake_md_sha="5" * 64,
+        sources_data=[],
+        private_key_path=private_key_path,
+        prev_hash=compute_sha256_file(first_path),
+    )
+    _write_receipt(morpheus_dir / "receipts", "receipt_a_second.json", second)
+
+    valid, errors = verify_receipt_chain(morpheus_dir)
+
+    assert valid
+    assert errors == []
+
+
 def test_verify_receipt_chain_detects_previous_receipt_file_tampering(tmp_path):
     morpheus_dir = tmp_path / ".morpheus"
     private_key_path = _write_keypair(morpheus_dir / "keys")

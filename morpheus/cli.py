@@ -6,7 +6,7 @@ Agent State Compiler with verifiable provenance.
 """
 import typer
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
@@ -15,7 +15,7 @@ from rich.syntax import Syntax
 from morpheus.core.config import MorpheusConfig
 from morpheus.core.compiler import compile_project
 from morpheus.core.wake import generate_wake_md
-from morpheus.core.provenance import compute_sha256_file, build_receipt
+from morpheus.core.provenance import compute_sha256_file, build_receipt, receipt_file_name
 from morpheus.core.verify import verify_receipt_chain
 from morpheus.training.consolidate import consolidate_sessions
 from morpheus.training.train import train, check_dependencies
@@ -49,7 +49,7 @@ def init(
         console.print(f"[yellow].morpheus/ already exists. Use --force to reinitialize.[/yellow]")
         raise typer.Exit(1)
     
-    config = MorpheusConfig(Path.cwd())
+    config = MorpheusConfig(project_root=Path.cwd())
     config.init_default()
     
     console.print(Panel.fit(
@@ -97,7 +97,7 @@ def compile(
     } for s in state.sources]
     
     # Generate WAKE.md
-    receipt_placeholder = f"rcpt_{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}_pending"
+    receipt_placeholder = f"rcpt_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}_pending"
     wake_md = generate_wake_md(state, receipt_placeholder)
     
     # Compute SHA256 of WAKE.md
@@ -127,8 +127,7 @@ def compile(
     state_path.write_text(json.dumps(state.model_dump(), indent=2, default=str))
     
     # Save receipt
-    receipt_filename = f"receipt_{receipt['receipt_id'].split('_')[1]}.json"
-    receipt_path = receipts_dir / receipt_filename
+    receipt_path = receipts_dir / receipt_file_name(receipt["receipt_id"])
     receipt_path.parent.mkdir(parents=True, exist_ok=True)
     receipt_path.write_text(json.dumps(receipt, indent=2, default=str))
     
