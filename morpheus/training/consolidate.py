@@ -208,15 +208,20 @@ def extract_text_from_content(content_blocks: list) -> str:
         return ""
     
     texts = []
+
+    def add_text(value) -> None:
+        if isinstance(value, str):
+            texts.append(value)
+
     for block in content_blocks:
         if isinstance(block, dict):
             block_type = block.get("type")
             if block_type in TOOL_CONTENT_TYPES:
                 continue
             if block_type in ("text", "input_text", "output_text"):
-                texts.append(block.get("text", ""))
+                add_text(block.get("text", ""))
             elif "text" in block and not any(key in block for key in ("name", "input", "call_id")):
-                texts.append(block.get("text", ""))
+                add_text(block.get("text", ""))
             elif block.get("type") == "image":
                 texts.append("[image]")
         elif isinstance(block, str):
