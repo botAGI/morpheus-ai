@@ -43,6 +43,12 @@ def test_extract_text_from_content_ignores_tool_blocks():
     assert extract_text_from_content(content) == "Summarize the result. [image]"
 
 
+def test_extract_text_from_content_accepts_single_content_block():
+    content = {"type": "text", "text": "Summarize the result."}
+
+    assert extract_text_from_content(content) == "Summarize the result."
+
+
 def test_is_useful_message_filters_openclaw_noise():
     assert not is_useful_message("HEARTBEAT_OK", "assistant")
     assert not is_useful_message("<environment_context><cwd>/tmp</cwd></environment_context>", "user")
