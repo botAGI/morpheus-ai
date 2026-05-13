@@ -71,6 +71,13 @@ def list_count(value) -> int:
     return len(value) if isinstance(value, list) else 0
 
 
+def receipt_claim_total(value) -> int:
+    """Return total receipt claims only for numeric claim-count mappings."""
+    if not isinstance(value, dict):
+        return 0
+    return sum(count for count in value.values() if isinstance(count, int))
+
+
 @app.command()
 def init(
     force: bool = typer.Option(False, "--force", "-f", help="Reinitialize even if already initialized")
@@ -246,8 +253,8 @@ def verify(
             table.add_column("Value", style="green")
             table.add_row("ID", receipt.get("receipt_id", "unknown"))
             table.add_row("Issued", receipt.get("issued_at", "unknown"))
-            table.add_row("Claims", str(sum(receipt.get("claim_count", {}).values())))
-            table.add_row("Sources", str(len(receipt.get("sources", []))))
+            table.add_row("Claims", str(receipt_claim_total(receipt.get("claim_count"))))
+            table.add_row("Sources", str(list_count(receipt.get("sources"))))
             console.print(table)
         else:
             console.print(f"[green]✓ Latest:[/green] {receipt.get('receipt_id', 'unknown')}")

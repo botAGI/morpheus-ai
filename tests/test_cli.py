@@ -250,6 +250,27 @@ def test_verify_quick_reports_invalid_receipt_chain_without_traceback(tmp_path):
         assert "expected exactly one receipt chain tail" in result.output
 
 
+def test_verify_verbose_handles_non_collection_receipt_fields(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        init_result = runner.invoke(app, ["init"])
+        assert init_result.exit_code == 0, init_result.output
+        receipt = {
+            "receipt_id": "rcpt_bad_fields",
+            "issued_at": "2026-05-13T00:00:00Z",
+            "claim_count": None,
+            "sources": None,
+        }
+        receipts_dir = Path.cwd() / ".morpheus" / "receipts"
+        (receipts_dir / "receipt_rcpt_bad_fields.json").write_text(json.dumps(receipt))
+
+        result = runner.invoke(app, ["verify", "--verbose"])
+
+        assert result.exit_code == 0, result.output
+        assert "rcpt_bad_fields" in result.output
+
+
 def test_status_reports_invalid_receipt_chain_without_traceback(tmp_path):
     runner = CliRunner()
 
