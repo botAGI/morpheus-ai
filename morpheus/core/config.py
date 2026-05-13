@@ -26,11 +26,29 @@ class MorpheusConfig(BaseModel):
             config_path.write_text(toml.dumps(self.model_dump(exclude={"project_root"})))
         # Generate ed25519 keypair if not exists
         private_key_path = keys_dir / "local.key"
+        public_key_path = keys_dir / "local.pub"
         if not private_key_path.exists():
             from cryptography.hazmat.primitives.asymmetric import ed25519
+            from cryptography.hazmat.primitives import serialization
             private_key = ed25519.Ed25519PrivateKey.generate()
             private_key_path.write_bytes(private_key.private_bytes_raw())
             private_key_path.chmod(0o600)
+            public_key_path.write_bytes(
+                private_key.public_key().public_bytes(
+                    serialization.Encoding.Raw,
+                    serialization.PublicFormat.Raw,
+                )
+            )
+        elif not public_key_path.exists():
+            from cryptography.hazmat.primitives.asymmetric import ed25519
+            from cryptography.hazmat.primitives import serialization
+            private_key = ed25519.Ed25519PrivateKey.from_private_bytes(private_key_path.read_bytes())
+            public_key_path.write_bytes(
+                private_key.public_key().public_bytes(
+                    serialization.Encoding.Raw,
+                    serialization.PublicFormat.Raw,
+                )
+            )
 
     def load(self) -> "MorpheusConfig":
         """Load config from .morpheus/morpheus.toml."""
