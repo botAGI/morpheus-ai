@@ -69,7 +69,12 @@ def latest_receipt_file(receipts_dir: Path) -> Path | None:
 
     records = []
     for receipt_file in receipt_files:
-        receipt = json.loads(receipt_file.read_text())
+        try:
+            receipt_text = receipt_file.read_text()
+        except OSError as exc:
+            raise ValueError(f"{receipt_file.name}: unreadable receipt ({exc})") from exc
+
+        receipt = json.loads(receipt_text)
         if not isinstance(receipt, dict):
             raise ValueError(f"{receipt_file.name}: expected JSON object")
         previous = receipt.get("previous_receipt_sha256")
@@ -77,9 +82,13 @@ def latest_receipt_file(receipts_dir: Path) -> Path | None:
             raise ValueError(
                 f"{receipt_file.name}: previous_receipt_sha256 must be string or null"
             )
+        try:
+            receipt_sha = compute_sha256_file(receipt_file)
+        except OSError as exc:
+            raise ValueError(f"{receipt_file.name}: unreadable receipt ({exc})") from exc
         records.append({
             "path": receipt_file,
-            "sha256": compute_sha256_file(receipt_file),
+            "sha256": receipt_sha,
             "previous": previous,
         })
 
