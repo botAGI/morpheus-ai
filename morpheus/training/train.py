@@ -139,6 +139,15 @@ def train(
     - llamafactory-cli installed (pip install llamafactory)
     - Sufficient GPU VRAM (7B model ≈ 6-8GB with 4bit)
     """
+    for name, value in {
+        "lora_rank": lora_rank,
+        "lora_alpha": lora_alpha,
+        "epochs": epochs,
+    }.items():
+        if value <= 0:
+            console.print(f"[red]{name} must be positive[/red]")
+            raise typer.Exit(1)
+
     config = {
         "base_model": base_model,
         "dataset": str(dataset.absolute()),
