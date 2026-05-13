@@ -9,6 +9,8 @@ from pathlib import Path
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
+from morpheus.core.provenance import compute_sha256_file
+
 
 def verify_receipt_chain(morpheus_dir: Path) -> tuple[bool, list[str]]:
     """Verify the full receipt chain in .morpheus/receipts/."""
@@ -40,9 +42,8 @@ def verify_receipt_chain(morpheus_dir: Path) -> tuple[bool, list[str]]:
         # Check previous link if not first
         if i > 0:
             prev_file = receipt_files[i - 1]
-            prev_receipt = json.loads(prev_file.read_text())
-            prev_id = prev_receipt.get("receipt_id")
-            if receipt.get("previous_receipt_sha256") != prev_id:
+            prev_sha = compute_sha256_file(prev_file)
+            if receipt.get("previous_receipt_sha256") != prev_sha:
                 errors.append(f"{receipt_file.name}: previous_receipt_sha256 mismatch")
 
         # Verify signature if present

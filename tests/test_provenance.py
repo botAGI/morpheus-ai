@@ -91,15 +91,16 @@ def test_build_receipt_with_previous():
         )
         priv_path.write_bytes(priv_bytes)
         
+        previous_sha = "f" * 64
         receipt = build_receipt(
             state_dict=state,
             wake_md_sha="wake_sha",
             sources_data=[],
             private_key_path=priv_path,
-            prev_hash="rcpt_previous_123"
+            prev_hash=previous_sha,
         )
         
-        assert receipt["previous_receipt_sha256"] == "rcpt_previous_123"
+        assert receipt["previous_receipt_sha256"] == previous_sha
 
 
 def test_build_receipt_requires_private_key():
