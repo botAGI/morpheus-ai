@@ -27,6 +27,17 @@ DEFAULT_EXCLUDE_PATTERNS = {
     "build",
     "dist",
     "test-results",
+    ".env",
+    ".env.*",
+    "*.crt",
+    "*.key",
+    "*.pem",
+    "*.p12",
+    "*.pfx",
+    "id_dsa",
+    "id_ecdsa",
+    "id_ed25519",
+    "id_rsa",
     "*.pyc",
 }
 MARKER_CATEGORIES = {
