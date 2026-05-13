@@ -4,6 +4,7 @@ Tests for morpheus.cli.
 import json
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 import morpheus.cli as cli_module
@@ -436,6 +437,34 @@ def test_compile_reports_output_write_failures_without_traceback(tmp_path):
 
         assert result.exit_code == 1
         assert "Output write failed" in result.output
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    ["WAKE.md", "state.json", "evidence.jsonl", "receipts/audit.log"],
+)
+def test_compile_rejects_symlinked_output_artifacts_before_writing(tmp_path, relative_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        Path("README.md").write_text("TODO: compile with symlinked output artifact\n")
+        init_result = runner.invoke(app, ["init"])
+        assert init_result.exit_code == 0, init_result.output
+        morpheus_dir = Path.cwd() / ".morpheus"
+        external_output = tmp_path / "external-output"
+        external_output.write_text("do not modify")
+        output_path = morpheus_dir / relative_path
+        if output_path.exists():
+            output_path.unlink()
+        output_path.symlink_to(external_output)
+
+        result = runner.invoke(app, ["compile"])
+
+        assert result.exit_code == 1
+        assert "Output write failed" in result.output
+        assert "must not be a symlink" in result.output
+        assert external_output.read_text() == "do not modify"
+        assert not list((morpheus_dir / "receipts").glob("receipt_*.json"))
 
 
 def test_verify_quick_reports_receipt_chain_tail_not_filename_latest(tmp_path):
