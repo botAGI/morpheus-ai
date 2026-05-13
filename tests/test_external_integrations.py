@@ -34,6 +34,24 @@ def test_gmail_cache_loads_timezone_dates_and_skips_invalid_rows(tmp_path):
     assert [email["id"] for email in emails] == ["new"]
 
 
+def test_gmail_get_emails_respects_max_results_for_cache(tmp_path):
+    now = datetime.now(timezone.utc)
+    token_path = tmp_path / "gmail_token.json"
+    token_path.write_text("{}")
+    (tmp_path / "gmail_cache.json").write_text(
+        json.dumps(
+            [
+                {"id": "first", "date": now.isoformat(), "snippet": "TODO: first"},
+                {"id": "second", "date": now.isoformat(), "snippet": "TODO: second"},
+            ]
+        )
+    )
+
+    emails = GmailIntegration(token_path=token_path).get_emails(days=30, max_results=1)
+
+    assert [email["id"] for email in emails] == ["first"]
+
+
 def test_calendar_cache_loads_timezone_dates_and_skips_invalid_rows(tmp_path):
     now = datetime.now(timezone.utc)
     cache_path = tmp_path / "calendar_cache.json"
@@ -58,3 +76,21 @@ def test_calendar_cache_loads_timezone_dates_and_skips_invalid_rows(tmp_path):
     )
 
     assert [event["id"] for event in events] == ["new"]
+
+
+def test_calendar_get_events_respects_max_results_for_cache(tmp_path):
+    now = datetime.now(timezone.utc)
+    token_path = tmp_path / "calendar_token.json"
+    token_path.write_text("{}")
+    (tmp_path / "calendar_cache.json").write_text(
+        json.dumps(
+            [
+                {"id": "first", "start": now.isoformat(), "summary": "TODO: first"},
+                {"id": "second", "start": now.isoformat(), "summary": "TODO: second"},
+            ]
+        )
+    )
+
+    events = CalendarIntegration(token_path=token_path).get_events(days=30, max_results=1)
+
+    assert [event["id"] for event in events] == ["first"]

@@ -25,7 +25,7 @@ class CalendarIntegration:
         
         cache_path = self.token_path.parent / "calendar_cache.json"
         if cache_path.exists():
-            return self._load_from_cache(cache_path, days)
+            return self._load_from_cache(cache_path, days)[:max_results]
         
         return []
     
