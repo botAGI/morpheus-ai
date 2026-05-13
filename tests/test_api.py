@@ -242,6 +242,19 @@ def test_get_wake_rejects_project_path_traversal(tmp_path, monkeypatch):
     assert response.json()["detail"] == "Invalid project name"
 
 
+def test_get_wake_returns_bad_request_for_unreadable_wake_file(tmp_path, monkeypatch):
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    (project_dir / "WAKE.md").mkdir()
+    monkeypatch.chdir(tmp_path)
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.get("/wake/project")
+
+    assert response.status_code == 400
+    assert "WAKE.md unreadable" in response.json()["detail"]
+
+
 def test_status_returns_bad_request_for_invalid_state_json(tmp_path):
     morpheus_dir = tmp_path / ".morpheus"
     morpheus_dir.mkdir()
