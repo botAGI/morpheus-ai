@@ -6,7 +6,6 @@ Agent State Compiler with verifiable provenance.
 """
 import typer
 from pathlib import Path
-from datetime import datetime, timezone
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
@@ -17,8 +16,10 @@ from morpheus.core.compiler import compile_project
 from morpheus.core.wake import generate_wake_md
 from morpheus.core.provenance import (
     compute_sha256_file,
+    compute_sha256_bytes,
     build_receipt,
     latest_receipt_file,
+    new_receipt_id,
     receipt_file_name,
 )
 from morpheus.core.verify import verify_receipt_chain
@@ -100,15 +101,10 @@ def compile(
         "line_count": s.line_count
     } for s in state.sources]
     
-    # Generate WAKE.md
-    receipt_placeholder = f"rcpt_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}_pending"
-    wake_md = generate_wake_md(state, receipt_placeholder)
-    
-    # Compute SHA256 of WAKE.md
-    temp_wake_path = morpheus_dir / "WAKE.md.pending"
-    temp_wake_path.write_text(wake_md)
-    wake_md_sha = compute_sha256_file(temp_wake_path)
-    temp_wake_path.unlink()
+    # Generate final WAKE.md before signing so the receipt hashes the artifact on disk.
+    receipt_id = new_receipt_id()
+    wake_md = generate_wake_md(state, receipt_id)
+    wake_md_sha = compute_sha256_bytes(wake_md.encode())
     
     # Build receipt
     private_key_path = morpheus_dir / "keys" / "local.key"
@@ -117,11 +113,11 @@ def compile(
         wake_md_sha,
         sources_data,
         private_key_path,
-        prev_hash
+        prev_hash,
+        receipt_id=receipt_id,
     )
     
-    # Update WAKE.md with real receipt_id
-    wake_md = wake_md.replace(receipt_placeholder, receipt["receipt_id"])
+    # Write WAKE.md
     wake_path = morpheus_dir / "WAKE.md"
     wake_path.write_text(wake_md)
     

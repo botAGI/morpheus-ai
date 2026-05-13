@@ -1,10 +1,13 @@
 """
 Tests for morpheus.api.server.
 """
+import json
+
 from fastapi.testclient import TestClient
 
 from morpheus.api.server import app
 from morpheus.core.config import MorpheusConfig
+from morpheus.core.provenance import compute_sha256_file
 
 
 def test_health_returns_version():
@@ -40,3 +43,17 @@ def test_compile_persists_state_and_receipt_for_status_and_verify(tmp_path):
 
     assert verify_response.status_code == 200
     assert verify_response.json()["valid"] is True
+
+
+def test_compile_receipt_hashes_final_wake_file(tmp_path):
+    MorpheusConfig(project_root=tmp_path).init_default()
+    (tmp_path / "README.md").write_text("TODO: hash final API wake\n")
+    client = TestClient(app)
+
+    response = client.post("/compile", json={"project_root": str(tmp_path)})
+
+    assert response.status_code == 200
+    morpheus_dir = tmp_path / ".morpheus"
+    receipt_path = next((morpheus_dir / "receipts").glob("receipt_*.json"))
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["wake_md_sha256"] == compute_sha256_file(morpheus_dir / "WAKE.md")
