@@ -74,6 +74,25 @@ def test_verify_receipt_chain_rejects_tampered_signed_receipt(tmp_path):
     assert "invalid ed25519 signature" in errors[0]
 
 
+def test_verify_receipt_chain_rejects_tampered_signed_metadata(tmp_path):
+    morpheus_dir = tmp_path / ".morpheus"
+    private_key_path = _write_keypair(morpheus_dir / "keys")
+
+    receipt = build_receipt(
+        state_dict={"claims": [], "evidence": []},
+        wake_md_sha="3" * 64,
+        sources_data=[{"id": "src_001", "path": "README.md"}],
+        private_key_path=private_key_path,
+    )
+    receipt["sources"] = [{"id": "src_001", "path": "tampered.md"}]
+    _write_receipt(morpheus_dir / "receipts", "receipt_001.json", receipt)
+
+    valid, errors = verify_receipt_chain(morpheus_dir)
+
+    assert not valid
+    assert "invalid ed25519 signature" in errors[0]
+
+
 def test_verify_receipt_chain_validates_previous_receipt_link(tmp_path):
     morpheus_dir = tmp_path / ".morpheus"
     private_key_path = _write_keypair(morpheus_dir / "keys")
@@ -131,7 +150,7 @@ def test_verify_receipt_chain_detects_previous_receipt_file_tampering(tmp_path):
     valid, errors = verify_receipt_chain(morpheus_dir)
 
     assert not valid
-    assert "previous_receipt_sha256 mismatch" in errors[0]
+    assert any("previous_receipt_sha256 mismatch" in error for error in errors)
 
 
 def test_verify_receipt_chain_requires_key_for_signed_receipts(tmp_path):
