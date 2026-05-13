@@ -28,7 +28,7 @@ class GmailIntegration:
         # For MVP: just read from local cache if available
         cache_path = self.token_path.parent / "gmail_cache.json"
         if cache_path.exists():
-            return self._load_from_cache(cache_path, days)
+            return self._load_from_cache(cache_path, days)[:max_results]
         
         # Placeholder - real implementation uses Google API
         return []
