@@ -38,6 +38,25 @@ def write_out_of_filename_order_receipt_chain(morpheus_dir: Path):
     return root_path, tail_path
 
 
+def write_unlinked_receipts(morpheus_dir: Path):
+    private_key_path = morpheus_dir / "keys" / "local.key"
+    receipts_dir = morpheus_dir / "receipts"
+    for receipt_id, wake_sha in [
+        ("rcpt_a_root", "1" * 64),
+        ("rcpt_b_root", "2" * 64),
+    ]:
+        receipt = build_receipt(
+            state_dict={"claims": [], "evidence": []},
+            wake_md_sha=wake_sha,
+            sources_data=[],
+            private_key_path=private_key_path,
+            receipt_id=receipt_id,
+        )
+        (receipts_dir / receipt_file_name(receipt["receipt_id"])).write_text(
+            json.dumps(receipt, default=str)
+        )
+
+
 def test_init_creates_morpheus_state(tmp_path):
     runner = CliRunner()
 
@@ -200,3 +219,42 @@ def test_status_reports_receipt_chain_tail_not_filename_latest(tmp_path):
         assert result.exit_code == 0, result.output
         assert "rcpt_a_tail" in result.output
         assert "rcpt_z_root" not in result.output
+
+
+def test_verify_quick_reports_invalid_receipt_chain_without_traceback(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        init_result = runner.invoke(app, ["init"])
+        assert init_result.exit_code == 0, init_result.output
+        write_unlinked_receipts(Path.cwd() / ".morpheus")
+
+        result = runner.invoke(app, ["verify"])
+
+        assert result.exit_code == 1
+        assert "Receipt chain invalid" in result.output
+        assert "expected exactly one receipt chain tail" in result.output
+
+
+def test_status_reports_invalid_receipt_chain_without_traceback(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        init_result = runner.invoke(app, ["init"])
+        assert init_result.exit_code == 0, init_result.output
+        morpheus_dir = Path.cwd() / ".morpheus"
+        (morpheus_dir / "state.json").write_text(
+            json.dumps({
+                "sources": [],
+                "claims": [],
+                "evidence": [],
+                "compiled_at": "2026-05-13T00:00:00+00:00",
+            })
+        )
+        write_unlinked_receipts(morpheus_dir)
+
+        result = runner.invoke(app, ["status"])
+
+        assert result.exit_code == 1
+        assert "Receipt chain invalid" in result.output
+        assert "expected exactly one receipt chain tail" in result.output
