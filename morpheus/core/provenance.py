@@ -35,6 +35,33 @@ def receipt_file_name(receipt_id: str) -> str:
     return f"receipt_{receipt_id}.json"
 
 
+def latest_receipt_file(receipts_dir: Path) -> Path | None:
+    """Return the receipt chain tail by previous hash links."""
+    receipt_files = sorted(receipts_dir.glob("receipt_*.json"))
+    if not receipt_files:
+        return None
+
+    records = []
+    for receipt_file in receipt_files:
+        receipt = json.loads(receipt_file.read_text())
+        records.append({
+            "path": receipt_file,
+            "sha256": compute_sha256_file(receipt_file),
+            "previous": receipt.get("previous_receipt_sha256"),
+        })
+
+    referenced_hashes = {
+        record["previous"]
+        for record in records
+        if record["previous"] not in (None, "")
+    }
+    tails = [record for record in records if record["sha256"] not in referenced_hashes]
+    if len(tails) != 1:
+        raise ValueError(f"expected exactly one receipt chain tail, found {len(tails)}")
+
+    return tails[0]["path"]
+
+
 def build_receipt(state_dict: dict, wake_md_sha: str, sources_data: list, private_key_path: Path, prev_hash: str = None) -> dict:
     """Build and sign a receipt."""
     state_json_bytes = json.dumps(state_dict, default=str).encode()

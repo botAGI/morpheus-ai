@@ -10,7 +10,12 @@ from pathlib import Path
 
 from morpheus.core.compiler import compile_project
 from morpheus.core.wake import generate_wake_md
-from morpheus.core.provenance import compute_sha256_file, build_receipt, receipt_file_name
+from morpheus.core.provenance import (
+    compute_sha256_file,
+    build_receipt,
+    latest_receipt_file,
+    receipt_file_name,
+)
 
 app = FastAPI(
     title="Morpheus API",
@@ -60,9 +65,9 @@ def compile(request: CompileRequest):
     receipts_dir = morpheus_dir / "receipts"
     prev_hash = None
     if receipts_dir.exists():
-        existing = sorted(receipts_dir.glob("receipt_*.json"))
-        if existing:
-            prev_hash = compute_sha256_file(existing[-1])
+        latest = latest_receipt_file(receipts_dir)
+        if latest:
+            prev_hash = compute_sha256_file(latest)
     
     # Build sources
     sources_data = [{
@@ -94,11 +99,19 @@ def compile(request: CompileRequest):
     # Update WAKE with real receipt
     wake_md = wake_md.replace("pending", receipt["receipt_id"])
     (morpheus_dir / "WAKE.md").write_text(wake_md)
+
+    # Save state
+    state_path = morpheus_dir / "state.json"
+    state_path.write_text(json.dumps(state.model_dump(), indent=2, default=str))
     
     # Save receipt
     receipt_path = receipts_dir / receipt_file_name(receipt["receipt_id"])
     receipt_path.parent.mkdir(parents=True, exist_ok=True)
     receipt_path.write_text(json.dumps(receipt, indent=2, default=str))
+
+    audit_log = receipts_dir / "audit.log"
+    with audit_log.open("a") as f:
+        f.write(f"{receipt['issued_at']} {receipt['receipt_id']}\n")
     
     return CompileResponse(
         receipt_id=receipt["receipt_id"],
@@ -137,12 +150,12 @@ def verify(project_root: Optional[str] = None):
     valid, errors = verify_receipt_chain(morpheus_dir)
     
     receipts_dir = morpheus_dir / "receipts"
-    latest = sorted(receipts_dir.glob("receipt_*.json"))[-1].name if receipts_dir.exists() else None
+    latest_path = latest_receipt_file(receipts_dir) if receipts_dir.exists() else None
     
     return VerifyResponse(
         valid=valid,
         errors=errors,
-        receipt_id=latest or "none"
+        receipt_id=latest_path.name if latest_path else "none"
     )
 
 @app.get("/status")
