@@ -243,10 +243,14 @@ def parse_session_file(session_path: Path, stats: ConsolidationStats | None = No
                 continue
             try:
                 entry = json.loads(line)
+                if not isinstance(entry, dict):
+                    continue
                 if entry.get("type") != "message":
                     continue
 
                 msg = entry.get("message", {})
+                if not isinstance(msg, dict):
+                    continue
                 role = msg.get("role", "")
                 content_raw = msg.get("content", [])
 
