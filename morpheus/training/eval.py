@@ -119,6 +119,9 @@ def run_eval(
         
         console.print(f"[cyan]Q{i}:[/cyan] {question[:80]}...")
         answer = query_model(prompt, base_model, adapter_path)
+        if answer.startswith("Error:"):
+            console.print(f"[red]Model query failed:[/red] {answer.removeprefix('Error:').strip()}")
+            raise typer.Exit(1)
         
         # Simple keyword matching
         keywords_found = sum(1 for kw in expected if kw.lower() in answer.lower())
