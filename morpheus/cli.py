@@ -25,6 +25,7 @@ from morpheus.core.provenance import (
     new_receipt_id,
     receipt_file_name,
 )
+from morpheus.core.safe_io import reject_symlink_paths
 from morpheus.core.verify import verify_receipt_chain
 from morpheus.training.consolidate import consolidate_sessions
 from morpheus.training.train import check_dependencies
@@ -190,29 +191,35 @@ def compile(
         console.print(f"[red]Signing failed:[/red] {exc}")
         raise typer.Exit(1) from exc
     
+    # Write artifacts only after all target paths are known to be safe.
+    wake_path = morpheus_dir / "WAKE.md"
+    state_path = morpheus_dir / "state.json"
+    evidence_path = morpheus_dir / "evidence.jsonl"
+    receipt_path = receipts_dir / receipt_file_name(receipt["receipt_id"])
+    audit_log = receipts_dir / "audit.log"
+
     try:
-        # Write WAKE.md
-        wake_path = morpheus_dir / "WAKE.md"
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        reject_symlink_paths(
+            [wake_path, state_path, evidence_path, receipt_path, audit_log],
+            "Output path",
+        )
+
         wake_path.write_text(wake_md)
         
         # Save state
-        state_path = morpheus_dir / "state.json"
         state_path.write_text(state_json)
 
         # Save evidence
-        evidence_path = morpheus_dir / "evidence.jsonl"
         evidence_path.write_bytes(evidence_jsonl)
         
         # Save receipt
-        receipt_path = receipts_dir / receipt_file_name(receipt["receipt_id"])
-        receipt_path.parent.mkdir(parents=True, exist_ok=True)
         receipt_path.write_text(json.dumps(receipt, indent=2, default=str))
         
         # Update audit log
-        audit_log = receipts_dir / "audit.log"
         with open(audit_log, "a") as f:
             f.write(f"{receipt['issued_at']} {receipt['receipt_id']}\n")
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         console.print(f"[red]Output write failed:[/red] {exc}")
         raise typer.Exit(1) from exc
     

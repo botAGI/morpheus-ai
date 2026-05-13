@@ -384,6 +384,23 @@ def test_compile_returns_bad_request_for_output_write_failures(tmp_path):
     assert "Output write failed" in response.json()["detail"]
 
 
+def test_compile_returns_bad_request_for_symlinked_output_artifact(tmp_path):
+    MorpheusConfig(project_root=tmp_path).init_default()
+    (tmp_path / "README.md").write_text("TODO: compile API with symlinked output\n")
+    external_output = tmp_path / "external-output"
+    external_output.write_text("do not modify")
+    (tmp_path / ".morpheus" / "WAKE.md").symlink_to(external_output)
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post("/compile", json={"project_root": str(tmp_path)})
+
+    assert response.status_code == 400
+    assert "Output write failed" in response.json()["detail"]
+    assert "must not be a symlink" in response.json()["detail"]
+    assert external_output.read_text() == "do not modify"
+    assert not list((tmp_path / ".morpheus" / "receipts").glob("receipt_*.json"))
+
+
 def test_get_wake_rejects_project_path_traversal(tmp_path, monkeypatch):
     safe_dir = tmp_path / "safe"
     safe_dir.mkdir()
