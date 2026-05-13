@@ -8,7 +8,34 @@ from typer.testing import CliRunner
 
 import morpheus.cli as cli_module
 from morpheus.cli import app
-from morpheus.core.provenance import compute_sha256_file
+from morpheus.core.provenance import build_receipt, compute_sha256_file, receipt_file_name
+
+
+def write_out_of_filename_order_receipt_chain(morpheus_dir: Path):
+    private_key_path = morpheus_dir / "keys" / "local.key"
+    receipts_dir = morpheus_dir / "receipts"
+    root = build_receipt(
+        state_dict={"claims": [], "evidence": []},
+        wake_md_sha="1" * 64,
+        sources_data=[],
+        private_key_path=private_key_path,
+        receipt_id="rcpt_z_root",
+    )
+    root_path = receipts_dir / receipt_file_name(root["receipt_id"])
+    root_path.write_text(json.dumps(root, default=str))
+
+    tail = build_receipt(
+        state_dict={"claims": [], "evidence": []},
+        wake_md_sha="2" * 64,
+        sources_data=[],
+        private_key_path=private_key_path,
+        prev_hash=compute_sha256_file(root_path),
+        receipt_id="rcpt_a_tail",
+    )
+    tail_path = receipts_dir / receipt_file_name(tail["receipt_id"])
+    tail_path.write_text(json.dumps(tail, default=str))
+
+    return root_path, tail_path
 
 
 def test_init_creates_morpheus_state(tmp_path):
@@ -133,3 +160,43 @@ def test_compile_receipt_hashes_final_evidence_file(tmp_path):
         assert receipt["evidence_jsonl_sha256"] == compute_sha256_file(
             morpheus_dir / "evidence.jsonl"
         )
+
+
+def test_verify_quick_reports_receipt_chain_tail_not_filename_latest(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        init_result = runner.invoke(app, ["init"])
+        assert init_result.exit_code == 0, init_result.output
+        morpheus_dir = Path.cwd() / ".morpheus"
+        write_out_of_filename_order_receipt_chain(morpheus_dir)
+
+        result = runner.invoke(app, ["verify"])
+
+        assert result.exit_code == 0, result.output
+        assert "rcpt_a_tail" in result.output
+        assert "rcpt_z_root" not in result.output
+
+
+def test_status_reports_receipt_chain_tail_not_filename_latest(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        init_result = runner.invoke(app, ["init"])
+        assert init_result.exit_code == 0, init_result.output
+        morpheus_dir = Path.cwd() / ".morpheus"
+        (morpheus_dir / "state.json").write_text(
+            json.dumps({
+                "sources": [],
+                "claims": [],
+                "evidence": [],
+                "compiled_at": "2026-05-13T00:00:00+00:00",
+            })
+        )
+        write_out_of_filename_order_receipt_chain(morpheus_dir)
+
+        result = runner.invoke(app, ["status"])
+
+        assert result.exit_code == 0, result.output
+        assert "rcpt_a_tail" in result.output
+        assert "rcpt_z_root" not in result.output

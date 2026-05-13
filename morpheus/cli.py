@@ -187,7 +187,6 @@ def verify(
     existing = sorted(receipts_dir.glob("receipt_*.json"))
     
     if all:
-        import json
         valid, errors = verify_receipt_chain(morpheus_dir)
         
         if valid:
@@ -207,7 +206,7 @@ def verify(
             raise typer.Exit(1)
     else:
         # Quick check
-        latest = existing[-1]
+        latest = latest_receipt_file(receipts_dir)
         receipt = json.loads(latest.read_text())
         
         if verbose:
@@ -240,7 +239,8 @@ def status():
     import json
     state = json.loads(state_path.read_text())
     
-    receipt_path = sorted((morpheus_dir / "receipts").glob("receipt_*.json"))[-1] if (morpheus_dir / "receipts").exists() else None
+    receipts_dir = morpheus_dir / "receipts"
+    receipt_path = latest_receipt_file(receipts_dir) if receipts_dir.exists() else None
     
     table = Table(title="Project Status")
     table.add_column("Metric", style="cyan")
