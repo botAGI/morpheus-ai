@@ -51,7 +51,9 @@ class CalendarIntegration:
     def extract_evidence(self, event: dict) -> list[dict]:
         """Extract claim-like statements from event"""
         evidence = []
-        text = event.get("description", "") + " " + event.get("summary", "")
+        description = event.get("description") or ""
+        summary = event.get("summary") or ""
+        text = f"{description} {summary}"
         for keyword in ["DECISION:", "AGREED:", "TODO:", "ACTION:", "WILL:"]:
             if keyword in text.upper():
                 evidence.append({

@@ -53,6 +53,14 @@ def test_gmail_get_emails_respects_max_results_for_cache(tmp_path):
     assert [email["id"] for email in emails] == ["first"]
 
 
+def test_gmail_extract_evidence_handles_null_snippet(tmp_path):
+    evidence = GmailIntegration(token_path=tmp_path / "token.json").extract_evidence(
+        {"id": "email-1", "snippet": None}
+    )
+
+    assert evidence == []
+
+
 def test_calendar_cache_loads_timezone_dates_and_skips_invalid_rows(tmp_path):
     now = datetime.now(timezone.utc)
     cache_path = tmp_path / "calendar_cache.json"
@@ -95,6 +103,14 @@ def test_calendar_get_events_respects_max_results_for_cache(tmp_path):
     events = CalendarIntegration(token_path=token_path).get_events(days=30, max_results=1)
 
     assert [event["id"] for event in events] == ["first"]
+
+
+def test_calendar_extract_evidence_handles_null_text_fields(tmp_path):
+    evidence = CalendarIntegration(token_path=tmp_path / "token.json").extract_evidence(
+        {"id": "event-1", "description": None, "summary": None}
+    )
+
+    assert evidence == []
 
 
 def test_github_get_issues_filters_by_recent_update(monkeypatch, tmp_path):
