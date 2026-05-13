@@ -4,6 +4,8 @@ Google Calendar integration - reads events as evidence.
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
+from morpheus.core.safe_io import reject_symlink_paths
+
 class CalendarIntegration:
     SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
     
@@ -12,7 +14,7 @@ class CalendarIntegration:
         self.credentials_path = Path.home() / ".morpheus" / "calendar_credentials.json"
     
     def authenticate(self):
-        if not self.token_path.is_file():
+        if self.token_path.is_symlink() or not self.token_path.is_file():
             raise RuntimeError(
                 "Calendar not authenticated. Run: morpheus integrate calendar"
             )
@@ -34,8 +36,9 @@ class CalendarIntegration:
     def _load_from_cache(self, cache_path: Path, days: int) -> list[dict]:
         import json
         try:
+            reject_symlink_paths([cache_path], "Calendar cache path")
             data = json.loads(cache_path.read_text())
-        except (OSError, json.JSONDecodeError):
+        except (OSError, ValueError, json.JSONDecodeError):
             return []
         if not isinstance(data, list):
             return []

@@ -68,6 +68,17 @@ def test_github_authenticate_requires_token_file(tmp_path):
     assert not GitHubIntegration(token_path=token_path).authenticate()
 
 
+def test_github_authenticate_rejects_token_symlink(tmp_path):
+    external_token = tmp_path / "external-token.txt"
+    external_token.write_text("secret")
+    token_path = tmp_path / "github_token.txt"
+    token_path.symlink_to(external_token)
+    integration = GitHubIntegration(token_path=token_path)
+
+    assert not integration.authenticate()
+    assert integration._get_token() is None
+
+
 def test_gmail_cache_loads_timezone_dates_and_skips_invalid_rows(tmp_path):
     now = datetime.now(timezone.utc)
     cache_path = tmp_path / "gmail_cache.json"
@@ -141,6 +152,37 @@ def test_gmail_authenticate_rejects_token_directory(tmp_path):
         assert "Gmail not authenticated" in str(exc)
     else:
         raise AssertionError("authenticate should reject token directories")
+
+
+def test_gmail_authenticate_rejects_token_symlink(tmp_path):
+    external_token = tmp_path / "external-token.json"
+    external_token.write_text("{}")
+    token_path = tmp_path / "gmail_token.json"
+    token_path.symlink_to(external_token)
+
+    try:
+        GmailIntegration(token_path=token_path).authenticate()
+    except RuntimeError as exc:
+        assert "Gmail not authenticated" in str(exc)
+    else:
+        raise AssertionError("authenticate should reject token symlinks")
+
+
+def test_gmail_cache_rejects_symlinked_cache(tmp_path):
+    now = datetime.now(timezone.utc)
+    external_cache = tmp_path / "external-cache.json"
+    external_cache.write_text(
+        json.dumps([{"id": "external", "date": now.isoformat(), "snippet": "TODO: secret"}])
+    )
+    cache_path = tmp_path / "gmail_cache.json"
+    cache_path.symlink_to(external_cache)
+
+    emails = GmailIntegration(token_path=tmp_path / "token.json")._load_from_cache(
+        cache_path,
+        days=30,
+    )
+
+    assert emails == []
 
 
 def test_gmail_extract_evidence_handles_null_snippet(tmp_path):
@@ -224,6 +266,37 @@ def test_calendar_authenticate_rejects_token_directory(tmp_path):
         assert "Calendar not authenticated" in str(exc)
     else:
         raise AssertionError("authenticate should reject token directories")
+
+
+def test_calendar_authenticate_rejects_token_symlink(tmp_path):
+    external_token = tmp_path / "external-token.json"
+    external_token.write_text("{}")
+    token_path = tmp_path / "calendar_token.json"
+    token_path.symlink_to(external_token)
+
+    try:
+        CalendarIntegration(token_path=token_path).authenticate()
+    except RuntimeError as exc:
+        assert "Calendar not authenticated" in str(exc)
+    else:
+        raise AssertionError("authenticate should reject token symlinks")
+
+
+def test_calendar_cache_rejects_symlinked_cache(tmp_path):
+    now = datetime.now(timezone.utc)
+    external_cache = tmp_path / "external-cache.json"
+    external_cache.write_text(
+        json.dumps([{"id": "external", "start": now.isoformat(), "summary": "TODO: secret"}])
+    )
+    cache_path = tmp_path / "calendar_cache.json"
+    cache_path.symlink_to(external_cache)
+
+    events = CalendarIntegration(token_path=tmp_path / "token.json")._load_from_cache(
+        cache_path,
+        days=30,
+    )
+
+    assert events == []
 
 
 def test_calendar_extract_evidence_handles_null_text_fields(tmp_path):
