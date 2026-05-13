@@ -304,6 +304,11 @@ def consolidate(
     ),
     output: str = typer.Option("dataset.jsonl", help="Output dataset file"),
     days: int = typer.Option(7, help="Process sessions from last N days"),
+    stats_output: str | None = typer.Option(
+        None,
+        "--stats-output",
+        help="Optional JSON file for consolidation counters",
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show details")
 ):
     """Consolidate OpenClaw sessions into training dataset.
@@ -315,6 +320,7 @@ def consolidate(
         sessions_dir=Path(sessions_dir),
         output_path=Path(output),
         days=days,
+        stats_output_path=Path(stats_output) if stats_output else None,
         verbose=verbose
     )
 

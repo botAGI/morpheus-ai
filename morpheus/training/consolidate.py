@@ -8,7 +8,7 @@ for LoRA fine-tuning.
 import json
 import hashlib
 import re
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
@@ -98,6 +98,10 @@ class ConsolidationStats:
     pairs_extracted: int = 0
     pairs_unique: int = 0
     pairs_duplicate: int = 0
+
+    def to_dict(self) -> dict[str, int]:
+        """Return counters in a JSON-serializable form."""
+        return asdict(self)
 
 
 def normalize_whitespace(content: str) -> str:
@@ -340,6 +344,57 @@ def messages_to_qa_pairs(messages: list[dict]) -> list[dict]:
     return pairs
 
 
+def deduplicate_pairs(pairs: list[dict], stats: ConsolidationStats) -> list[dict]:
+    """Remove exact duplicate instruction/output pairs while preserving order."""
+    seen = set()
+    unique_pairs = []
+    for pair in pairs:
+        fingerprint = json.dumps(
+            {
+                "instruction": normalize_whitespace(pair["instruction"]),
+                "output": normalize_whitespace(pair["output"]),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        h = hashlib.sha256(fingerprint.encode()).hexdigest()
+        if h not in seen:
+            seen.add(h)
+            unique_pairs.append(pair)
+        else:
+            stats.pairs_duplicate += 1
+    stats.pairs_unique = len(unique_pairs)
+    return unique_pairs
+
+
+def write_dataset(output_path: Path, pairs: list[dict]) -> None:
+    """Write ShareGPT-style JSONL training pairs."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8") as f:
+        for pair in pairs:
+            f.write(json.dumps(pair, ensure_ascii=False) + "\n")
+
+
+def write_stats_report(
+    stats_output_path: Path,
+    stats: ConsolidationStats,
+    *,
+    sessions_dir: Path,
+    output_path: Path,
+    days: int,
+) -> None:
+    """Write a machine-readable consolidation report for automation."""
+    payload = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "sessions_dir": str(sessions_dir),
+        "output_path": str(output_path),
+        "days": days,
+        "stats": stats.to_dict(),
+    }
+    stats_output_path.parent.mkdir(parents=True, exist_ok=True)
+    stats_output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+
+
 def consolidate_sessions(
     sessions_dir: Annotated[Path, typer.Option(
         help="OpenClaw sessions directory"
@@ -349,6 +404,10 @@ def consolidate_sessions(
     )] = Path("dataset.jsonl"),
     days: Annotated[int, typer.Option(help="Process sessions from last N days")] = 7,
     min_pairs: Annotated[int, typer.Option(help="Minimum Q&A pairs to consider useful")] = 10,
+    stats_output_path: Annotated[Path | None, typer.Option(
+        "--stats-output",
+        help="Optional JSON file for consolidation counters",
+    )] = None,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Show details")] = False,
 ):
     """Find sessions from last N days and create training dataset."""
@@ -360,7 +419,7 @@ def consolidate_sessions(
         console.print(f"[red]Sessions directory not found: {sessions_dir}[/red]")
         raise typer.Exit(1)
 
-    session_files = list(sessions_dir.glob("*.jsonl"))
+    session_files = sorted(sessions_dir.glob("*.jsonl"))
     stats.files_found = len(session_files)
 
     if not session_files:
@@ -397,17 +456,7 @@ def consolidate_sessions(
 
             progress.update(task, advance=1)
 
-    # Remove duplicates by hashing instruction
-    seen = set()
-    unique_pairs = []
-    for pair in all_pairs:
-        h = hashlib.md5(pair["instruction"].encode()).hexdigest()
-        if h not in seen:
-            seen.add(h)
-            unique_pairs.append(pair)
-        else:
-            stats.pairs_duplicate += 1
-    stats.pairs_unique = len(unique_pairs)
+    unique_pairs = deduplicate_pairs(all_pairs, stats)
 
     if verbose:
         console.print(f"\n[cyan]Statistics:[/cyan]")
@@ -423,18 +472,27 @@ def consolidate_sessions(
         console.print(f"  Duplicate Q&A pairs: {stats.pairs_duplicate}")
 
     if len(unique_pairs) < min_pairs:
-        console.print(f"[yellow]Not enough unique Q&A pairs ({len(unique_pairs)} < {min_pairs})[/yellow]")
+        console.print(
+            f"[yellow]Not enough unique Q&A pairs ({len(unique_pairs)} < {min_pairs})[/yellow]"
+        )
         console.print("[yellow]Try increasing --days or check session directory[/yellow]")
         raise typer.Exit(1)
 
-    # Write output
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "w") as f:
-        for pair in unique_pairs:
-            f.write(json.dumps(pair, ensure_ascii=False) + "\n")
+    write_dataset(output_path, unique_pairs)
+
+    if stats_output_path:
+        write_stats_report(
+            stats_output_path,
+            stats,
+            sessions_dir=sessions_dir,
+            output_path=output_path,
+            days=days,
+        )
 
     console.print(f"\n[green]✓ Dataset created:[/green] {len(unique_pairs)} Q&A pairs")
     console.print(f"[green]✓ Saved to:[/green] {output_path}")
+    if stats_output_path:
+        console.print(f"[green]✓ Stats saved to:[/green] {stats_output_path}")
     return stats
 
 
