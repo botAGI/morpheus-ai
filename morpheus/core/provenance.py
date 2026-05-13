@@ -4,6 +4,7 @@ Provenance: SHA256 utilities and receipt signing with ed25519.
 import hashlib
 import base64
 import json
+import uuid
 from pathlib import Path
 from datetime import datetime, timezone
 from cryptography.hazmat.primitives.asymmetric import ed25519
@@ -35,6 +36,12 @@ def receipt_file_name(receipt_id: str) -> str:
     return f"receipt_{receipt_id}.json"
 
 
+def new_receipt_id() -> str:
+    """Return a unique receipt id independent of artifact hashes."""
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return f"rcpt_{ts}_{uuid.uuid4().hex[:8]}"
+
+
 def latest_receipt_file(receipts_dir: Path) -> Path | None:
     """Return the receipt chain tail by previous hash links."""
     receipt_files = sorted(receipts_dir.glob("receipt_*.json"))
@@ -62,7 +69,14 @@ def latest_receipt_file(receipts_dir: Path) -> Path | None:
     return tails[0]["path"]
 
 
-def build_receipt(state_dict: dict, wake_md_sha: str, sources_data: list, private_key_path: Path, prev_hash: str = None) -> dict:
+def build_receipt(
+    state_dict: dict,
+    wake_md_sha: str,
+    sources_data: list,
+    private_key_path: Path,
+    prev_hash: str = None,
+    receipt_id: str | None = None,
+) -> dict:
     """Build and sign a receipt."""
     state_json_bytes = json.dumps(state_dict, default=str).encode()
     state_sha = compute_sha256_bytes(state_json_bytes)
@@ -72,8 +86,7 @@ def build_receipt(state_dict: dict, wake_md_sha: str, sources_data: list, privat
     evidence_sha = compute_sha256_bytes(evidence_bytes)
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    short_hash = wake_md_sha[:8]
-    receipt_id = f"rcpt_{ts}_{short_hash}"
+    receipt_id = receipt_id or new_receipt_id()
 
     if not private_key_path.exists():
         raise FileNotFoundError(f"private signing key not found: {private_key_path}")

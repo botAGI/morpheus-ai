@@ -12,8 +12,10 @@ from morpheus.core.compiler import compile_project
 from morpheus.core.wake import generate_wake_md
 from morpheus.core.provenance import (
     compute_sha256_file,
+    compute_sha256_bytes,
     build_receipt,
     latest_receipt_file,
+    new_receipt_id,
     receipt_file_name,
 )
 
@@ -78,14 +80,10 @@ def compile(request: CompileRequest):
         "line_count": s.line_count
     } for s in state.sources]
     
-    # Generate WAKE.md
-    wake_md = generate_wake_md(state, "pending")
-    
-    # Sign
-    temp_path = morpheus_dir / "temp_wake.md"
-    temp_path.write_text(wake_md)
-    wake_sha = compute_sha256_file(temp_path)
-    temp_path.unlink()
+    # Generate final WAKE.md before signing so the receipt hashes the artifact on disk.
+    receipt_id = new_receipt_id()
+    wake_md = generate_wake_md(state, receipt_id)
+    wake_sha = compute_sha256_bytes(wake_md.encode())
     
     private_key_path = morpheus_dir / "keys" / "local.key"
     receipt = build_receipt(
@@ -93,11 +91,11 @@ def compile(request: CompileRequest):
         wake_sha,
         sources_data,
         private_key_path,
-        prev_hash
+        prev_hash,
+        receipt_id=receipt_id,
     )
     
-    # Update WAKE with real receipt
-    wake_md = wake_md.replace("pending", receipt["receipt_id"])
+    # Write WAKE with real receipt
     (morpheus_dir / "WAKE.md").write_text(wake_md)
 
     # Save state

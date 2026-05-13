@@ -1,12 +1,14 @@
 """
 Tests for morpheus.cli.
 """
+import json
 from pathlib import Path
 
 from typer.testing import CliRunner
 
 import morpheus.cli as cli_module
 from morpheus.cli import app
+from morpheus.core.provenance import compute_sha256_file
 
 
 def test_init_creates_morpheus_state(tmp_path):
@@ -55,3 +57,21 @@ def test_compile_preserves_receipts_with_same_timestamp(tmp_path, monkeypatch):
             "receipt_rcpt_20260513T114006Z_first.json",
             "receipt_rcpt_20260513T114006Z_second.json",
         ]
+
+
+def test_compile_receipt_hashes_final_wake_file(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        Path("README.md").write_text("TODO: hash final wake\n")
+
+        init_result = runner.invoke(app, ["init"])
+        compile_result = runner.invoke(app, ["compile"])
+
+        assert init_result.exit_code == 0, init_result.output
+        assert compile_result.exit_code == 0, compile_result.output
+        morpheus_dir = Path.cwd() / ".morpheus"
+        receipt_path = next((morpheus_dir / "receipts").glob("receipt_*.json"))
+        receipt = json.loads(receipt_path.read_text())
+
+        assert receipt["wake_md_sha256"] == compute_sha256_file(morpheus_dir / "WAKE.md")
