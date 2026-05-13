@@ -58,6 +58,15 @@ def test_generate_training_script_shell_quotes_scalar_training_values(tmp_path):
     assert "--lora_rank 64 $(touch rank_pwned)" not in script
 
 
+def test_generate_training_script_accepts_non_string_lora_target_items(tmp_path):
+    script_path = tmp_path / "morpheus_train.sh"
+
+    generate_training_script({"lora_target": ["q_proj", 123]}, script_path)
+
+    script = script_path.read_text()
+    assert "--lora_target q_proj,123" in script
+
+
 def test_generate_training_script_creates_parent_directory(tmp_path):
     script_path = tmp_path / "scripts" / "morpheus_train.sh"
 

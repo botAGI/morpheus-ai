@@ -81,7 +81,7 @@ def generate_training_script(config: dict, output_path: Path):
     # Handle lora_target (list or "all")
     lora_target = config.get("lora_target", "all")
     if isinstance(lora_target, list):
-        lora_target = ",".join(lora_target)
+        lora_target = ",".join(str(target) for target in lora_target)
     lora_target = quote(lora_target)
     
     script_content = TRAINING_SCRIPT.format(
