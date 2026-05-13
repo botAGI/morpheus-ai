@@ -20,7 +20,7 @@ class GitHubIntegration:
         headers = {"Authorization": f"token {token}"} if token else {}
         resp = httpx.get(f"{self.api_url}/repos/{owner}/{repo}", headers=headers, timeout=10)
         resp.raise_for_status()
-        data = resp.json()
+        data = _safe_response_json(resp)
         return data if isinstance(data, dict) else {}
     
     def get_issues(self, owner: str, repo: str, state: str = "all", days: int = 30) -> list[dict]:
@@ -37,7 +37,7 @@ class GitHubIntegration:
         resp.raise_for_status()
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         recent_issues = []
-        data = resp.json()
+        data = _safe_response_json(resp)
         if not isinstance(data, list):
             return []
         for issue in data:
@@ -62,7 +62,7 @@ class GitHubIntegration:
             timeout=10
         )
         resp.raise_for_status()
-        data = resp.json()
+        data = _safe_response_json(resp)
         if not isinstance(data, list):
             return []
         return [pull for pull in data if isinstance(pull, dict)]
@@ -73,6 +73,13 @@ class GitHubIntegration:
                 return self.token_path.read_text().strip()
             except OSError:
                 return None
+        return None
+
+
+def _safe_response_json(response):
+    try:
+        return response.json()
+    except ValueError:
         return None
 
 

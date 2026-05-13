@@ -27,6 +27,24 @@ def test_github_get_repo_returns_empty_dict_for_non_object_response(monkeypatch,
     assert repo == {}
 
 
+def test_github_get_repo_returns_empty_dict_for_malformed_json_response(monkeypatch, tmp_path):
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            raise ValueError("invalid json")
+
+    monkeypatch.setattr("httpx.get", lambda *args, **kwargs: Response())
+
+    repo = GitHubIntegration(token_path=tmp_path / "missing-token").get_repo(
+        "owner",
+        "repo",
+    )
+
+    assert repo == {}
+
+
 def test_github_authenticate_requires_token_file(tmp_path):
     token_path = tmp_path / "github_token.txt"
     token_path.mkdir()
@@ -216,6 +234,28 @@ def test_github_get_issues_returns_empty_list_for_non_list_response(monkeypatch,
     assert issues == []
 
 
+def test_github_get_issues_returns_empty_list_for_malformed_json_response(
+    monkeypatch,
+    tmp_path,
+):
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            raise ValueError("invalid json")
+
+    monkeypatch.setattr("httpx.get", lambda *args, **kwargs: Response())
+
+    issues = GitHubIntegration(token_path=tmp_path / "missing-token").get_issues(
+        "owner",
+        "repo",
+        days=30,
+    )
+
+    assert issues == []
+
+
 def test_github_get_issues_skips_pull_request_issue_rows(monkeypatch, tmp_path):
     now = datetime.now(timezone.utc)
 
@@ -260,3 +300,24 @@ def test_github_get_pulls_returns_only_object_rows(monkeypatch, tmp_path):
     )
 
     assert [pull["number"] for pull in pulls] == [1, 2]
+
+
+def test_github_get_pulls_returns_empty_list_for_malformed_json_response(
+    monkeypatch,
+    tmp_path,
+):
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            raise ValueError("invalid json")
+
+    monkeypatch.setattr("httpx.get", lambda *args, **kwargs: Response())
+
+    pulls = GitHubIntegration(token_path=tmp_path / "missing-token").get_pulls(
+        "owner",
+        "repo",
+    )
+
+    assert pulls == []
