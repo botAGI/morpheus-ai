@@ -12,7 +12,7 @@ from datetime import datetime
 from morpheus.core.config import MorpheusConfig
 from morpheus.core.compiler import compile_project
 from morpheus.core.wake import generate_wake_md
-from morpheus.core.provenance import compute_sha256_file, build_receipt
+from morpheus.core.provenance import compute_sha256_file, build_receipt, receipt_file_name
 
 app = FastAPI(
     title="Morpheus API",
@@ -98,7 +98,7 @@ def compile(request: CompileRequest):
     (morpheus_dir / "WAKE.md").write_text(wake_md)
     
     # Save receipt
-    receipt_path = receipts_dir / f"receipt_{receipt['receipt_id'].split('_')[1]}.json"
+    receipt_path = receipts_dir / receipt_file_name(receipt["receipt_id"])
     receipt_path.parent.mkdir(parents=True, exist_ok=True)
     receipt_path.write_text(json.dumps(receipt, indent=2, default=str))
     

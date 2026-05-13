@@ -25,13 +25,27 @@ def verify_receipt_chain(morpheus_dir: Path) -> tuple[bool, list[str]]:
         return False, ["no receipts found"]
 
     public_key, key_error = _load_public_key(morpheus_dir / "keys")
+    receipt_records = []
 
-    for i, receipt_file in enumerate(receipt_files):
+    for receipt_file in receipt_files:
         try:
             receipt = json.loads(receipt_file.read_text())
         except json.JSONDecodeError as exc:
             errors.append(f"{receipt_file.name}: invalid JSON ({exc.msg})")
             continue
+
+        receipt_records.append({
+            "path": receipt_file,
+            "receipt": receipt,
+            "sha256": compute_sha256_file(receipt_file),
+        })
+
+    ordered_records, ordering_errors = _order_receipt_records(receipt_records)
+    errors.extend(ordering_errors)
+
+    for i, record in enumerate(ordered_records):
+        receipt_file = record["path"]
+        receipt = record["receipt"]
 
         # Check required fields
         required = ["receipt_id", "wake_md_sha256", "state_json_sha256", "signature"]
@@ -39,10 +53,12 @@ def verify_receipt_chain(morpheus_dir: Path) -> tuple[bool, list[str]]:
             if field not in receipt:
                 errors.append(f"{receipt_file.name}: missing field '{field}'")
 
-        # Check previous link if not first
-        if i > 0:
-            prev_file = receipt_files[i - 1]
-            prev_sha = compute_sha256_file(prev_file)
+        # Check previous link against the actual previous receipt artifact hash.
+        if i == 0:
+            if receipt.get("previous_receipt_sha256") is not None:
+                errors.append(f"{receipt_file.name}: first receipt has previous_receipt_sha256")
+        else:
+            prev_sha = ordered_records[i - 1]["sha256"]
             if receipt.get("previous_receipt_sha256") != prev_sha:
                 errors.append(f"{receipt_file.name}: previous_receipt_sha256 mismatch")
 
@@ -58,6 +74,53 @@ def verify_receipt_chain(morpheus_dir: Path) -> tuple[bool, list[str]]:
                 errors.append(f"{receipt_file.name}: {signature_error}")
 
     return (len(errors) == 0, errors)
+
+
+def _order_receipt_records(records: list[dict]) -> tuple[list[dict], list[str]]:
+    """Order receipt records by previous_receipt_sha256 links instead of filename."""
+    if len(records) <= 1:
+        return records, []
+
+    errors = []
+    roots = [
+        record for record in records
+        if record["receipt"].get("previous_receipt_sha256") in (None, "")
+    ]
+    if len(roots) != 1:
+        errors.append(f"expected exactly one root receipt, found {len(roots)}")
+        return sorted(records, key=lambda record: record["path"].name), errors
+
+    children_by_prev_sha: dict[str, list[dict]] = {}
+    for record in records:
+        prev_sha = record["receipt"].get("previous_receipt_sha256")
+        if prev_sha not in (None, ""):
+            children_by_prev_sha.setdefault(prev_sha, []).append(record)
+
+    ordered = []
+    seen = set()
+    current = roots[0]
+    while current is not None:
+        current_sha = current["sha256"]
+        if current_sha in seen:
+            errors.append("receipt chain contains a cycle")
+            break
+
+        seen.add(current_sha)
+        ordered.append(current)
+
+        children = children_by_prev_sha.get(current_sha, [])
+        if len(children) > 1:
+            errors.append(f"{current['path'].name}: multiple receipts reference this receipt")
+            break
+
+        current = children[0] if children else None
+
+    leftovers = [record for record in records if record["sha256"] not in seen]
+    if leftovers:
+        errors.append("receipt chain is disconnected")
+        ordered.extend(sorted(leftovers, key=lambda record: record["path"].name))
+
+    return ordered, errors
 
 
 def _load_public_key(keys_dir: Path) -> tuple[ed25519.Ed25519PublicKey | None, str | None]:
