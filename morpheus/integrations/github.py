@@ -39,6 +39,8 @@ class GitHubIntegration:
         for issue in resp.json():
             if not isinstance(issue, dict):
                 continue
+            if "pull_request" in issue:
+                continue
             updated_at = _parse_github_datetime(issue.get("updated_at"))
             if updated_at and updated_at > cutoff:
                 recent_issues.append(issue)
