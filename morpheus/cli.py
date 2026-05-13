@@ -295,7 +295,7 @@ def wake():
 
 @app.command()
 def integrate(
-    service: str = typer.Argument(..., help="Service: gmail, calendar, github"),
+    service: str | None = typer.Argument(None, help="Service: gmail, calendar, github"),
     list_services: bool = typer.Option(False, "--list", help="List available integrations")
 ):
     """Connect external integrations.
@@ -315,6 +315,10 @@ def integrate(
         table.add_row("github", "[yellow]not configured[/yellow]", "PAT")
         console.print(table)
         return
+
+    if service is None:
+        console.print("[red]Service required. Use --list to show available integrations.[/red]")
+        raise typer.Exit(1)
     
     console.print(f"[blue]Setting up {service} integration...[/blue]")
     
