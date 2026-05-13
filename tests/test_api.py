@@ -73,6 +73,7 @@ def test_compile_persists_state_and_receipt_for_status_and_verify(tmp_path):
 
     assert verify_response.status_code == 200
     assert verify_response.json()["valid"] is True
+    assert verify_response.json()["receipt_id"] == compile_payload["receipt_id"]
 
 
 def test_compile_receipt_hashes_final_wake_file(tmp_path):
