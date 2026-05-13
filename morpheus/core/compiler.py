@@ -55,6 +55,7 @@ def compile_project(project_root: Path) -> ProjectState:
 
     for path in _iter_watch_paths(project_root, config.watch_dirs):
         if path.is_file() and not _is_excluded(path, project_root, exclude_patterns):
+            stat = path.stat()
             sha = compute_sha256(path)
             content = path.read_text(errors="ignore")
             lines = content.splitlines()
@@ -63,9 +64,9 @@ def compile_project(project_root: Path) -> ProjectState:
                 path=str(path.relative_to(project_root)),
                 kind=path.suffix.lstrip(".") or "text",
                 sha256=sha,
-                size_bytes=len(content.encode()),
+                size_bytes=stat.st_size,
                 line_count=len(lines),
-                modified_at=datetime.fromtimestamp(path.stat().st_mtime),
+                modified_at=datetime.fromtimestamp(stat.st_mtime, timezone.utc),
             )
             sources.append(src)
 

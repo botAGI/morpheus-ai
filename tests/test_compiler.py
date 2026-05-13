@@ -83,6 +83,19 @@ def test_compile_project_basic():
         assert "main.py" in paths
 
 
+def test_compile_project_records_actual_file_size_for_non_utf8_bytes():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        data = b"\xff\xfeTODO: binary marker\n"
+        binary_path = tmppath / "data.bin"
+        binary_path.write_bytes(data)
+
+        state = compile_project(tmppath)
+
+        source = next(source for source in state.sources if source.path == "data.bin")
+        assert source.size_bytes == len(data)
+
+
 def test_compile_project_excludes():
     with tempfile.TemporaryDirectory() as tmpdir:
         tmppath = Path(tmpdir)
