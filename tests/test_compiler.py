@@ -192,6 +192,40 @@ def test_compile_project_excludes_common_local_tool_outputs_by_default():
         assert [claim.excerpt for claim in state.claims] == ["TODO: keep source"]
 
 
+def test_compile_project_excludes_repo_hygiene_artifacts_by_default():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        ignored_dirs = [
+            ".idea",
+            ".vscode",
+            "target",
+            "ui/target",
+            "ui/dist",
+            "reports",
+            "morpheus_adapters",
+        ]
+        for ignored_dir in ignored_dirs:
+            path = tmppath / ignored_dir
+            path.mkdir(parents=True)
+            (path / "generated.txt").write_text("TODO: ignore generated artifact\n")
+
+        for ignored_file in [
+            ".DS_Store",
+            "debug.log",
+            "server.pid",
+            "dataset.jsonl",
+            "WAKE.md",
+        ]:
+            (tmppath / ignored_file).write_text("TODO: ignore generated file\n")
+
+        (tmppath / "valid.txt").write_text("TODO: keep source\n")
+
+        state = compile_project(tmppath)
+
+        assert {source.path for source in state.sources} == {"valid.txt"}
+        assert [claim.excerpt for claim in state.claims] == ["TODO: keep source"]
+
+
 def test_compile_project_excludes_common_secret_files_by_default():
     with tempfile.TemporaryDirectory() as tmpdir:
         tmppath = Path(tmpdir)
