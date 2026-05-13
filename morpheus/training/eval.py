@@ -92,8 +92,13 @@ def run_eval(
     total = 0
     passed = 0
     
-    with open(test_file, encoding="utf-8") as f:
-        lines = f.readlines()
+    try:
+        with test_file.open(encoding="utf-8") as f:
+            lines = f.readlines()
+    except OSError as exc:
+        console.print(f"[red]Test file unreadable: {test_file}[/red]")
+        console.print(f"[yellow]{exc}[/yellow]")
+        raise typer.Exit(1) from exc
     
     console.print(f"[blue]Running evaluation on {len(lines)} questions...[/blue]\n")
     
