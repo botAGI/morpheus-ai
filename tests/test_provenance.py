@@ -141,6 +141,37 @@ def test_build_receipt_with_previous():
         assert receipt["previous_receipt_sha256"] == previous_sha
 
 
+def test_build_receipt_ignores_malformed_claims_and_evidence(tmp_path):
+    from cryptography.hazmat.primitives.asymmetric import ed25519
+    from cryptography.hazmat.primitives import serialization
+
+    private_key = ed25519.Ed25519PrivateKey.generate()
+    private_key_path = tmp_path / "private.key"
+    private_key_path.write_bytes(
+        private_key.private_bytes(
+            serialization.Encoding.Raw,
+            serialization.PrivateFormat.Raw,
+            serialization.NoEncryption(),
+        )
+    )
+
+    receipt = build_receipt(
+        state_dict={
+            "claims": [
+                {"status": "active"},
+                "not a claim object",
+                {"status": "superseded"},
+            ],
+            "evidence": None,
+        },
+        wake_md_sha="wake_sha",
+        sources_data=[],
+        private_key_path=private_key_path,
+    )
+
+    assert receipt["claim_count"] == {"active": 1, "superseded": 1, "unverified": 0}
+
+
 def test_build_receipt_requires_private_key():
     state = {"project": {"name": "test"}, "claims": [], "evidence": []}
 
