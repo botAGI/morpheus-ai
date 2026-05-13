@@ -389,6 +389,7 @@ def train(
         dataset=Path(dataset),
         output_dir=Path(output_dir),
         lora_rank=lora_rank,
+        lora_alpha=128,
         epochs=epochs,
         dry_run=dry_run
     )
