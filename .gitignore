@@ -1,0 +1,41 @@
+# Python bytecode and test cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Python packaging and virtual environments
+.venv/
+venv/
+env/
+ENV/
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Morpheus local runtime artifacts
+.morpheus/
+WAKE.md
+dataset.jsonl
+reports/
+morpheus_adapters/
+
+# Rust and Tauri build artifacts
+target/
+ui/target/
+ui/dist/
+
+# Local logs and process files
+*.log
+*.pid
+
+# Editor and OS files
+.DS_Store
+.idea/
+.vscode/
