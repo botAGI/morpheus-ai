@@ -439,6 +439,9 @@ def consolidate_sessions(
     if not sessions_dir.exists():
         console.print(f"[red]Sessions directory not found: {sessions_dir}[/red]")
         raise typer.Exit(1)
+    if not sessions_dir.is_dir():
+        console.print(f"[red]Sessions path is not a directory: {sessions_dir}[/red]")
+        raise typer.Exit(1)
 
     session_files = sorted(sessions_dir.glob("*.jsonl"))
     stats.files_found = len(session_files)

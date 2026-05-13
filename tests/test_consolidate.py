@@ -364,6 +364,25 @@ def test_consolidate_sessions_reports_unwritable_stats_output(tmp_path):
         )
 
 
+def test_consolidate_sessions_rejects_sessions_path_file(tmp_path, capsys):
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.write_text("not a directory")
+    output_path = tmp_path / "dataset.jsonl"
+
+    with pytest.raises(click.exceptions.Exit):
+        consolidate_sessions(
+            sessions_dir=sessions_dir,
+            output_path=output_path,
+            days=1,
+            min_pairs=0,
+        )
+
+    captured = capsys.readouterr().out
+    assert "Sessions path is not a directory" in captured
+    assert "No session files found" not in captured
+    assert not output_path.exists()
+
+
 def test_consolidate_sessions_errors_when_no_pairs(tmp_path):
     sessions_dir = tmp_path / "sessions"
     sessions_dir.mkdir()
