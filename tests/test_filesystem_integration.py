@@ -3,6 +3,8 @@ Tests for morpheus.integrations.filesystem.
 """
 import json
 
+import pytest
+
 from morpheus.integrations.filesystem import FileSystemWatcher
 
 
@@ -60,6 +62,24 @@ def test_scan_ignores_morpheus_cache_and_recovers_from_bad_cache(tmp_path):
 
     cache = json.loads((tmp_path / ".morpheus" / "fs_cache.json").read_text())
     assert list(cache) == ["readme.md"]
+
+
+def test_scan_ignores_symlinked_files_outside_root(tmp_path):
+    watched = tmp_path / "watched"
+    outside = tmp_path / "outside"
+    watched.mkdir()
+    outside.mkdir()
+    secret = outside / "secret.txt"
+    secret.write_text("TODO: do not index through symlink\n")
+    link = watched / "linked-secret.txt"
+    try:
+        link.symlink_to(secret)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+
+    changes = FileSystemWatcher(watched).scan()
+
+    assert changes == []
 
 
 def test_extract_claims_returns_marker_locations(tmp_path):
