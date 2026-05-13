@@ -199,3 +199,35 @@ integrations = {}
 
         assert [claim.excerpt for claim in state.claims] == ["ACTION: follow up"]
         assert state.claims[0].category == "action"
+
+
+def test_compile_project_respects_configured_watch_dirs():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        morpheus_dir = tmppath / ".morpheus"
+        morpheus_dir.mkdir()
+        (morpheus_dir / "morpheus.toml").write_text(
+            """
+watch_dirs = ["src", "docs/decision.md"]
+exclude_patterns = [".git", "node_modules", "__pycache__", ".morpheus"]
+evidence_markers = ["TODO:", "DECISION:"]
+integrations = {}
+"""
+        )
+        (tmppath / "src").mkdir()
+        (tmppath / "src" / "app.py").write_text("TODO: watched source\n")
+        (tmppath / "docs").mkdir()
+        (tmppath / "docs" / "decision.md").write_text("DECISION: watched file\n")
+        (tmppath / "docs" / "ignored.md").write_text("TODO: unwatched sibling\n")
+        (tmppath / "README.md").write_text("TODO: unwatched root\n")
+
+        state = compile_project(tmppath)
+
+        assert [source.path for source in state.sources] == [
+            "docs/decision.md",
+            "src/app.py",
+        ]
+        assert [claim.excerpt for claim in state.claims] == [
+            "DECISION: watched file",
+            "TODO: watched source",
+        ]

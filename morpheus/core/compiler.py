@@ -40,6 +40,7 @@ def compute_sha256(path: Path) -> str:
 
 def compile_project(project_root: Path) -> ProjectState:
     """Scan project sources and extract claims."""
+    project_root = project_root.resolve()
     config = MorpheusConfig(project_root=project_root).load()
     exclude_patterns = DEFAULT_EXCLUDE_PATTERNS | set(config.exclude_patterns)
     evidence_markers = config.evidence_markers or EVIDENCE_MARKERS
@@ -50,7 +51,7 @@ def compile_project(project_root: Path) -> ProjectState:
     claim_counter = 0
     evidence_counter = 0
 
-    for path in sorted(project_root.rglob("*")):
+    for path in _iter_watch_paths(project_root, config.watch_dirs):
         if path.is_file() and not _is_excluded(path, project_root, exclude_patterns):
             sha = compute_sha256(path)
             content = path.read_text(errors="ignore")
@@ -84,6 +85,27 @@ def compile_project(project_root: Path) -> ProjectState:
         evidence=evidence,
         compiled_at=datetime.now(timezone.utc),
     )
+
+
+def _iter_watch_paths(project_root: Path, watch_dirs: list[str]) -> list[Path]:
+    paths = set()
+    for watch_dir in watch_dirs or ["."]:
+        watch_path = Path(watch_dir)
+        if not watch_path.is_absolute():
+            watch_path = project_root / watch_path
+        watch_path = watch_path.resolve()
+
+        try:
+            watch_path.relative_to(project_root)
+        except ValueError:
+            continue
+
+        if watch_path.is_file():
+            paths.add(watch_path)
+        elif watch_path.is_dir():
+            paths.update(watch_path.rglob("*"))
+
+    return sorted(paths, key=lambda path: path.relative_to(project_root).as_posix())
 
 
 def _is_excluded(
