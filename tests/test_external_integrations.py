@@ -4,6 +4,8 @@ Tests for external integrations.
 import json
 from datetime import datetime, timedelta, timezone
 
+import httpx
+
 from morpheus.integrations.calendar import CalendarIntegration
 from morpheus.integrations.github import GitHubIntegration
 from morpheus.integrations.gmail import GmailIntegration
@@ -36,6 +38,20 @@ def test_github_get_repo_returns_empty_dict_for_malformed_json_response(monkeypa
             raise ValueError("invalid json")
 
     monkeypatch.setattr("httpx.get", lambda *args, **kwargs: Response())
+
+    repo = GitHubIntegration(token_path=tmp_path / "missing-token").get_repo(
+        "owner",
+        "repo",
+    )
+
+    assert repo == {}
+
+
+def test_github_get_repo_returns_empty_dict_for_network_errors(monkeypatch, tmp_path):
+    def raise_request_error(*args, **kwargs):
+        raise httpx.RequestError("network down")
+
+    monkeypatch.setattr("httpx.get", raise_request_error)
 
     repo = GitHubIntegration(token_path=tmp_path / "missing-token").get_repo(
         "owner",
@@ -256,6 +272,21 @@ def test_github_get_issues_returns_empty_list_for_malformed_json_response(
     assert issues == []
 
 
+def test_github_get_issues_returns_empty_list_for_network_errors(monkeypatch, tmp_path):
+    def raise_request_error(*args, **kwargs):
+        raise httpx.RequestError("network down")
+
+    monkeypatch.setattr("httpx.get", raise_request_error)
+
+    issues = GitHubIntegration(token_path=tmp_path / "missing-token").get_issues(
+        "owner",
+        "repo",
+        days=30,
+    )
+
+    assert issues == []
+
+
 def test_github_get_issues_skips_pull_request_issue_rows(monkeypatch, tmp_path):
     now = datetime.now(timezone.utc)
 
@@ -314,6 +345,20 @@ def test_github_get_pulls_returns_empty_list_for_malformed_json_response(
             raise ValueError("invalid json")
 
     monkeypatch.setattr("httpx.get", lambda *args, **kwargs: Response())
+
+    pulls = GitHubIntegration(token_path=tmp_path / "missing-token").get_pulls(
+        "owner",
+        "repo",
+    )
+
+    assert pulls == []
+
+
+def test_github_get_pulls_returns_empty_list_for_network_errors(monkeypatch, tmp_path):
+    def raise_request_error(*args, **kwargs):
+        raise httpx.RequestError("network down")
+
+    monkeypatch.setattr("httpx.get", raise_request_error)
 
     pulls = GitHubIntegration(token_path=tmp_path / "missing-token").get_pulls(
         "owner",

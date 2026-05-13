@@ -18,7 +18,10 @@ class GitHubIntegration:
         token = self._get_token()
         import httpx
         headers = {"Authorization": f"token {token}"} if token else {}
-        resp = httpx.get(f"{self.api_url}/repos/{owner}/{repo}", headers=headers, timeout=10)
+        try:
+            resp = httpx.get(f"{self.api_url}/repos/{owner}/{repo}", headers=headers, timeout=10)
+        except httpx.RequestError:
+            return {}
         resp.raise_for_status()
         data = _safe_response_json(resp)
         return data if isinstance(data, dict) else {}
@@ -28,12 +31,15 @@ class GitHubIntegration:
         token = self._get_token()
         import httpx
         headers = {"Authorization": f"token {token}"} if token else {}
-        resp = httpx.get(
-            f"{self.api_url}/repos/{owner}/{repo}/issues",
-            headers=headers,
-            params={"state": state, "per_page": 100},
-            timeout=10
-        )
+        try:
+            resp = httpx.get(
+                f"{self.api_url}/repos/{owner}/{repo}/issues",
+                headers=headers,
+                params={"state": state, "per_page": 100},
+                timeout=10
+            )
+        except httpx.RequestError:
+            return []
         resp.raise_for_status()
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         recent_issues = []
@@ -55,12 +61,15 @@ class GitHubIntegration:
         token = self._get_token()
         import httpx
         headers = {"Authorization": f"token {token}"} if token else {}
-        resp = httpx.get(
-            f"{self.api_url}/repos/{owner}/{repo}/pulls",
-            headers=headers,
-            params={"state": state, "per_page": 100},
-            timeout=10
-        )
+        try:
+            resp = httpx.get(
+                f"{self.api_url}/repos/{owner}/{repo}/pulls",
+                headers=headers,
+                params={"state": state, "per_page": 100},
+                timeout=10
+            )
+        except httpx.RequestError:
+            return []
         resp.raise_for_status()
         data = _safe_response_json(resp)
         if not isinstance(data, list):
