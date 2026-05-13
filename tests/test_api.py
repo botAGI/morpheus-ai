@@ -15,10 +15,29 @@ fastapi_testclient = pytest.importorskip(
 TestClient = fastapi_testclient.TestClient
 
 
-def api_client() -> TestClient:
+def api_client(raise_server_exceptions: bool = True) -> TestClient:
     from morpheus.api.server import app
 
-    return TestClient(app)
+    return TestClient(app, raise_server_exceptions=raise_server_exceptions)
+
+
+def write_unlinked_receipts(morpheus_dir):
+    private_key_path = morpheus_dir / "keys" / "local.key"
+    receipts_dir = morpheus_dir / "receipts"
+    for receipt_id, wake_sha in [
+        ("rcpt_a_root", "1" * 64),
+        ("rcpt_b_root", "2" * 64),
+    ]:
+        receipt = build_receipt(
+            state_dict={"claims": [], "evidence": []},
+            wake_md_sha=wake_sha,
+            sources_data=[],
+            private_key_path=private_key_path,
+            receipt_id=receipt_id,
+        )
+        (receipts_dir / receipt_file_name(receipt["receipt_id"])).write_text(
+            json.dumps(receipt, default=str)
+        )
 
 
 def test_health_returns_version():
@@ -144,3 +163,16 @@ def test_verify_returns_invalid_response_for_broken_receipt_chain(tmp_path):
     assert payload["valid"] is False
     assert payload["receipt_id"] == "none"
     assert any("expected exactly one root receipt" in error for error in payload["errors"])
+
+
+def test_compile_returns_bad_request_for_broken_receipt_chain(tmp_path):
+    MorpheusConfig(project_root=tmp_path).init_default()
+    (tmp_path / "README.md").write_text("TODO: do not compile onto broken chain\n")
+    write_unlinked_receipts(tmp_path / ".morpheus")
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post("/compile", json={"project_root": str(tmp_path)})
+
+    assert response.status_code == 400
+    assert "Receipt chain invalid" in response.json()["detail"]
+    assert "expected exactly one receipt chain tail" in response.json()["detail"]
