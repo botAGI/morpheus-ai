@@ -72,6 +72,10 @@ def _list_count(value) -> int:
     return len(value) if isinstance(value, list) else 0
 
 
+def _is_real_directory(path: Path) -> bool:
+    return path.is_dir() and not path.is_symlink()
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "version": "0.1.0"}
@@ -82,7 +86,7 @@ def compile(request: CompileRequest):
     project_root = Path(request.project_root) if request.project_root else Path.cwd()
     morpheus_dir = project_root / ".morpheus"
     
-    if not morpheus_dir.is_dir():
+    if not _is_real_directory(morpheus_dir):
         raise HTTPException(status_code=400, detail="Not initialized. Run 'morpheus init'")
     
     # Compile
@@ -209,7 +213,7 @@ def verify(project_root: Optional[str] = None):
     root = Path(project_root) if project_root else Path.cwd()
     morpheus_dir = root / ".morpheus"
     
-    if not morpheus_dir.is_dir():
+    if not _is_real_directory(morpheus_dir):
         raise HTTPException(status_code=400, detail="Not initialized")
     
     valid, errors = verify_receipt_chain(morpheus_dir)
@@ -237,6 +241,9 @@ def status(project_root: Optional[str] = None):
     root = Path(project_root) if project_root else Path.cwd()
     morpheus_dir = root / ".morpheus"
     
+    if morpheus_dir.exists() and not _is_real_directory(morpheus_dir):
+        return {"initialized": False}
+
     state_path = morpheus_dir / "state.json"
     if not state_path.exists():
         return {"initialized": False}
