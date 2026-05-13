@@ -270,10 +270,12 @@ def status():
     table = Table(title="Project Status")
     table.add_column("Metric", style="cyan")
     table.add_column("Value", style="green")
+    compiled_at = state.get("compiled_at")
+    compiled_at_display = str(compiled_at)[:19] if compiled_at else "unknown"
     table.add_row("Sources", str(len(state.get("sources", []))))
     table.add_row("Claims", str(len(state.get("claims", []))))
     table.add_row("Evidence", str(len(state.get("evidence", []))))
-    table.add_row("Last Compiled", state.get("compiled_at", "unknown")[:19] if state.get("compiled_at") else "unknown")
+    table.add_row("Last Compiled", compiled_at_display)
     table.add_row("Latest Receipt", receipt_path.name.replace("receipt_", "").replace(".json", "") if receipt_path else "none")
     console.print(table)
 

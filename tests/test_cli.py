@@ -289,6 +289,30 @@ def test_status_reports_invalid_state_json_without_traceback(tmp_path):
         assert "State file invalid" in result.output
 
 
+def test_status_handles_non_string_compiled_at_without_traceback(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        init_result = runner.invoke(app, ["init"])
+        assert init_result.exit_code == 0, init_result.output
+        morpheus_dir = Path.cwd() / ".morpheus"
+        (morpheus_dir / "state.json").write_text(
+            json.dumps(
+                {
+                    "sources": [],
+                    "claims": [],
+                    "evidence": [],
+                    "compiled_at": 1234567890,
+                }
+            )
+        )
+
+        result = runner.invoke(app, ["status"])
+
+        assert result.exit_code == 0, result.output
+        assert "1234567890" in result.output
+
+
 def test_train_dry_run_skips_cli_dependency_check(tmp_path, monkeypatch):
     runner = CliRunner()
 
