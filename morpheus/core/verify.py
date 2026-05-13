@@ -131,7 +131,11 @@ def _verify_latest_artifact_hash(
         return
 
     latest_receipt = ordered_records[-1]["receipt"]
-    actual_sha = compute_sha256_file(artifact_path)
+    try:
+        actual_sha = compute_sha256_file(artifact_path)
+    except OSError as exc:
+        errors.append(f"latest {relative_path} unreadable ({exc})")
+        return
     if latest_receipt.get(receipt_hash_field) != actual_sha:
         errors.append(error_label)
 
