@@ -55,7 +55,9 @@ class GmailIntegration:
     def extract_evidence(self, email: dict) -> list[dict]:
         """Extract claim-like statements from email"""
         evidence = []
-        text = email.get("snippet", "")
+        text = email.get("snippet") or ""
+        if not isinstance(text, str):
+            text = str(text)
         # Look for decisions, tasks, commitments
         for keyword in ["DECISION:", "DECIDED:", "TODO:", "WILL:", "COMMIT:", "AGREED:"]:
             if keyword in text.upper():
