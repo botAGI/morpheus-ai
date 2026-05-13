@@ -113,6 +113,24 @@ def test_extract_claims_returns_empty_for_directories(tmp_path):
     assert claims == []
 
 
+def test_extract_claims_returns_empty_for_unreadable_files(tmp_path, monkeypatch):
+    source = tmp_path / "notes.md"
+    source.write_text("TODO: unreadable\n")
+
+    original_read_text = type(source).read_text
+
+    def raise_for_source(path, *args, **kwargs):
+        if path == source:
+            raise OSError("permission denied")
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(type(source), "read_text", raise_for_source)
+
+    claims = FileSystemWatcher(tmp_path).extract_claims("notes.md")
+
+    assert claims == []
+
+
 def test_extract_claims_returns_marker_locations(tmp_path):
     source = tmp_path / "notes.md"
     source.write_text("intro\nDECISION: use receipts\nplain\nXXX: investigate edge case\n")
