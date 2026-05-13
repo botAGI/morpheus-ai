@@ -116,3 +116,21 @@ def test_train_non_dry_run_checks_dependencies_first(monkeypatch, tmp_path):
             dry_run=False,
         )
     assert not (tmp_path / "morpheus_train.sh").exists()
+
+
+def test_train_reports_unwritable_training_script(monkeypatch, tmp_path):
+    dataset = tmp_path / "dataset.jsonl"
+    dataset.write_text('{"instruction":"Q","output":"A"}\n')
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "morpheus_train.sh").mkdir()
+
+    with pytest.raises(click.exceptions.Exit):
+        train_module.train(
+            base_model="qwen2.5:7b",
+            dataset=dataset,
+            output_dir=tmp_path / "adapter",
+            lora_rank=64,
+            lora_alpha=128,
+            epochs=3,
+            dry_run=True,
+        )
