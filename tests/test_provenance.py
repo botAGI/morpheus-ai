@@ -1,6 +1,7 @@
 """
 Tests for morpheus.core.provenance
 """
+import hashlib
 import tempfile
 from pathlib import Path
 
@@ -29,6 +30,26 @@ def test_compute_sha256_file():
         result = compute_sha256_file(path)
         assert len(result) == 64
         assert result == "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
+    finally:
+        path.unlink()
+
+
+def test_compute_sha256_file_streams_large_files(monkeypatch):
+    content = b"a" * (1024 * 1024 + 17)
+    with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".bin") as f:
+        f.write(content)
+        f.flush()
+        path = Path(f.name)
+
+    def fail_read_bytes(self):
+        raise AssertionError("compute_sha256_file should stream file content")
+
+    monkeypatch.setattr(Path, "read_bytes", fail_read_bytes)
+
+    try:
+        result = compute_sha256_file(path)
+        assert len(result) == 64
+        assert result == hashlib.sha256(content).hexdigest()
     finally:
         path.unlink()
 
