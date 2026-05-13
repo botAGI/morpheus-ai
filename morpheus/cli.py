@@ -93,7 +93,11 @@ def init(
         raise typer.Exit(1)
     
     config = MorpheusConfig(project_root=Path.cwd())
-    config.init_default()
+    try:
+        config.init_default()
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]Initialization failed:[/red] {exc}")
+        raise typer.Exit(1) from exc
     
     console.print(Panel.fit(
         "[green]✓ Morpheus initialized[/green]\n"
