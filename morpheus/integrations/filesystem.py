@@ -45,6 +45,8 @@ class FileSystemWatcher:
                 })
 
         for rel_path, old_hash in sorted(self.file_hashes.items()):
+            if self._is_excluded(self.root / rel_path):
+                continue
             if rel_path not in current_hashes:
                 changed.append({
                     "path": rel_path,
