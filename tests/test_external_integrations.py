@@ -174,3 +174,21 @@ def test_github_get_issues_skips_pull_request_issue_rows(monkeypatch, tmp_path):
     )
 
     assert [issue["number"] for issue in issues] == [1]
+
+
+def test_github_get_pulls_returns_only_object_rows(monkeypatch, tmp_path):
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return [{"number": 1}, "not a pull", {"number": 2}]
+
+    monkeypatch.setattr("httpx.get", lambda *args, **kwargs: Response())
+
+    pulls = GitHubIntegration(token_path=tmp_path / "missing-token").get_pulls(
+        "owner",
+        "repo",
+    )
+
+    assert [pull["number"] for pull in pulls] == [1, 2]
