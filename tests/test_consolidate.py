@@ -9,6 +9,7 @@ import pytest
 from morpheus.training.consolidate import (
     ConsolidationStats,
     consolidate_sessions,
+    deduplicate_pairs,
     extract_text_from_content,
     is_high_quality_pair,
     is_useful_message,
@@ -186,6 +187,76 @@ def test_consolidate_sessions_writes_unique_pairs(tmp_path):
     assert stats.pairs_extracted == 2
     assert stats.pairs_unique == 1
     assert stats.pairs_duplicate == 1
+
+
+def test_deduplicate_pairs_keeps_same_prompt_with_different_answers():
+    stats = ConsolidationStats()
+    pairs = [
+        {
+            "instruction": "How should we improve consolidation?",
+            "input": "",
+            "output": "Implemented stronger filtering and created tests for JSONL sessions.",
+        },
+        {
+            "instruction": "How should we improve consolidation?",
+            "input": "",
+            "output": "Added a machine-readable stats report for automated training jobs.",
+        },
+        {
+            "instruction": "How should we improve consolidation?",
+            "input": "",
+            "output": "Implemented stronger filtering and created tests for JSONL sessions.",
+        },
+    ]
+
+    unique_pairs = deduplicate_pairs(pairs, stats)
+
+    assert len(unique_pairs) == 2
+    assert stats.pairs_unique == 2
+    assert stats.pairs_duplicate == 1
+
+
+def test_consolidate_sessions_writes_stats_report(tmp_path):
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    write_jsonl(
+        sessions_dir / "session.jsonl",
+        [
+            message(
+                "user",
+                [{"type": "text", "text": "How should automation inspect consolidation?"}],
+            ),
+            message(
+                "assistant",
+                [
+                    {
+                        "type": "text",
+                        "text": (
+                            "Added a JSON stats report with file counters, message counters, "
+                            "and pair counts for training automation."
+                        ),
+                    }
+                ],
+            ),
+        ],
+    )
+
+    output_path = tmp_path / "dataset.jsonl"
+    stats_path = tmp_path / "reports" / "stats.json"
+    stats = consolidate_sessions(
+        sessions_dir=sessions_dir,
+        output_path=output_path,
+        days=1,
+        min_pairs=1,
+        stats_output_path=stats_path,
+    )
+
+    report = json.loads(stats_path.read_text())
+    assert report["sessions_dir"] == str(sessions_dir)
+    assert report["output_path"] == str(output_path)
+    assert report["days"] == 1
+    assert report["stats"]["pairs_unique"] == 1
+    assert report["stats"] == stats.to_dict()
 
 
 def test_consolidate_sessions_errors_when_no_pairs(tmp_path):
