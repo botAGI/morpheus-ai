@@ -49,6 +49,16 @@ def test_extract_text_from_content_accepts_single_content_block():
     assert extract_text_from_content(content) == "Summarize the result."
 
 
+def test_extract_text_from_content_skips_non_string_text_values():
+    content = [
+        {"type": "text", "text": None},
+        {"type": "text", "text": ["not", "text"]},
+        {"type": "text", "text": "Keep this text."},
+    ]
+
+    assert extract_text_from_content(content) == "Keep this text."
+
+
 def test_is_useful_message_filters_openclaw_noise():
     assert not is_useful_message("HEARTBEAT_OK", "assistant")
     assert not is_useful_message("<environment_context><cwd>/tmp</cwd></environment_context>", "user")
