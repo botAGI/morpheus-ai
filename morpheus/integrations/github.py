@@ -58,7 +58,10 @@ class GitHubIntegration:
             timeout=10
         )
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+        if not isinstance(data, list):
+            return []
+        return [pull for pull in data if isinstance(pull, dict)]
     
     def _get_token(self) -> Optional[str]:
         if self.token_path.exists():
