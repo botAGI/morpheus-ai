@@ -104,20 +104,22 @@ def compile(
         "line_count": s.line_count
     } for s in state.sources]
     
-    state_json = json.dumps(state.model_dump(), indent=2, default=str)
-    state_json_sha = compute_sha256_bytes(state_json.encode())
-    evidence_jsonl = evidence_jsonl_bytes(state.model_dump().get("evidence", []))
-    evidence_jsonl_sha = compute_sha256_bytes(evidence_jsonl)
-
     # Generate final WAKE.md before signing so the receipt hashes the artifact on disk.
     receipt_id = new_receipt_id()
+    state.receipt_id = receipt_id
+    state_dump = state.model_dump()
+    state_json = json.dumps(state_dump, indent=2, default=str)
+    state_json_sha = compute_sha256_bytes(state_json.encode())
+    evidence_jsonl = evidence_jsonl_bytes(state_dump.get("evidence", []))
+    evidence_jsonl_sha = compute_sha256_bytes(evidence_jsonl)
+
     wake_md = generate_wake_md(state, receipt_id)
     wake_md_sha = compute_sha256_bytes(wake_md.encode())
     
     # Build receipt
     private_key_path = morpheus_dir / "keys" / "local.key"
     receipt = build_receipt(
-        state.model_dump(),
+        state_dump,
         wake_md_sha,
         sources_data,
         private_key_path,
