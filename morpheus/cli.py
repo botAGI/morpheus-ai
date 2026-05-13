@@ -368,6 +368,7 @@ def train(
     dataset: str = typer.Option("dataset.jsonl", help="Training dataset"),
     output_dir: str = typer.Option("morpheus_adapters", help="Output directory"),
     lora_rank: int = typer.Option(64, help="LoRA rank"),
+    lora_alpha: int = typer.Option(128, help="LoRA alpha"),
     epochs: int = typer.Option(3, help="Training epochs"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Generate script without running")
 ):
@@ -389,7 +390,7 @@ def train(
         dataset=Path(dataset),
         output_dir=Path(output_dir),
         lora_rank=lora_rank,
-        lora_alpha=128,
+        lora_alpha=lora_alpha,
         epochs=epochs,
         dry_run=dry_run
     )
