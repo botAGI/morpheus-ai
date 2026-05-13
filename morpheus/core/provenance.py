@@ -83,6 +83,10 @@ def latest_receipt_file(receipts_dir: Path) -> Path | None:
             "previous": previous,
         })
 
+    roots = [record for record in records if record["previous"] in (None, "")]
+    if len(roots) != 1:
+        raise ValueError(f"expected exactly one receipt chain root, found {len(roots)}")
+
     referenced_hashes = {
         record["previous"]
         for record in records

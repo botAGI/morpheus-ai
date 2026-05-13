@@ -192,7 +192,7 @@ def test_compile_returns_bad_request_for_broken_receipt_chain(tmp_path):
 
     assert response.status_code == 400
     assert "Receipt chain invalid" in response.json()["detail"]
-    assert "expected exactly one receipt chain tail" in response.json()["detail"]
+    assert "expected exactly one receipt chain root" in response.json()["detail"]
 
 
 def test_compile_returns_bad_request_for_invalid_config(tmp_path):

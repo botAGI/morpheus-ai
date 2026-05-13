@@ -85,6 +85,20 @@ def test_latest_receipt_file_rejects_non_string_previous_hash(tmp_path):
         latest_receipt_file(receipts_dir)
 
 
+def test_latest_receipt_file_rejects_chain_without_root(tmp_path):
+    receipts_dir = tmp_path / "receipts"
+    receipts_dir.mkdir()
+    (receipts_dir / "receipt_orphan.json").write_text(
+        '{"receipt_id": "orphan", "previous_receipt_sha256": "' + ("a" * 64) + '"}'
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="expected exactly one receipt chain root, found 0",
+    ):
+        latest_receipt_file(receipts_dir)
+
+
 def test_build_receipt_basic():
     state = {
         "project": {"name": "test-project"},

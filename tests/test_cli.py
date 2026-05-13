@@ -276,7 +276,7 @@ def test_verify_quick_reports_invalid_receipt_chain_without_traceback(tmp_path):
 
         assert result.exit_code == 1
         assert "Receipt chain invalid" in result.output
-        assert "expected exactly one receipt chain tail" in result.output
+        assert "expected exactly one receipt chain root" in result.output
 
 
 def test_verify_verbose_handles_non_collection_receipt_fields(tmp_path):
@@ -321,7 +321,7 @@ def test_status_reports_invalid_receipt_chain_without_traceback(tmp_path):
 
         assert result.exit_code == 1
         assert "Receipt chain invalid" in result.output
-        assert "expected exactly one receipt chain tail" in result.output
+        assert "expected exactly one receipt chain root" in result.output
 
 
 def test_status_reports_invalid_state_json_without_traceback(tmp_path):
