@@ -171,7 +171,12 @@ def train(
     
     # Generate training script
     script_path = Path("morpheus_train.sh")
-    generate_training_script(config, script_path)
+    try:
+        generate_training_script(config, script_path)
+    except OSError as exc:
+        console.print(f"[red]Training script write failed: {script_path}[/red]")
+        console.print(f"[yellow]{exc}[/yellow]")
+        raise typer.Exit(1) from exc
     
     console.print(Panel.fit(
         f"[green]Training script generated[/green]\n"
