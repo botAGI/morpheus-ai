@@ -116,9 +116,10 @@ def compile_project(project_root: Path) -> ProjectState:
     )
 
 
-def _iter_watch_paths(project_root: Path, watch_dirs: list[str]) -> list[Path]:
+def _iter_watch_paths(project_root: Path, watch_dirs: list[str] | None) -> list[Path]:
     paths = set()
-    for watch_dir in watch_dirs or ["."]:
+    configured_watch_dirs = ["."] if watch_dirs is None else watch_dirs
+    for watch_dir in configured_watch_dirs:
         watch_path = Path(watch_dir)
         if not watch_path.is_absolute():
             watch_path = project_root / watch_path
