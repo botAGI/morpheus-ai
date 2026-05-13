@@ -239,6 +239,19 @@ def test_compile_reports_invalid_config_without_traceback(tmp_path):
         assert "Config invalid" in result.output
 
 
+def test_compile_rejects_morpheus_state_file_without_signing_error(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        Path(".morpheus").write_text("not a directory")
+
+        result = runner.invoke(app, ["compile"])
+
+        assert result.exit_code == 1
+        assert "Not initialized" in result.output
+        assert "Signing failed" not in result.output
+
+
 def test_compile_reports_invalid_config_types_without_traceback(tmp_path):
     runner = CliRunner()
 
@@ -342,6 +355,19 @@ def test_verify_quick_reports_receipt_chain_tail_not_filename_latest(tmp_path):
         assert "rcpt_z_root" not in result.output
 
 
+def test_verify_rejects_morpheus_state_file_without_receipt_error(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        Path(".morpheus").write_text("not a directory")
+
+        result = runner.invoke(app, ["verify"])
+
+        assert result.exit_code == 1
+        assert "Not initialized" in result.output
+        assert "No receipts found" not in result.output
+
+
 def test_status_reports_receipt_chain_tail_not_filename_latest(tmp_path):
     runner = CliRunner()
 
@@ -364,6 +390,19 @@ def test_status_reports_receipt_chain_tail_not_filename_latest(tmp_path):
         assert result.exit_code == 0, result.output
         assert "rcpt_a_tail" in result.output
         assert "rcpt_z_root" not in result.output
+
+
+def test_status_rejects_morpheus_state_file_without_compile_message(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        Path(".morpheus").write_text("not a directory")
+
+        result = runner.invoke(app, ["status"])
+
+        assert result.exit_code == 0, result.output
+        assert "Not initialized" in result.output
+        assert "No compilation yet" not in result.output
 
 
 def test_verify_quick_reports_invalid_receipt_chain_without_traceback(tmp_path):
@@ -501,6 +540,19 @@ def test_wake_reports_unreadable_wake_file_without_traceback(tmp_path):
 
         assert result.exit_code == 1
         assert "WAKE.md unreadable" in result.output
+
+
+def test_wake_rejects_morpheus_state_file_without_missing_wake_message(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        Path(".morpheus").write_text("not a directory")
+
+        result = runner.invoke(app, ["wake"])
+
+        assert result.exit_code == 1
+        assert "Not initialized" in result.output
+        assert "No WAKE.md found" not in result.output
 
 
 def test_train_dry_run_skips_cli_dependency_check(tmp_path, monkeypatch):
