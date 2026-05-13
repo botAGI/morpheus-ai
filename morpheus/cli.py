@@ -38,7 +38,7 @@ console = Console()
 def ensure_initialized():
     """Check if morpheus is initialized in current directory."""
     morpheus_dir = Path.cwd() / ".morpheus"
-    if not morpheus_dir.exists():
+    if not morpheus_dir.is_dir():
         console.print("[red]Not initialized. Run 'morpheus init' first.[/red]")
         raise typer.Exit(1)
     return morpheus_dir
@@ -284,7 +284,7 @@ def status():
     """Show current project state summary."""
     morpheus_dir = Path.cwd() / ".morpheus"
     
-    if not morpheus_dir.exists():
+    if not morpheus_dir.is_dir():
         console.print("[yellow]Not initialized[/yellow]")
         return
     
@@ -314,7 +314,7 @@ def status():
 @app.command()
 def wake():
     """Print WAKE.md to stdout."""
-    morpheus_dir = Path.cwd() / ".morpheus"
+    morpheus_dir = ensure_initialized()
     wake_path = morpheus_dir / "WAKE.md"
     
     if not wake_path.exists():
