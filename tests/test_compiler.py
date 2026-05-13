@@ -96,6 +96,30 @@ def test_compile_project_records_actual_file_size_for_non_utf8_bytes():
         assert source.size_bytes == len(data)
 
 
+def test_compile_project_skips_unreadable_files(monkeypatch):
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        unreadable = tmppath / "unreadable.md"
+        unreadable.write_text("TODO: skip unreadable\n")
+        (tmppath / "readable.md").write_text("TODO: keep readable\n")
+
+        import morpheus.core.compiler as compiler_module
+
+        original_compute_sha256 = compiler_module.compute_sha256
+
+        def raise_for_unreadable(path):
+            if path.resolve() == unreadable.resolve():
+                raise OSError("permission denied")
+            return original_compute_sha256(path)
+
+        monkeypatch.setattr(compiler_module, "compute_sha256", raise_for_unreadable)
+
+        state = compile_project(tmppath)
+
+        assert [source.path for source in state.sources] == ["readable.md"]
+        assert [claim.excerpt for claim in state.claims] == ["TODO: keep readable"]
+
+
 def test_compile_project_ignores_symlinked_files_outside_project():
     with tempfile.TemporaryDirectory() as project_dir, tempfile.TemporaryDirectory() as outside_dir:
         project_path = Path(project_dir)

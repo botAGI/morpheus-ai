@@ -74,9 +74,12 @@ def compile_project(project_root: Path) -> ProjectState:
         if path.is_symlink():
             continue
         if path.is_file() and not _is_excluded(path, project_root, exclude_patterns):
-            stat = path.stat()
-            sha = compute_sha256(path)
-            content = path.read_text(errors="ignore")
+            try:
+                stat = path.stat()
+                sha = compute_sha256(path)
+                content = path.read_text(errors="ignore")
+            except OSError:
+                continue
             lines = content.splitlines()
             src = Source(
                 id=f"src_{len(sources)+1:03d}",
