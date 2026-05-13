@@ -190,6 +190,8 @@ def get_wake(project: str):
     ]
     
     for p in possible_paths:
+        if p.parent.is_symlink() or p.is_symlink():
+            continue
         if p.exists():
             try:
                 wake_md = p.read_text()
