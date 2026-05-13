@@ -136,6 +136,28 @@ def test_verify_receipt_chain_rejects_latest_state_artifact_mismatch(tmp_path):
     assert "latest state.json sha256 mismatch" in errors[0]
 
 
+def test_verify_receipt_chain_rejects_latest_evidence_artifact_mismatch(tmp_path):
+    morpheus_dir = tmp_path / ".morpheus"
+    private_key_path = _write_keypair(morpheus_dir / "keys")
+    evidence_path = morpheus_dir / "evidence.jsonl"
+    evidence_path.write_text('{"id":"ev_0001"}\n')
+
+    receipt = build_receipt(
+        state_dict={"claims": [], "evidence": [{"id": "ev_0001"}]},
+        wake_md_sha="0" * 64,
+        sources_data=[],
+        private_key_path=private_key_path,
+        evidence_jsonl_sha=compute_sha256_file(evidence_path),
+    )
+    _write_receipt(morpheus_dir / "receipts", "receipt_001.json", receipt)
+    evidence_path.write_text('{"id":"ev_tampered"}\n')
+
+    valid, errors = verify_receipt_chain(morpheus_dir)
+
+    assert not valid
+    assert "latest evidence.jsonl sha256 mismatch" in errors[0]
+
+
 def test_verify_receipt_chain_validates_previous_receipt_link(tmp_path):
     morpheus_dir = tmp_path / ".morpheus"
     private_key_path = _write_keypair(morpheus_dir / "keys")

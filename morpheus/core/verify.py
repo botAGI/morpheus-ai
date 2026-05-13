@@ -89,6 +89,14 @@ def verify_receipt_chain(morpheus_dir: Path) -> tuple[bool, list[str]]:
         error_label="latest state.json sha256 mismatch",
         errors=errors,
     )
+    _verify_latest_artifact_hash(
+        morpheus_dir=morpheus_dir,
+        ordered_records=ordered_records,
+        relative_path="evidence.jsonl",
+        receipt_hash_field="evidence_jsonl_sha256",
+        error_label="latest evidence.jsonl sha256 mismatch",
+        errors=errors,
+    )
 
     return (len(errors) == 0, errors)
 

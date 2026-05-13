@@ -20,6 +20,7 @@ from morpheus.core.provenance import (
     compute_sha256_file,
     compute_sha256_bytes,
     build_receipt,
+    evidence_jsonl_bytes,
     latest_receipt_file,
     new_receipt_id,
     receipt_file_name,
@@ -105,6 +106,8 @@ def compile(
     
     state_json = json.dumps(state.model_dump(), indent=2, default=str)
     state_json_sha = compute_sha256_bytes(state_json.encode())
+    evidence_jsonl = evidence_jsonl_bytes(state.model_dump().get("evidence", []))
+    evidence_jsonl_sha = compute_sha256_bytes(evidence_jsonl)
 
     # Generate final WAKE.md before signing so the receipt hashes the artifact on disk.
     receipt_id = new_receipt_id()
@@ -121,6 +124,7 @@ def compile(
         prev_hash,
         receipt_id=receipt_id,
         state_json_sha=state_json_sha,
+        evidence_jsonl_sha=evidence_jsonl_sha,
     )
     
     # Write WAKE.md
@@ -130,6 +134,10 @@ def compile(
     # Save state
     state_path = morpheus_dir / "state.json"
     state_path.write_text(state_json)
+
+    # Save evidence
+    evidence_path = morpheus_dir / "evidence.jsonl"
+    evidence_path.write_bytes(evidence_jsonl)
     
     # Save receipt
     receipt_path = receipts_dir / receipt_file_name(receipt["receipt_id"])
