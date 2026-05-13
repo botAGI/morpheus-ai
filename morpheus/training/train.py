@@ -11,6 +11,8 @@ import typer
 from rich.console import Console
 from rich.panel import Panel
 
+from morpheus.core.safe_io import reject_symlink_paths
+
 console = Console()
 
 DEFAULT_CONFIG = {
@@ -102,6 +104,7 @@ def generate_training_script(config: dict, output_path: Path):
     )
     
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    reject_symlink_paths([output_path], "Training script path")
     output_path.write_text(script_content)
     output_path.chmod(0o755)
     return output_path
@@ -186,7 +189,7 @@ def train(
     script_path = Path("morpheus_train.sh")
     try:
         generate_training_script(config, script_path)
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         console.print(f"[red]Training script write failed: {script_path}[/red]")
         console.print(f"[yellow]{exc}[/yellow]")
         raise typer.Exit(1) from exc

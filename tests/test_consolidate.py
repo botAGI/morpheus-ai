@@ -329,6 +329,40 @@ def test_consolidate_sessions_reports_unwritable_dataset_output(tmp_path):
         )
 
 
+def test_consolidate_sessions_rejects_symlinked_dataset_output(tmp_path):
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    write_jsonl(
+        sessions_dir / "session.jsonl",
+        [
+            message("user", [{"type": "text", "text": "How should output symlinks be handled?"}]),
+            message(
+                "assistant",
+                [
+                    {
+                        "type": "text",
+                        "text": "Implemented dataset output hardening that refuses symlink writes.",
+                    }
+                ],
+            ),
+        ],
+    )
+    external_output = tmp_path / "external-dataset.jsonl"
+    external_output.write_text("do not modify")
+    output_path = tmp_path / "dataset.jsonl"
+    output_path.symlink_to(external_output)
+
+    with pytest.raises(click.exceptions.Exit):
+        consolidate_sessions(
+            sessions_dir=sessions_dir,
+            output_path=output_path,
+            days=1,
+            min_pairs=1,
+        )
+
+    assert external_output.read_text() == "do not modify"
+
+
 def test_consolidate_sessions_reports_unwritable_stats_output(tmp_path):
     sessions_dir = tmp_path / "sessions"
     sessions_dir.mkdir()
@@ -362,6 +396,42 @@ def test_consolidate_sessions_reports_unwritable_stats_output(tmp_path):
             min_pairs=1,
             stats_output_path=stats_path,
         )
+
+
+def test_consolidate_sessions_rejects_symlinked_stats_output(tmp_path):
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    write_jsonl(
+        sessions_dir / "session.jsonl",
+        [
+            message("user", [{"type": "text", "text": "How should stats symlinks be handled?"}]),
+            message(
+                "assistant",
+                [
+                    {
+                        "type": "text",
+                        "text": "Implemented stats output hardening that refuses symlink writes.",
+                    }
+                ],
+            ),
+        ],
+    )
+    output_path = tmp_path / "dataset.jsonl"
+    external_stats = tmp_path / "external-stats.json"
+    external_stats.write_text("do not modify")
+    stats_path = tmp_path / "stats.json"
+    stats_path.symlink_to(external_stats)
+
+    with pytest.raises(click.exceptions.Exit):
+        consolidate_sessions(
+            sessions_dir=sessions_dir,
+            output_path=output_path,
+            days=1,
+            min_pairs=1,
+            stats_output_path=stats_path,
+        )
+
+    assert external_stats.read_text() == "do not modify"
 
 
 def test_consolidate_sessions_rejects_sessions_path_file(tmp_path, capsys):

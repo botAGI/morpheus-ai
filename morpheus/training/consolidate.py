@@ -16,6 +16,8 @@ import typer
 from rich.console import Console
 from rich.progress import Progress
 
+from morpheus.core.safe_io import reject_symlink_paths
+
 console = Console()
 
 # Markers that indicate important content
@@ -383,6 +385,7 @@ def deduplicate_pairs(pairs: list[dict], stats: ConsolidationStats) -> list[dict
 def write_dataset(output_path: Path, pairs: list[dict]) -> None:
     """Write ShareGPT-style JSONL training pairs."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    reject_symlink_paths([output_path], "Dataset output path")
     with output_path.open("w", encoding="utf-8") as f:
         for pair in pairs:
             f.write(json.dumps(pair, ensure_ascii=False) + "\n")
@@ -405,6 +408,7 @@ def write_stats_report(
         "stats": stats.to_dict(),
     }
     stats_output_path.parent.mkdir(parents=True, exist_ok=True)
+    reject_symlink_paths([stats_output_path], "Stats output path")
     stats_output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
 
 
@@ -509,7 +513,7 @@ def consolidate_sessions(
 
     try:
         write_dataset(output_path, unique_pairs)
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         console.print(f"[red]Dataset output write failed: {output_path}[/red]")
         console.print(f"[yellow]{exc}[/yellow]")
         raise typer.Exit(1) from exc
@@ -523,7 +527,7 @@ def consolidate_sessions(
                 output_path=output_path,
                 days=days,
             )
-        except OSError as exc:
+        except (OSError, ValueError) as exc:
             console.print(f"[red]Stats output write failed: {stats_output_path}[/red]")
             console.print(f"[yellow]{exc}[/yellow]")
             raise typer.Exit(1) from exc

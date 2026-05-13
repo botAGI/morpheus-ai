@@ -12,6 +12,8 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from morpheus.core.safe_io import reject_symlink_paths
+
 console = Console()
 
 EVAL_PROMPT = """You are Morpheus, an AI assistant that remembers everything about the project.
@@ -164,10 +166,11 @@ def run_eval(
     # Save results
     try:
         output.parent.mkdir(parents=True, exist_ok=True)
+        reject_symlink_paths([output], "Evaluation output path")
         with output.open("w", encoding="utf-8") as f:
             for r in results:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         console.print(f"[red]Evaluation output unwritable: {output}[/red]")
         console.print(f"[yellow]{exc}[/yellow]")
         raise typer.Exit(1) from exc
@@ -185,10 +188,11 @@ def create_sample_eval():
     
     output_path = Path("eval_questions.jsonl")
     try:
+        reject_symlink_paths([output_path], "Sample evaluation output path")
         with output_path.open("w", encoding="utf-8") as f:
             for item in sample:
                 f.write(json.dumps(item, ensure_ascii=False) + "\n")
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         console.print(f"[red]Sample evaluation output unwritable: {output_path}[/red]")
         console.print(f"[yellow]{exc}[/yellow]")
         raise typer.Exit(1) from exc
