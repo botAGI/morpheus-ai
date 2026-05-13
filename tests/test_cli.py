@@ -313,6 +313,30 @@ def test_status_handles_non_string_compiled_at_without_traceback(tmp_path):
         assert "1234567890" in result.output
 
 
+def test_status_handles_non_list_state_collections_without_traceback(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        init_result = runner.invoke(app, ["init"])
+        assert init_result.exit_code == 0, init_result.output
+        morpheus_dir = Path.cwd() / ".morpheus"
+        (morpheus_dir / "state.json").write_text(
+            json.dumps(
+                {
+                    "sources": None,
+                    "claims": "not a list",
+                    "evidence": {"not": "a list"},
+                    "compiled_at": "2026-05-13T00:00:00Z",
+                }
+            )
+        )
+
+        result = runner.invoke(app, ["status"])
+
+        assert result.exit_code == 0, result.output
+        assert "Project Status" in result.output
+
+
 def test_train_dry_run_skips_cli_dependency_check(tmp_path, monkeypatch):
     runner = CliRunner()
 

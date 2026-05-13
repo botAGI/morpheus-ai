@@ -213,3 +213,27 @@ def test_status_returns_bad_request_for_invalid_state_json(tmp_path):
 
     assert response.status_code == 400
     assert "State file invalid" in response.json()["detail"]
+
+
+def test_status_counts_only_list_state_collections(tmp_path):
+    morpheus_dir = tmp_path / ".morpheus"
+    morpheus_dir.mkdir()
+    (morpheus_dir / "state.json").write_text(
+        json.dumps(
+            {
+                "sources": None,
+                "claims": "not a list",
+                "evidence": {"not": "a list"},
+                "compiled_at": "2026-05-13T00:00:00Z",
+            }
+        )
+    )
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.get("/status", params={"project_root": str(tmp_path)})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["sources"] == 0
+    assert payload["claims"] == 0
+    assert payload["evidence"] == 0
