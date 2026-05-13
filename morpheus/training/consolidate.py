@@ -8,6 +8,7 @@ for LoRA fine-tuning.
 import json
 import hashlib
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
@@ -82,6 +83,23 @@ LOW_VALUE_USER_MESSAGES = {
 }
 
 
+@dataclass
+class ConsolidationStats:
+    """Operational counters for session consolidation."""
+
+    files_found: int = 0
+    files_processed: int = 0
+    files_skipped_old: int = 0
+    files_unreadable: int = 0
+    malformed_lines: int = 0
+    messages_seen: int = 0
+    messages_kept: int = 0
+    messages_filtered: int = 0
+    pairs_extracted: int = 0
+    pairs_unique: int = 0
+    pairs_duplicate: int = 0
+
+
 def normalize_whitespace(content: str) -> str:
     """Collapse noisy session whitespace without changing the text meaning."""
     return re.sub(r"\s+", " ", content).strip()
@@ -105,7 +123,7 @@ def is_useful_message(content: str, role: str | None = None) -> bool:
     lowered = content.lower()
     first_200 = content[:200].lower()
 
-    if content.strip() in LOW_VALUE_USER_MESSAGES:
+    if lowered in LOW_VALUE_USER_MESSAGES:
         return False
 
     # Filter system prompts
@@ -121,14 +139,38 @@ def is_useful_message(content: str, role: str | None = None) -> bool:
         elif marker_lower in first_200:
             return False
 
-    if lowered.startswith(("<environment_context>", "<system", "<tool", "<function")):
+    if lowered.startswith((
+        "<environment_context>",
+        "<system",
+        "<developer",
+        "<tool",
+        "<function",
+    )):
         return False
 
-    if content.startswith("{") and any(key in first_200 for key in ("tool_uses", "recipient_name", "cmd", "session_id")):
+    if content.startswith(("{", "[")) and any(
+        key in first_200
+        for key in (
+            "tool_uses",
+            "tool_calls",
+            "recipient_name",
+            "function_call",
+            "tool_result",
+            "cmd",
+            "session_id",
+        )
+    ):
         return False
 
-    if role == "assistant" and any(
-        marker in content for marker in ("Chunk ID:", "Wall time:", "Process exited with code", "Original token count:")
+    if any(
+        marker in content
+        for marker in (
+            "Chunk ID:",
+            "Wall time:",
+            "Process exited with code",
+            "Original token count:",
+            "Exit code:",
+        )
     ):
         return False
 
@@ -155,7 +197,7 @@ def is_useful_message(content: str, role: str | None = None) -> bool:
 def extract_text_from_content(content_blocks: list) -> str:
     """Extract text from OpenClaw content blocks format."""
     if isinstance(content_blocks, str):
-        return content_blocks
+        return normalize_whitespace(content_blocks)
     
     texts = []
     for block in content_blocks:
@@ -165,6 +207,8 @@ def extract_text_from_content(content_blocks: list) -> str:
                 continue
             if block_type in ("text", "input_text", "output_text"):
                 texts.append(block.get("text", ""))
+            elif "text" in block and not any(key in block for key in ("name", "input", "call_id")):
+                texts.append(block.get("text", ""))
             elif block.get("type") == "image":
                 texts.append("[image]")
         elif isinstance(block, str):
@@ -172,7 +216,7 @@ def extract_text_from_content(content_blocks: list) -> str:
     return normalize_whitespace(" ".join(texts))
 
 
-def parse_session_file(session_path: Path) -> list[dict]:
+def parse_session_file(session_path: Path, stats: ConsolidationStats | None = None) -> list[dict]:
     """Parse OpenClaw session JSONL into messages format.
     
     OpenClaw session format:
@@ -183,36 +227,84 @@ def parse_session_file(session_path: Path) -> list[dict]:
     messages = []
     
     try:
-        for line in session_path.read_text().splitlines():
+        session_file = session_path.open(encoding="utf-8", errors="replace")
+    except OSError:
+        if stats:
+            stats.files_unreadable += 1
+        return messages
+
+    with session_file:
+        for line in session_file:
             if not line.strip():
                 continue
             try:
                 entry = json.loads(line)
                 if entry.get("type") != "message":
                     continue
-                
+
                 msg = entry.get("message", {})
                 role = msg.get("role", "")
                 content_raw = msg.get("content", [])
-                
+
                 if role not in ("user", "assistant"):
                     continue
-                
+
+                if stats:
+                    stats.messages_seen += 1
+
                 content = extract_text_from_content(content_raw)
-                
+
                 if not is_useful_message(content, role):
+                    if stats:
+                        stats.messages_filtered += 1
                     continue
-                
+
                 messages.append({
                     "role": role,
                     "content": truncate_text(content, 2000)
                 })
+                if stats:
+                    stats.messages_kept += 1
             except json.JSONDecodeError:
+                if stats:
+                    stats.malformed_lines += 1
                 continue
-    except Exception:
-        pass
     
     return messages
+
+
+def is_high_quality_pair(instruction: str, output: str) -> bool:
+    """Check whether a user/assistant turn is useful enough for training."""
+    instruction = normalize_whitespace(instruction)
+    output = normalize_whitespace(output)
+    if not instruction or not output:
+        return False
+
+    if not is_useful_message(instruction, "user") or not is_useful_message(output, "assistant"):
+        return False
+
+    instruction_words = re.findall(r"[A-Za-zА-Яа-я0-9]{2,}", instruction)
+    output_words = re.findall(r"[A-Za-zА-Яа-я0-9]{2,}", output)
+    if len(instruction_words) < 2 or len(output_words) < 8:
+        return False
+
+    low_signal_outputs = (
+        "i'll get started",
+        "i will get started",
+        "i'm going to",
+        "i am going to",
+        "working on it",
+        "let me check",
+    )
+    if output.lower() in low_signal_outputs:
+        return False
+
+    has_marker = any(
+        marker.lower() in instruction.lower() or marker.lower() in output.lower()
+        for marker in IMPORTANT_MARKERS
+    )
+    has_substantial_content = len(output) >= 80
+    return has_marker or has_substantial_content
 
 
 def messages_to_qa_pairs(messages: list[dict]) -> list[dict]:
@@ -234,18 +326,12 @@ def messages_to_qa_pairs(messages: list[dict]) -> list[dict]:
 
             assistant_msg = normalize_whitespace("\n\n".join(assistant_parts))
 
-            if assistant_msg and is_useful_message(user_msg, "user") and is_useful_message(assistant_msg, "assistant"):
-                # Check if contains useful info
-                has_marker = any(m.lower() in user_msg.lower() or m.lower() in assistant_msg.lower() 
-                               for m in IMPORTANT_MARKERS)
-                has_substantial_content = len(assistant_msg) >= 80
-                
-                if has_marker or has_substantial_content:
-                    pairs.append({
-                        "instruction": truncate_text(user_msg, 500),
-                        "input": "",
-                        "output": truncate_text(assistant_msg, 1000)
-                    })
+            if is_high_quality_pair(user_msg, assistant_msg):
+                pairs.append({
+                    "instruction": truncate_text(user_msg, 500),
+                    "input": "",
+                    "output": truncate_text(assistant_msg, 1000)
+                })
 
             i = max(j, i + 1)
         else:
@@ -268,13 +354,14 @@ def consolidate_sessions(
     """Find sessions from last N days and create training dataset."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     all_pairs = []
-    processed_files = 0
+    stats = ConsolidationStats()
 
     if not sessions_dir.exists():
         console.print(f"[red]Sessions directory not found: {sessions_dir}[/red]")
         raise typer.Exit(1)
 
     session_files = list(sessions_dir.glob("*.jsonl"))
+    stats.files_found = len(session_files)
 
     if not session_files:
         console.print(f"[yellow]No session files found in {sessions_dir}[/yellow]")
@@ -290,24 +377,35 @@ def consolidate_sessions(
             # Check file modification time
             try:
                 file_time = datetime.fromtimestamp(session_path.stat().st_mtime, tz=timezone.utc)
-                if file_time < cutoff:
-                    progress.update(task, advance=1)
-                    continue
             except OSError:
-                pass
+                stats.files_unreadable += 1
+                progress.update(task, advance=1)
+                continue
 
-            messages = parse_session_file(session_path)
+            if file_time < cutoff:
+                stats.files_skipped_old += 1
+                progress.update(task, advance=1)
+                continue
+
+            messages = parse_session_file(session_path, stats)
 
             if len(messages) >= 2:
                 pairs = messages_to_qa_pairs(messages)
                 all_pairs.extend(pairs)
-                processed_files += 1
+                stats.pairs_extracted += len(pairs)
+                stats.files_processed += 1
 
             progress.update(task, advance=1)
 
     if verbose:
         console.print(f"\n[cyan]Statistics:[/cyan]")
-        console.print(f"  Files processed: {processed_files}")
+        console.print(f"  Files found: {stats.files_found}")
+        console.print(f"  Files processed: {stats.files_processed}")
+        console.print(f"  Files skipped by age: {stats.files_skipped_old}")
+        console.print(f"  Files unreadable: {stats.files_unreadable}")
+        console.print(f"  Malformed JSONL lines: {stats.malformed_lines}")
+        console.print(f"  Messages kept/seen: {stats.messages_kept}/{stats.messages_seen}")
+        console.print(f"  Messages filtered: {stats.messages_filtered}")
         console.print(f"  Total Q&A pairs: {len(all_pairs)}")
 
     if len(all_pairs) < min_pairs:
@@ -323,6 +421,9 @@ def consolidate_sessions(
         if h not in seen:
             seen.add(h)
             unique_pairs.append(pair)
+        else:
+            stats.pairs_duplicate += 1
+    stats.pairs_unique = len(unique_pairs)
 
     # Write output
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -332,6 +433,7 @@ def consolidate_sessions(
 
     console.print(f"\n[green]✓ Dataset created:[/green] {len(unique_pairs)} Q&A pairs")
     console.print(f"[green]✓ Saved to:[/green] {output_path}")
+    return stats
 
 
 def main():

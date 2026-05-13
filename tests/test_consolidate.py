@@ -45,6 +45,7 @@ def test_is_useful_message_filters_openclaw_noise():
     assert not is_useful_message("<environment_context><cwd>/tmp</cwd></environment_context>", "user")
     assert not is_useful_message("Chunk ID: abc Wall time: 0.1 Process exited with code 0", "assistant")
     assert not is_useful_message('{"tool_uses": [{"recipient_name": "functions.exec_command"}]}', "user")
+    assert not is_useful_message("Thanks", "user")
     assert is_useful_message("Fix pytest failures", "user")
 
 
