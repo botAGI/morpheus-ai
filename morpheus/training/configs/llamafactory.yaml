@@ -1,0 +1,45 @@
+# Morpheus QLoRA Training Config for LlamaFactory
+# Usage: llamafactory-cli train examples/train_full/morpheus.yaml
+
+stage: sft
+do_train: true
+finetuning_type: lora
+
+# Base model
+model_name_or_path: qwen2.5:7b
+template: qwen2
+quantization_bit: 4
+
+# LoRA config
+lora_rank: 64
+lora_alpha: 128
+lora_dropout: 0.05
+lora_target: all
+
+# Dataset
+dataset_dir: ./data
+dataset: morpheus_sessions
+template_dir: null
+output_dir: ./morpheus_adapters/v1
+overwrite_cache: true
+
+# Training
+bf16: true
+num_train_epochs: 3
+batch_size: 4
+gradient_accumulation_steps: 4
+learning_rate: 2.0e-4
+warmup_ratio: 0.1
+lr_scheduler_type: cosine
+logging_steps: 10
+save_steps: 500
+eval_steps: 500
+center_importhack: true
+warmup_steps: 100
+
+# Optimizer
+optim: paged_adamw_32bit
+max_grad_norm: 1.0
+
+# Other
+only_save_strategy: last_checkpoint
