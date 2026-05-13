@@ -345,6 +345,7 @@ def consolidate(
     ),
     output: str = typer.Option("dataset.jsonl", help="Output dataset file"),
     days: int = typer.Option(7, help="Process sessions from last N days"),
+    min_pairs: int = typer.Option(10, help="Minimum unique Q&A pairs required"),
     stats_output: str | None = typer.Option(
         None,
         "--stats-output",
@@ -361,6 +362,7 @@ def consolidate(
         sessions_dir=Path(sessions_dir),
         output_path=Path(output),
         days=days,
+        min_pairs=min_pairs,
         stats_output_path=Path(stats_output) if stats_output else None,
         verbose=verbose
     )
