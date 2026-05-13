@@ -7,8 +7,10 @@ import click
 import pytest
 
 from morpheus.training.consolidate import (
+    ConsolidationStats,
     consolidate_sessions,
     extract_text_from_content,
+    is_high_quality_pair,
     is_useful_message,
     messages_to_qa_pairs,
     parse_session_file,
@@ -44,6 +46,8 @@ def test_is_useful_message_filters_openclaw_noise():
     assert not is_useful_message("HEARTBEAT_OK", "assistant")
     assert not is_useful_message("<environment_context><cwd>/tmp</cwd></environment_context>", "user")
     assert not is_useful_message("Chunk ID: abc Wall time: 0.1 Process exited with code 0", "assistant")
+    assert not is_useful_message("Chunk ID: abc Wall time: 0.1 Process exited with code 0", "user")
+    assert not is_useful_message('[{"tool_calls": [{"function": {"name": "exec_command"}}]}]', "assistant")
     assert not is_useful_message('{"tool_uses": [{"recipient_name": "functions.exec_command"}]}', "user")
     assert not is_useful_message("Thanks", "user")
     assert is_useful_message("Fix pytest failures", "user")
@@ -86,6 +90,47 @@ def test_parse_session_file_filters_noise_and_tool_calls(tmp_path):
     ]
 
 
+def test_parse_session_file_counts_malformed_lines_and_filtered_messages(tmp_path):
+    session_path = tmp_path / "session.jsonl"
+    session_path.write_text(
+        "\n".join(
+            [
+                "{bad json",
+                json.dumps(message("user", "How do we handle malformed OpenClaw session lines?")),
+                json.dumps(message("assistant", '[{"tool_calls": [{"name": "exec_command"}]}]')),
+                json.dumps(
+                    message(
+                        "assistant",
+                        "Implemented resilient JSONL parsing that skips malformed rows and still keeps valid adjacent user and assistant turns.",
+                    )
+                ),
+            ]
+        )
+    )
+    stats = ConsolidationStats()
+
+    messages = parse_session_file(session_path, stats)
+
+    assert stats.malformed_lines == 1
+    assert stats.messages_seen == 3
+    assert stats.messages_filtered == 1
+    assert messages == [
+        {"role": "user", "content": "How do we handle malformed OpenClaw session lines?"},
+        {
+            "role": "assistant",
+            "content": "Implemented resilient JSONL parsing that skips malformed rows and still keeps valid adjacent user and assistant turns.",
+        },
+    ]
+
+
+def test_is_high_quality_pair_rejects_low_signal_assistant_ack():
+    assert not is_high_quality_pair("Fix the parser", "Working on it")
+    assert is_high_quality_pair(
+        "Fix the parser",
+        "Implemented a parser fix that filters tool output, skips malformed session rows, and records diagnostics for verbose consolidation output.",
+    )
+
+
 def test_messages_to_qa_pairs_only_uses_adjacent_assistant_turns():
     messages = [
         {"role": "user", "content": "First request needs no answer"},
@@ -125,7 +170,7 @@ def test_consolidate_sessions_writes_unique_pairs(tmp_path):
     session_path.touch()
 
     output_path = tmp_path / "dataset.jsonl"
-    consolidate_sessions(
+    stats = consolidate_sessions(
         sessions_dir=sessions_dir,
         output_path=output_path,
         days=1,
@@ -137,6 +182,10 @@ def test_consolidate_sessions_writes_unique_pairs(tmp_path):
     assert len(rows) == 1
     assert rows[0]["instruction"] == "How should we improve consolidation?"
     assert "stronger filtering" in rows[0]["output"]
+    assert stats.files_found == 1
+    assert stats.pairs_extracted == 2
+    assert stats.pairs_unique == 1
+    assert stats.pairs_duplicate == 1
 
 
 def test_consolidate_sessions_errors_when_no_pairs(tmp_path):
@@ -150,4 +199,42 @@ def test_consolidate_sessions_errors_when_no_pairs(tmp_path):
             output_path=tmp_path / "dataset.jsonl",
             days=1,
             min_pairs=1,
+        )
+
+
+def test_consolidate_sessions_enforces_min_pairs_after_deduplication(tmp_path):
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    write_jsonl(
+        sessions_dir / "session.jsonl",
+        [
+            message("user", [{"type": "text", "text": "How should we improve consolidation?"}]),
+            message(
+                "assistant",
+                [
+                    {
+                        "type": "text",
+                        "text": "Implemented stronger filtering and created tests for OpenClaw JSONL sessions.",
+                    }
+                ],
+            ),
+            message("user", [{"type": "text", "text": "How should we improve consolidation?"}]),
+            message(
+                "assistant",
+                [
+                    {
+                        "type": "text",
+                        "text": "Implemented stronger filtering and created tests for OpenClaw JSONL sessions.",
+                    }
+                ],
+            ),
+        ],
+    )
+
+    with pytest.raises(click.exceptions.Exit):
+        consolidate_sessions(
+            sessions_dir=sessions_dir,
+            output_path=tmp_path / "dataset.jsonl",
+            days=1,
+            min_pairs=2,
         )

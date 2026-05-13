@@ -397,22 +397,6 @@ def consolidate_sessions(
 
             progress.update(task, advance=1)
 
-    if verbose:
-        console.print(f"\n[cyan]Statistics:[/cyan]")
-        console.print(f"  Files found: {stats.files_found}")
-        console.print(f"  Files processed: {stats.files_processed}")
-        console.print(f"  Files skipped by age: {stats.files_skipped_old}")
-        console.print(f"  Files unreadable: {stats.files_unreadable}")
-        console.print(f"  Malformed JSONL lines: {stats.malformed_lines}")
-        console.print(f"  Messages kept/seen: {stats.messages_kept}/{stats.messages_seen}")
-        console.print(f"  Messages filtered: {stats.messages_filtered}")
-        console.print(f"  Total Q&A pairs: {len(all_pairs)}")
-
-    if len(all_pairs) < min_pairs:
-        console.print(f"[yellow]Not enough Q&A pairs ({len(all_pairs)} < {min_pairs})[/yellow]")
-        console.print("[yellow]Try increasing --days or check session directory[/yellow]")
-        raise typer.Exit(1)
-
     # Remove duplicates by hashing instruction
     seen = set()
     unique_pairs = []
@@ -424,6 +408,24 @@ def consolidate_sessions(
         else:
             stats.pairs_duplicate += 1
     stats.pairs_unique = len(unique_pairs)
+
+    if verbose:
+        console.print(f"\n[cyan]Statistics:[/cyan]")
+        console.print(f"  Files found: {stats.files_found}")
+        console.print(f"  Files processed: {stats.files_processed}")
+        console.print(f"  Files skipped by age: {stats.files_skipped_old}")
+        console.print(f"  Files unreadable: {stats.files_unreadable}")
+        console.print(f"  Malformed JSONL lines: {stats.malformed_lines}")
+        console.print(f"  Messages kept/seen: {stats.messages_kept}/{stats.messages_seen}")
+        console.print(f"  Messages filtered: {stats.messages_filtered}")
+        console.print(f"  Total Q&A pairs: {len(all_pairs)}")
+        console.print(f"  Unique Q&A pairs: {stats.pairs_unique}")
+        console.print(f"  Duplicate Q&A pairs: {stats.pairs_duplicate}")
+
+    if len(unique_pairs) < min_pairs:
+        console.print(f"[yellow]Not enough unique Q&A pairs ({len(unique_pairs)} < {min_pairs})[/yellow]")
+        console.print("[yellow]Try increasing --days or check session directory[/yellow]")
+        raise typer.Exit(1)
 
     # Write output
     output_path.parent.mkdir(parents=True, exist_ok=True)
