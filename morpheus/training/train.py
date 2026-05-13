@@ -42,11 +42,11 @@ DATASET="{dataset}"
 # LlamaFactory training
 llamafactory-cli train \\
     --stage sft \\
-    --model_name_or_path $BASE_MODEL \\
+    --model_name_or_path "$BASE_MODEL" \\
     --template qwen2 \\
-    --dataset_dir $(dirname $DATASET) \\
-    --dataset $(basename $DATASET) \\
-    --output_dir $OUTPUT_DIR \\
+    --dataset_dir "$(dirname "$DATASET")" \\
+    --dataset "$(basename "$DATASET")" \\
+    --output_dir "$OUTPUT_DIR" \\
     --overwrite_cache \\
     --do_train \\
     --finetuning_type lora \\
