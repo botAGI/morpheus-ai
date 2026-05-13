@@ -161,6 +161,13 @@ def train(
         console.print(f"[red]Dataset not found: {dataset}[/red]")
         console.print("[yellow]Run 'morpheus consolidate' first[/yellow]")
         raise typer.Exit(1)
+
+    if not dry_run:
+        ok, missing = check_dependencies()
+        if not ok:
+            console.print(f"[red]Missing dependencies: {', '.join(missing)}[/red]")
+            console.print("[yellow]Install with: pip install llamafactory[/yellow]")
+            raise typer.Exit(1)
     
     # Generate training script
     script_path = Path("morpheus_train.sh")
@@ -178,13 +185,6 @@ def train(
     if dry_run:
         console.print(f"[yellow]Dry run - script saved to {script_path}[/yellow]")
         return
-
-    # Check runtime dependencies only when training will actually run.
-    ok, missing = check_dependencies()
-    if not ok:
-        console.print(f"[red]Missing dependencies: {', '.join(missing)}[/red]")
-        console.print("[yellow]Install with: pip install llamafactory[/yellow]")
-        raise typer.Exit(1)
     
     # Run training
     console.print("[blue]Starting training... (this may take 30-60 minutes)[/blue]")
