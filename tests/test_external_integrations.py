@@ -113,6 +113,24 @@ def test_gmail_get_emails_respects_max_results_for_cache(tmp_path):
     assert [email["id"] for email in emails] == ["first"]
 
 
+def test_gmail_get_emails_returns_empty_list_for_non_positive_max_results(tmp_path):
+    now = datetime.now(timezone.utc)
+    token_path = tmp_path / "gmail_token.json"
+    token_path.write_text("{}")
+    (tmp_path / "gmail_cache.json").write_text(
+        json.dumps(
+            [
+                {"id": "first", "date": now.isoformat(), "snippet": "TODO: first"},
+                {"id": "second", "date": now.isoformat(), "snippet": "TODO: second"},
+            ]
+        )
+    )
+
+    emails = GmailIntegration(token_path=token_path).get_emails(days=30, max_results=-1)
+
+    assert emails == []
+
+
 def test_gmail_authenticate_rejects_token_directory(tmp_path):
     token_path = tmp_path / "gmail_token.json"
     token_path.mkdir()
@@ -176,6 +194,24 @@ def test_calendar_get_events_respects_max_results_for_cache(tmp_path):
     events = CalendarIntegration(token_path=token_path).get_events(days=30, max_results=1)
 
     assert [event["id"] for event in events] == ["first"]
+
+
+def test_calendar_get_events_returns_empty_list_for_non_positive_max_results(tmp_path):
+    now = datetime.now(timezone.utc)
+    token_path = tmp_path / "calendar_token.json"
+    token_path.write_text("{}")
+    (tmp_path / "calendar_cache.json").write_text(
+        json.dumps(
+            [
+                {"id": "first", "start": now.isoformat(), "summary": "TODO: first"},
+                {"id": "second", "start": now.isoformat(), "summary": "TODO: second"},
+            ]
+        )
+    )
+
+    events = CalendarIntegration(token_path=token_path).get_events(days=30, max_results=-1)
+
+    assert events == []
 
 
 def test_calendar_authenticate_rejects_token_directory(tmp_path):
