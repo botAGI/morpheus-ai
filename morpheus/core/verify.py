@@ -67,7 +67,9 @@ def verify_receipt_chain(morpheus_dir: Path) -> tuple[bool, list[str]]:
 
         # Verify signature if present
         sig = receipt.get("signature", {})
-        if not sig.get("signature_b64"):
+        if not isinstance(sig, dict):
+            errors.append(f"{receipt_file.name}: signature must be JSON object")
+        elif not sig.get("signature_b64"):
             errors.append(f"{receipt_file.name}: missing ed25519 signature")
         elif key_error:
             errors.append(f"{receipt_file.name}: {key_error}")
