@@ -25,7 +25,11 @@ class FileSystemWatcher:
                 continue
             
             rel_path = str(path.relative_to(self.root))
-            file_hash = self._sha256(path)
+            try:
+                file_hash = self._sha256(path)
+                stat = path.stat()
+            except OSError:
+                continue
             current_hashes[rel_path] = file_hash
             
             is_new = rel_path not in self.file_hashes
@@ -36,8 +40,8 @@ class FileSystemWatcher:
                     "path": rel_path,
                     "status": "new" if is_new else "modified",
                     "hash": file_hash,
-                    "size": path.stat().st_size,
-                    "modified": datetime.fromtimestamp(path.stat().st_mtime).isoformat()
+                    "size": stat.st_size,
+                    "modified": datetime.fromtimestamp(stat.st_mtime).isoformat()
                 })
 
         for rel_path, old_hash in sorted(self.file_hashes.items()):
