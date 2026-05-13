@@ -12,7 +12,9 @@ from cryptography.hazmat.primitives.asymmetric import ed25519
 
 def compute_sha256_file(path: Path) -> str:
     h = hashlib.sha256()
-    h.update(path.read_bytes())
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            h.update(chunk)
     return h.hexdigest()
 
 
