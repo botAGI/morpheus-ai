@@ -432,6 +432,10 @@ def consolidate_sessions(
         console.print("[red]Minimum Q&A pairs must be non-negative[/red]")
         raise typer.Exit(1)
 
+    if days < 0:
+        console.print("[red]Days must be non-negative[/red]")
+        raise typer.Exit(1)
+
     if not sessions_dir.exists():
         console.print(f"[red]Sessions directory not found: {sessions_dir}[/red]")
         raise typer.Exit(1)
