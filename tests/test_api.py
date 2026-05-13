@@ -219,6 +219,32 @@ def test_compile_returns_bad_request_for_broken_receipt_chain(tmp_path):
     assert "expected exactly one receipt chain root" in response.json()["detail"]
 
 
+def test_compile_returns_bad_request_when_previous_receipt_hash_fails(
+    monkeypatch,
+    tmp_path,
+):
+    MorpheusConfig(project_root=tmp_path).init_default()
+    (tmp_path / "README.md").write_text("TODO: compile with racy previous receipt\n")
+
+    import morpheus.api.server as server_module
+
+    def fake_latest_receipt(receipts_dir):
+        return receipts_dir / "receipt_old.json"
+
+    def fail_sha256(path):
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(server_module, "latest_receipt_file", fake_latest_receipt)
+    monkeypatch.setattr(server_module, "compute_sha256_file", fail_sha256)
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post("/compile", json={"project_root": str(tmp_path)})
+
+    assert response.status_code == 400
+    assert "Receipt chain invalid" in response.json()["detail"]
+    assert "permission denied" in response.json()["detail"]
+
+
 def test_compile_returns_bad_request_for_invalid_config(tmp_path):
     MorpheusConfig(project_root=tmp_path).init_default()
     (tmp_path / ".morpheus" / "morpheus.toml").write_text("{not toml")
