@@ -309,6 +309,26 @@ def test_compile_reports_previous_receipt_hash_failures_without_traceback(
         assert "permission denied" in result.output
 
 
+def test_compile_rejects_receipts_path_file_before_signing(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        Path("README.md").write_text("TODO: compile with invalid receipts path\n")
+        init_result = runner.invoke(app, ["init"])
+        assert init_result.exit_code == 0, init_result.output
+        receipts_dir = Path.cwd() / ".morpheus" / "receipts"
+        receipts_dir.rmdir()
+        receipts_dir.write_text("not a directory")
+
+        result = runner.invoke(app, ["compile"])
+
+        assert result.exit_code == 1
+        assert "Receipt chain invalid" in result.output
+        assert "receipts path is not a directory" in result.output
+        assert "Signing failed" not in result.output
+        assert "Output write failed" not in result.output
+
+
 def test_compile_reports_invalid_signing_key_without_traceback(tmp_path):
     runner = CliRunner()
 
@@ -365,6 +385,24 @@ def test_verify_rejects_morpheus_state_file_without_receipt_error(tmp_path):
 
         assert result.exit_code == 1
         assert "Not initialized" in result.output
+        assert "No receipts found" not in result.output
+
+
+def test_verify_rejects_receipts_path_file_without_no_receipts_message(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        init_result = runner.invoke(app, ["init"])
+        assert init_result.exit_code == 0, init_result.output
+        receipts_dir = Path.cwd() / ".morpheus" / "receipts"
+        receipts_dir.rmdir()
+        receipts_dir.write_text("not a directory")
+
+        result = runner.invoke(app, ["verify"])
+
+        assert result.exit_code == 1
+        assert "Receipt chain invalid" in result.output
+        assert "receipts path is not a directory" in result.output
         assert "No receipts found" not in result.output
 
 

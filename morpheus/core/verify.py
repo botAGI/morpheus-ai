@@ -19,6 +19,8 @@ def verify_receipt_chain(morpheus_dir: Path) -> tuple[bool, list[str]]:
 
     if not receipts_dir.exists():
         return False, ["receipts dir missing"]
+    if not receipts_dir.is_dir():
+        return False, ["receipts path is not a directory"]
 
     receipt_files = sorted(receipts_dir.glob("receipt_*.json"))
     if not receipt_files:

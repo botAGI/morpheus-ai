@@ -79,6 +79,14 @@ def test_latest_receipt_file_reports_unreadable_receipt_files(tmp_path):
         latest_receipt_file(receipts_dir)
 
 
+def test_latest_receipt_file_rejects_receipts_path_file(tmp_path):
+    receipts_dir = tmp_path / "receipts"
+    receipts_dir.write_text("not a directory")
+
+    with pytest.raises(ValueError, match="receipts path is not a directory"):
+        latest_receipt_file(receipts_dir)
+
+
 def test_latest_receipt_file_rejects_non_string_previous_hash(tmp_path):
     receipts_dir = tmp_path / "receipts"
     receipts_dir.mkdir()
