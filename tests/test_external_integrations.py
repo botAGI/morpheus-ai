@@ -143,3 +143,31 @@ def test_github_get_issues_filters_by_recent_update(monkeypatch, tmp_path):
     )
 
     assert [issue["number"] for issue in issues] == [1]
+
+
+def test_github_get_issues_skips_pull_request_issue_rows(monkeypatch, tmp_path):
+    now = datetime.now(timezone.utc)
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return [
+                {"number": 1, "updated_at": now.isoformat()},
+                {
+                    "number": 2,
+                    "updated_at": now.isoformat(),
+                    "pull_request": {"url": "https://api.github.com/pulls/2"},
+                },
+            ]
+
+    monkeypatch.setattr("httpx.get", lambda *args, **kwargs: Response())
+
+    issues = GitHubIntegration(token_path=tmp_path / "missing-token").get_issues(
+        "owner",
+        "repo",
+        days=30,
+    )
+
+    assert [issue["number"] for issue in issues] == [1]
