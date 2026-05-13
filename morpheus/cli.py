@@ -88,6 +88,10 @@ def init(
     """
     morpheus_dir = Path.cwd() / ".morpheus"
     
+    if morpheus_dir.exists() and not morpheus_dir.is_dir():
+        console.print("[red].morpheus path is not a directory[/red]")
+        raise typer.Exit(1)
+
     if morpheus_dir.exists() and not force:
         console.print("[yellow].morpheus/ already exists. Use --force to reinitialize.[/yellow]")
         raise typer.Exit(1)

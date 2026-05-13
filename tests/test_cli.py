@@ -70,6 +70,32 @@ def test_init_creates_morpheus_state(tmp_path):
         assert (project_root / ".morpheus" / "keys" / "local.pub").exists()
 
 
+def test_init_rejects_morpheus_state_file_without_force_hint(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        Path(".morpheus").write_text("not a directory")
+
+        result = runner.invoke(app, ["init"])
+
+        assert result.exit_code == 1
+        assert ".morpheus path is not a directory" in result.output
+        assert "Use --force" not in result.output
+
+
+def test_init_force_rejects_morpheus_state_file_without_traceback(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        Path(".morpheus").write_text("not a directory")
+
+        result = runner.invoke(app, ["init", "--force"])
+
+        assert result.exit_code == 1
+        assert ".morpheus path is not a directory" in result.output
+        assert "Initialization failed" not in result.output
+
+
 def test_init_force_reports_key_generation_failures_without_traceback(tmp_path):
     runner = CliRunner()
 
