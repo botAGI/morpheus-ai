@@ -98,6 +98,7 @@ def generate_training_script(config: dict, output_path: Path):
         eval_steps=config.get("eval_steps", 500),
     )
     
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(script_content)
     output_path.chmod(0o755)
     return output_path
