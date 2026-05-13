@@ -199,7 +199,11 @@ def _extract_claims(
     evidence = []
     claim_id_counter = claim_start
     evidence_id_counter = evidence_start
-    markers = evidence_markers if evidence_markers is not None else EVIDENCE_MARKERS
+    markers = [
+        marker
+        for marker in (evidence_markers if evidence_markers is not None else EVIDENCE_MARKERS)
+        if marker.strip()
+    ]
 
     for i, line in enumerate(lines, 1):
         for marker in markers:
