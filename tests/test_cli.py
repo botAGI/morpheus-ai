@@ -434,3 +434,12 @@ def test_integrate_list_does_not_require_service_argument():
 
     assert result.exit_code == 0, result.output
     assert "Available Integrations" in result.output
+
+
+def test_integrate_unknown_service_exits_with_error():
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["integrate", "slack"])
+
+    assert result.exit_code == 1
+    assert "Unknown integration service" in result.output
