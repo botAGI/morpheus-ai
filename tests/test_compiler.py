@@ -415,6 +415,42 @@ integrations = {}
         ]
 
 
+def test_compile_project_skips_watch_dirs_that_fail_during_traversal(monkeypatch):
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        morpheus_dir = tmppath / ".morpheus"
+        morpheus_dir.mkdir()
+        (morpheus_dir / "morpheus.toml").write_text(
+            """
+watch_dirs = ["bad", "good"]
+exclude_patterns = [".git", "node_modules", "__pycache__", ".morpheus"]
+evidence_markers = ["TODO:"]
+integrations = {}
+"""
+        )
+        bad_dir = tmppath / "bad"
+        good_dir = tmppath / "good"
+        bad_dir.mkdir()
+        good_dir.mkdir()
+        (bad_dir / "ignored.md").write_text("TODO: skipped traversal\n")
+        (good_dir / "kept.md").write_text("TODO: keep scanning\n")
+
+        path_type = type(tmppath)
+        original_rglob = path_type.rglob
+
+        def raise_for_bad_dir(path, pattern):
+            if path.resolve() == bad_dir.resolve():
+                raise OSError("permission denied")
+            return original_rglob(path, pattern)
+
+        monkeypatch.setattr(path_type, "rglob", raise_for_bad_dir)
+
+        state = compile_project(tmppath)
+
+        assert [source.path for source in state.sources] == ["good/kept.md"]
+        assert [claim.excerpt for claim in state.claims] == ["TODO: keep scanning"]
+
+
 def test_compile_project_respects_empty_configured_watch_dirs():
     with tempfile.TemporaryDirectory() as tmpdir:
         tmppath = Path(tmpdir)
