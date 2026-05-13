@@ -182,7 +182,11 @@ def get_wake(project: str):
     
     for p in possible_paths:
         if p.exists():
-            return {"project": project, "wake_md": p.read_text()}
+            try:
+                wake_md = p.read_text()
+            except OSError as exc:
+                raise HTTPException(status_code=400, detail=f"WAKE.md unreadable: {exc}") from exc
+            return {"project": project, "wake_md": wake_md}
     
     raise HTTPException(status_code=404, detail="WAKE.md not found")
 
