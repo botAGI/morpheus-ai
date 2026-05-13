@@ -190,3 +190,15 @@ def test_get_wake_rejects_project_path_traversal(tmp_path, monkeypatch):
 
     assert response.status_code == 400
     assert response.json()["detail"] == "Invalid project name"
+
+
+def test_status_returns_bad_request_for_invalid_state_json(tmp_path):
+    morpheus_dir = tmp_path / ".morpheus"
+    morpheus_dir.mkdir()
+    (morpheus_dir / "state.json").write_text("{not json")
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.get("/status", params={"project_root": str(tmp_path)})
+
+    assert response.status_code == 400
+    assert "State file invalid" in response.json()["detail"]
