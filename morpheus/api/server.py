@@ -174,11 +174,14 @@ def verify(project_root: Optional[str] = None):
     latest_path = None
     if receipts_dir.exists() and valid:
         latest_path = latest_receipt_file(receipts_dir)
+    receipt_id = "none"
+    if latest_path:
+        receipt_id = json.loads(latest_path.read_text()).get("receipt_id", latest_path.stem)
     
     return VerifyResponse(
         valid=valid,
         errors=errors,
-        receipt_id=latest_path.name if latest_path else "none"
+        receipt_id=receipt_id,
     )
 
 @app.get("/status")
