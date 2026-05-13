@@ -114,6 +114,28 @@ def test_verify_receipt_chain_rejects_latest_wake_artifact_mismatch(tmp_path):
     assert "latest WAKE.md sha256 mismatch" in errors[0]
 
 
+def test_verify_receipt_chain_rejects_latest_state_artifact_mismatch(tmp_path):
+    morpheus_dir = tmp_path / ".morpheus"
+    private_key_path = _write_keypair(morpheus_dir / "keys")
+    state_path = morpheus_dir / "state.json"
+    state_path.write_text('{"claims": [], "evidence": []}')
+
+    receipt = build_receipt(
+        state_dict={"claims": [], "evidence": []},
+        wake_md_sha="0" * 64,
+        sources_data=[],
+        private_key_path=private_key_path,
+        state_json_sha=compute_sha256_file(state_path),
+    )
+    _write_receipt(morpheus_dir / "receipts", "receipt_001.json", receipt)
+    state_path.write_text('{"claims": [{"id": "tampered"}], "evidence": []}')
+
+    valid, errors = verify_receipt_chain(morpheus_dir)
+
+    assert not valid
+    assert "latest state.json sha256 mismatch" in errors[0]
+
+
 def test_verify_receipt_chain_validates_previous_receipt_link(tmp_path):
     morpheus_dir = tmp_path / ".morpheus"
     private_key_path = _write_keypair(morpheus_dir / "keys")

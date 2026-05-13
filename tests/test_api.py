@@ -68,3 +68,17 @@ def test_compile_receipt_hashes_final_wake_file(tmp_path):
     receipt_path = next((morpheus_dir / "receipts").glob("receipt_*.json"))
     receipt = json.loads(receipt_path.read_text())
     assert receipt["wake_md_sha256"] == compute_sha256_file(morpheus_dir / "WAKE.md")
+
+
+def test_compile_receipt_hashes_final_state_file(tmp_path):
+    MorpheusConfig(project_root=tmp_path).init_default()
+    (tmp_path / "README.md").write_text("TODO: hash final API state\n")
+    client = api_client()
+
+    response = client.post("/compile", json={"project_root": str(tmp_path)})
+
+    assert response.status_code == 200
+    morpheus_dir = tmp_path / ".morpheus"
+    receipt_path = next((morpheus_dir / "receipts").glob("receipt_*.json"))
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["state_json_sha256"] == compute_sha256_file(morpheus_dir / "state.json")
