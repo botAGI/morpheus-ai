@@ -94,6 +94,16 @@ def test_extract_claims_rejects_paths_outside_root(tmp_path):
     assert claims == []
 
 
+def test_extract_claims_ignores_excluded_internal_paths(tmp_path):
+    morpheus_dir = tmp_path / ".morpheus"
+    morpheus_dir.mkdir()
+    (morpheus_dir / "internal.txt").write_text("TODO: do not read internal state\n")
+
+    claims = FileSystemWatcher(tmp_path).extract_claims(".morpheus/internal.txt")
+
+    assert claims == []
+
+
 def test_extract_claims_returns_marker_locations(tmp_path):
     source = tmp_path / "notes.md"
     source.write_text("intro\nDECISION: use receipts\nplain\nXXX: investigate edge case\n")
