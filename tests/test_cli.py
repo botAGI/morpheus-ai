@@ -304,3 +304,6 @@ def test_train_dry_run_skips_cli_dependency_check(tmp_path, monkeypatch):
 
         assert result.exit_code == 0, result.output
         assert Path("morpheus_train.sh").exists()
+        script = Path("morpheus_train.sh").read_text()
+        assert "OptionInfo" not in script
+        assert "--lora_alpha 128" in script
