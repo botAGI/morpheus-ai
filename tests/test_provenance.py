@@ -224,3 +224,16 @@ def test_build_receipt_rejects_invalid_receipt_id_before_signing(tmp_path):
             private_key_path=private_key_path,
             receipt_id="../evil",
         )
+
+
+def test_build_receipt_rejects_non_string_previous_hash_before_signing(tmp_path):
+    private_key_path = tmp_path / "private.key"
+
+    with pytest.raises(ValueError, match="previous_receipt_sha256 must be string or null"):
+        build_receipt(
+            state_dict={"claims": [], "evidence": []},
+            wake_md_sha="wake_sha",
+            sources_data=[],
+            private_key_path=private_key_path,
+            prev_hash={"not": "a hash"},
+        )
