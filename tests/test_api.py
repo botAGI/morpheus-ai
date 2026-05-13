@@ -206,6 +206,16 @@ def test_verify_returns_bad_request_when_latest_receipt_tail_cannot_be_loaded(
     assert "tail receipt changed during verification" in response.json()["detail"]
 
 
+def test_verify_returns_bad_request_for_morpheus_state_file(tmp_path):
+    (tmp_path / ".morpheus").write_text("not a directory")
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post("/verify", params={"project_root": str(tmp_path)})
+
+    assert response.status_code == 400
+    assert "Not initialized" in response.json()["detail"]
+
+
 def test_compile_returns_bad_request_for_broken_receipt_chain(tmp_path):
     MorpheusConfig(project_root=tmp_path).init_default()
     (tmp_path / "README.md").write_text("TODO: do not compile onto broken chain\n")
@@ -217,6 +227,17 @@ def test_compile_returns_bad_request_for_broken_receipt_chain(tmp_path):
     assert response.status_code == 400
     assert "Receipt chain invalid" in response.json()["detail"]
     assert "expected exactly one receipt chain root" in response.json()["detail"]
+
+
+def test_compile_returns_bad_request_for_morpheus_state_file(tmp_path):
+    (tmp_path / ".morpheus").write_text("not a directory")
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post("/compile", json={"project_root": str(tmp_path)})
+
+    assert response.status_code == 400
+    assert "Not initialized" in response.json()["detail"]
+    assert "Signing failed" not in response.json()["detail"]
 
 
 def test_compile_returns_bad_request_when_previous_receipt_hash_fails(

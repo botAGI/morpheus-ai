@@ -82,7 +82,7 @@ def compile(request: CompileRequest):
     project_root = Path(request.project_root) if request.project_root else Path.cwd()
     morpheus_dir = project_root / ".morpheus"
     
-    if not morpheus_dir.exists():
+    if not morpheus_dir.is_dir():
         raise HTTPException(status_code=400, detail="Not initialized. Run 'morpheus init'")
     
     # Compile
@@ -207,7 +207,7 @@ def verify(project_root: Optional[str] = None):
     root = Path(project_root) if project_root else Path.cwd()
     morpheus_dir = root / ".morpheus"
     
-    if not morpheus_dir.exists():
+    if not morpheus_dir.is_dir():
         raise HTTPException(status_code=400, detail="Not initialized")
     
     valid, errors = verify_receipt_chain(morpheus_dir)
