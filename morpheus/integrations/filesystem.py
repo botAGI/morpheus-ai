@@ -2,9 +2,9 @@
 Filesystem integration - watches local files for changes.
 """
 import hashlib
+import json
 from pathlib import Path
 from datetime import datetime
-from typing import Optional
 
 class FileSystemWatcher:
     def __init__(self, root: Path):
@@ -13,24 +13,19 @@ class FileSystemWatcher:
         self.file_hashes: dict[str, str] = {}
     
     def scan(self) -> list[dict]:
-        """Scan all files, return changed ones"""
-        import json
+        """Scan files and return new, modified, and deleted paths since the last scan."""
         changed = []
-        
-        # Load previous hashes
-        if self.cache_file.exists():
-            self.file_hashes = json.loads(self.cache_file.read_text())
+
+        self.file_hashes = self._load_cache()
         
         current_hashes = {}
         
-        for path in self.root.rglob("*"):
-            if not path.is_file():
-                continue
-            if ".morpheus" in path.parts:
+        for path in sorted(self.root.rglob("*")):
+            if not path.is_file() or self._is_excluded(path):
                 continue
             
             rel_path = str(path.relative_to(self.root))
-            file_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+            file_hash = self._sha256(path)
             current_hashes[rel_path] = file_hash
             
             is_new = rel_path not in self.file_hashes
@@ -44,10 +39,21 @@ class FileSystemWatcher:
                     "size": path.stat().st_size,
                     "modified": datetime.fromtimestamp(path.stat().st_mtime).isoformat()
                 })
+
+        for rel_path, old_hash in sorted(self.file_hashes.items()):
+            if rel_path not in current_hashes:
+                changed.append({
+                    "path": rel_path,
+                    "status": "deleted",
+                    "hash": old_hash,
+                    "size": 0,
+                    "modified": None,
+                })
         
         # Save new hashes
         self.cache_file.parent.mkdir(parents=True, exist_ok=True)
         self.cache_file.write_text(json.dumps(current_hashes, indent=2))
+        self.file_hashes = current_hashes
         
         return changed
     
@@ -72,3 +78,32 @@ class FileSystemWatcher:
                     })
         
         return claims
+
+    def _load_cache(self) -> dict[str, str]:
+        if not self.cache_file.exists():
+            return {}
+
+        try:
+            data = json.loads(self.cache_file.read_text())
+        except (OSError, json.JSONDecodeError):
+            return {}
+
+        if not isinstance(data, dict):
+            return {}
+
+        return {str(path): str(file_hash) for path, file_hash in data.items()}
+
+    def _is_excluded(self, path: Path) -> bool:
+        try:
+            relative_parts = path.relative_to(self.root).parts
+        except ValueError:
+            relative_parts = path.parts
+
+        return any(part in {".morpheus", ".git", "__pycache__"} for part in relative_parts)
+
+    def _sha256(self, path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as file:
+            for chunk in iter(lambda: file.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
