@@ -133,6 +133,9 @@ def _verify_latest_artifact_hash(
     artifact_path = morpheus_dir / relative_path
     if not ordered_records or not artifact_path.exists():
         return
+    if artifact_path.is_symlink():
+        errors.append(f"latest {relative_path} must not be a symlink")
+        return
 
     latest_receipt = ordered_records[-1]["receipt"]
     try:

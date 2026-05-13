@@ -470,6 +470,30 @@ def test_status_returns_bad_request_for_invalid_state_json(tmp_path):
     assert "State file invalid" in response.json()["detail"]
 
 
+def test_status_returns_bad_request_for_symlinked_state_file(tmp_path):
+    morpheus_dir = tmp_path / ".morpheus"
+    morpheus_dir.mkdir()
+    external_state = tmp_path / "external-state.json"
+    external_state.write_text(
+        json.dumps(
+            {
+                "sources": [],
+                "claims": [],
+                "evidence": [],
+                "compiled_at": "2026-05-13T00:00:00Z",
+            }
+        )
+    )
+    (morpheus_dir / "state.json").symlink_to(external_state)
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.get("/status", params={"project_root": str(tmp_path)})
+
+    assert response.status_code == 400
+    assert "State file invalid" in response.json()["detail"]
+    assert "must not be a symlink" in response.json()["detail"]
+
+
 def test_status_treats_morpheus_symlink_as_uninitialized(tmp_path):
     outside = tmp_path / "outside-morpheus"
     outside.mkdir()

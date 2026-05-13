@@ -133,6 +133,27 @@ def test_verify_receipt_chain_reports_unreadable_latest_wake_artifact(tmp_path):
     assert any("latest WAKE.md unreadable" in error for error in errors)
 
 
+def test_verify_receipt_chain_rejects_symlinked_latest_wake_artifact(tmp_path):
+    morpheus_dir = tmp_path / ".morpheus"
+    private_key_path = _write_keypair(morpheus_dir / "keys")
+    outside_wake = tmp_path / "outside-WAKE.md"
+    outside_wake.write_text("# WAKE\n\noutside\n")
+    (morpheus_dir / "WAKE.md").symlink_to(outside_wake)
+
+    receipt = build_receipt(
+        state_dict={"claims": [], "evidence": []},
+        wake_md_sha=compute_sha256_file(outside_wake),
+        sources_data=[],
+        private_key_path=private_key_path,
+    )
+    _write_receipt(morpheus_dir / "receipts", "receipt_001.json", receipt)
+
+    valid, errors = verify_receipt_chain(morpheus_dir)
+
+    assert not valid
+    assert any("latest WAKE.md must not be a symlink" in error for error in errors)
+
+
 def test_verify_receipt_chain_rejects_latest_state_artifact_mismatch(tmp_path):
     morpheus_dir = tmp_path / ".morpheus"
     private_key_path = _write_keypair(morpheus_dir / "keys")
