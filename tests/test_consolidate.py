@@ -124,6 +124,35 @@ def test_parse_session_file_counts_malformed_lines_and_filtered_messages(tmp_pat
     ]
 
 
+def test_parse_session_file_skips_non_object_json_entries(tmp_path):
+    session_path = tmp_path / "session.jsonl"
+    session_path.write_text(
+        "\n".join(
+            [
+                json.dumps(["not", "a", "message"]),
+                json.dumps("not a message"),
+                json.dumps(message("user", "How should parser handle odd JSONL rows?")),
+                json.dumps(
+                    message(
+                        "assistant",
+                        "Implemented validation that skips non-object JSONL rows without aborting session parsing.",
+                    )
+                ),
+            ]
+        )
+    )
+
+    messages = parse_session_file(session_path)
+
+    assert messages == [
+        {"role": "user", "content": "How should parser handle odd JSONL rows?"},
+        {
+            "role": "assistant",
+            "content": "Implemented validation that skips non-object JSONL rows without aborting session parsing.",
+        },
+    ]
+
+
 def test_is_high_quality_pair_rejects_low_signal_assistant_ack():
     assert not is_high_quality_pair("Fix the parser", "Working on it")
     assert is_high_quality_pair(
