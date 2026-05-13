@@ -184,9 +184,14 @@ def create_sample_eval():
     ]
     
     output_path = Path("eval_questions.jsonl")
-    with open(output_path, "w", encoding="utf-8") as f:
-        for item in sample:
-            f.write(json.dumps(item, ensure_ascii=False) + "\n")
+    try:
+        with output_path.open("w", encoding="utf-8") as f:
+            for item in sample:
+                f.write(json.dumps(item, ensure_ascii=False) + "\n")
+    except OSError as exc:
+        console.print(f"[red]Sample evaluation output unwritable: {output_path}[/red]")
+        console.print(f"[yellow]{exc}[/yellow]")
+        raise typer.Exit(1) from exc
     
     console.print(f"[green]✓ Created sample evaluation: {output_path}[/green]")
 

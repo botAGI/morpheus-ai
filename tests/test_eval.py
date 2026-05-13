@@ -182,3 +182,11 @@ def test_query_model_prints_adapter_path_in_manual_load_hint(monkeypatch, tmp_pa
     assert str(adapter_dir) in captured.replace("\n", "")
     assert "Load manually:" in captured
     assert "{adapter_path}" not in captured
+
+
+def test_create_sample_eval_exits_when_output_file_unwritable(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "eval_questions.jsonl").mkdir()
+
+    with pytest.raises(click.exceptions.Exit):
+        eval_module.create_sample_eval()
