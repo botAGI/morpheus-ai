@@ -93,3 +93,24 @@ def test_compile_receipt_hashes_final_state_file(tmp_path):
         receipt = json.loads(receipt_path.read_text())
 
         assert receipt["state_json_sha256"] == compute_sha256_file(morpheus_dir / "state.json")
+
+
+def test_compile_receipt_hashes_final_evidence_file(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        Path("README.md").write_text("TODO: hash final evidence\n")
+
+        init_result = runner.invoke(app, ["init"])
+        compile_result = runner.invoke(app, ["compile"])
+
+        assert init_result.exit_code == 0, init_result.output
+        assert compile_result.exit_code == 0, compile_result.output
+        morpheus_dir = Path.cwd() / ".morpheus"
+        receipt_path = next((morpheus_dir / "receipts").glob("receipt_*.json"))
+        receipt = json.loads(receipt_path.read_text())
+
+        assert (morpheus_dir / "evidence.jsonl").exists()
+        assert receipt["evidence_jsonl_sha256"] == compute_sha256_file(
+            morpheus_dir / "evidence.jsonl"
+        )

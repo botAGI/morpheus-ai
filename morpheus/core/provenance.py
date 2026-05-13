@@ -20,6 +20,17 @@ def compute_sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def evidence_jsonl_bytes(evidence_items: list) -> bytes:
+    """Serialize evidence records as deterministic JSONL bytes."""
+    lines = [
+        json.dumps(item, sort_keys=True, separators=(",", ":"), default=str)
+        for item in evidence_items
+    ]
+    if not lines:
+        return b""
+    return ("\n".join(lines) + "\n").encode()
+
+
 def receipt_signature_payload(receipt: dict) -> bytes:
     """Return the canonical receipt payload protected by the ed25519 signature."""
     signed_receipt = {key: value for key, value in receipt.items() if key != "signature"}
@@ -77,14 +88,14 @@ def build_receipt(
     prev_hash: str = None,
     receipt_id: str | None = None,
     state_json_sha: str | None = None,
+    evidence_jsonl_sha: str | None = None,
 ) -> dict:
     """Build and sign a receipt."""
     state_json_bytes = json.dumps(state_dict, default=str).encode()
     state_sha = state_json_sha or compute_sha256_bytes(state_json_bytes)
 
     evidence_items = [e for e in state_dict.get("evidence", [])]
-    evidence_bytes = json.dumps(evidence_items, default=str).encode()
-    evidence_sha = compute_sha256_bytes(evidence_bytes)
+    evidence_sha = evidence_jsonl_sha or compute_sha256_bytes(evidence_jsonl_bytes(evidence_items))
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     receipt_id = receipt_id or new_receipt_id()
