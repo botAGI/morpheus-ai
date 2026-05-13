@@ -72,7 +72,7 @@ class GmailIntegration:
 
 
 def _parse_cache_datetime(value: str | None) -> datetime | None:
-    if not value:
+    if not value or not isinstance(value, str):
         return None
     try:
         parsed = datetime.fromisoformat(value)
