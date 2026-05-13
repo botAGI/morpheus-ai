@@ -29,7 +29,13 @@ def verify_receipt_chain(morpheus_dir: Path) -> tuple[bool, list[str]]:
 
     for receipt_file in receipt_files:
         try:
-            receipt = json.loads(receipt_file.read_text())
+            receipt_text = receipt_file.read_text()
+        except OSError as exc:
+            errors.append(f"{receipt_file.name}: unreadable receipt ({exc})")
+            continue
+
+        try:
+            receipt = json.loads(receipt_text)
         except json.JSONDecodeError as exc:
             errors.append(f"{receipt_file.name}: invalid JSON ({exc.msg})")
             continue
@@ -37,10 +43,16 @@ def verify_receipt_chain(morpheus_dir: Path) -> tuple[bool, list[str]]:
             errors.append(f"{receipt_file.name}: expected JSON object")
             continue
 
+        try:
+            receipt_sha = compute_sha256_file(receipt_file)
+        except OSError as exc:
+            errors.append(f"{receipt_file.name}: unreadable receipt ({exc})")
+            continue
+
         receipt_records.append({
             "path": receipt_file,
             "receipt": receipt,
-            "sha256": compute_sha256_file(receipt_file),
+            "sha256": receipt_sha,
         })
 
     ordered_records, ordering_errors = _order_receipt_records(receipt_records)
