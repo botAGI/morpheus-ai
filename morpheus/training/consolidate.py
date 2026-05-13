@@ -428,6 +428,10 @@ def consolidate_sessions(
     all_pairs = []
     stats = ConsolidationStats()
 
+    if min_pairs < 0:
+        console.print("[red]Minimum Q&A pairs must be non-negative[/red]")
+        raise typer.Exit(1)
+
     if not sessions_dir.exists():
         console.print(f"[red]Sessions directory not found: {sessions_dir}[/red]")
         raise typer.Exit(1)

@@ -378,6 +378,23 @@ def test_consolidate_sessions_errors_when_no_pairs(tmp_path):
         )
 
 
+def test_consolidate_sessions_rejects_negative_min_pairs(tmp_path):
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    write_jsonl(sessions_dir / "session.jsonl", [message("assistant", "HEARTBEAT_OK")])
+    output_path = tmp_path / "dataset.jsonl"
+
+    with pytest.raises(click.exceptions.Exit):
+        consolidate_sessions(
+            sessions_dir=sessions_dir,
+            output_path=output_path,
+            days=1,
+            min_pairs=-1,
+        )
+
+    assert not output_path.exists()
+
+
 def test_consolidate_sessions_enforces_min_pairs_after_deduplication(tmp_path):
     sessions_dir = tmp_path / "sessions"
     sessions_dir.mkdir()
