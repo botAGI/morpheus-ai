@@ -77,6 +77,38 @@ def test_scan_excludes_common_secret_and_generated_files(tmp_path):
     assert FileSystemWatcher(tmp_path).extract_claims(".env") == []
 
 
+def test_scan_excludes_repo_hygiene_artifacts_by_default(tmp_path):
+    ignored_dirs = [
+        ".idea",
+        ".vscode",
+        "target",
+        "ui/target",
+        "reports",
+        "morpheus_adapters",
+        "htmlcov",
+        "env",
+    ]
+    for ignored_dir in ignored_dirs:
+        path = tmp_path / ignored_dir
+        path.mkdir(parents=True)
+        (path / "generated.txt").write_text("TODO: ignore generated artifact\n")
+
+    for ignored_file in [
+        ".DS_Store",
+        "debug.log",
+        "server.pid",
+        "dataset.jsonl",
+        "WAKE.md",
+    ]:
+        (tmp_path / ignored_file).write_text("TODO: ignore generated file\n")
+
+    (tmp_path / "valid.txt").write_text("TODO: keep source\n")
+
+    changes = FileSystemWatcher(tmp_path).scan()
+
+    assert [change["path"] for change in changes] == ["valid.txt"]
+
+
 def test_scan_does_not_report_deleted_entries_for_excluded_cached_paths(tmp_path):
     morpheus_dir = tmp_path / ".morpheus"
     morpheus_dir.mkdir()
