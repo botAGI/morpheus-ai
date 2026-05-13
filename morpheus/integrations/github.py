@@ -1,6 +1,7 @@
 """
 GitHub integration - reads issues, PRs, commits.
 """
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -33,7 +34,15 @@ class GitHubIntegration:
             timeout=10
         )
         resp.raise_for_status()
-        return resp.json()
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        recent_issues = []
+        for issue in resp.json():
+            if not isinstance(issue, dict):
+                continue
+            updated_at = _parse_github_datetime(issue.get("updated_at"))
+            if updated_at and updated_at > cutoff:
+                recent_issues.append(issue)
+        return recent_issues
     
     def get_pulls(self, owner: str, repo: str, state: str = "all") -> list[dict]:
         """Get pull requests"""
@@ -53,3 +62,15 @@ class GitHubIntegration:
         if self.token_path.exists():
             return self.token_path.read_text().strip()
         return None
+
+
+def _parse_github_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed

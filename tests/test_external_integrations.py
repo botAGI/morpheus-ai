@@ -5,6 +5,7 @@ import json
 from datetime import datetime, timedelta, timezone
 
 from morpheus.integrations.calendar import CalendarIntegration
+from morpheus.integrations.github import GitHubIntegration
 from morpheus.integrations.gmail import GmailIntegration
 
 
@@ -94,3 +95,35 @@ def test_calendar_get_events_respects_max_results_for_cache(tmp_path):
     events = CalendarIntegration(token_path=token_path).get_events(days=30, max_results=1)
 
     assert [event["id"] for event in events] == ["first"]
+
+
+def test_github_get_issues_filters_by_recent_update(monkeypatch, tmp_path):
+    now = datetime.now(timezone.utc)
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return [
+                {"number": 1, "updated_at": now.isoformat()},
+                {"number": 2, "updated_at": (now - timedelta(days=45)).isoformat()},
+                {"number": 3, "updated_at": "not-a-date"},
+                "not an issue",
+            ]
+
+    def fake_get(url, *, headers, params, timeout):
+        assert url == "https://api.github.com/repos/owner/repo/issues"
+        assert params == {"state": "all", "per_page": 100}
+        assert timeout == 10
+        return Response()
+
+    monkeypatch.setattr("httpx.get", fake_get)
+
+    issues = GitHubIntegration(token_path=tmp_path / "missing-token").get_issues(
+        "owner",
+        "repo",
+        days=30,
+    )
+
+    assert [issue["number"] for issue in issues] == [1]
