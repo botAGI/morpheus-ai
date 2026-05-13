@@ -54,6 +54,9 @@ class MorpheusConfig(BaseModel):
         """Load config from .morpheus/morpheus.toml."""
         config_path = self.project_root / ".morpheus" / "morpheus.toml"
         if config_path.exists():
-            data = toml.loads(config_path.read_text())
+            try:
+                data = toml.loads(config_path.read_text())
+            except toml.TomlDecodeError as exc:
+                raise ValueError(f"Config invalid: {exc}") from exc
             return MorpheusConfig(project_root=self.project_root, **data)
         return self

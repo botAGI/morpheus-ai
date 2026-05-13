@@ -82,7 +82,10 @@ def compile(request: CompileRequest):
         raise HTTPException(status_code=400, detail="Not initialized. Run 'morpheus init'")
     
     # Compile
-    state = compile_project(project_root)
+    try:
+        state = compile_project(project_root)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     
     # Get previous receipt
     receipts_dir = morpheus_dir / "receipts"
