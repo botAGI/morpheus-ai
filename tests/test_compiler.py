@@ -1,10 +1,8 @@
 """
 Tests for morpheus.core.compiler
 """
-import pytest
 import tempfile
 from pathlib import Path
-from datetime import datetime
 from morpheus.core.compiler import (
     compute_sha256,
     compile_project,

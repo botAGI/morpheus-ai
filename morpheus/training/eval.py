@@ -7,7 +7,6 @@ if the model has learned project context.
 import json
 import subprocess
 from pathlib import Path
-from datetime import datetime
 from typing import Optional
 import typer
 from rich.console import Console

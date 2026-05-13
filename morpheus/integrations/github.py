@@ -2,7 +2,6 @@
 GitHub integration - reads issues, PRs, commits.
 """
 from pathlib import Path
-from datetime import datetime
 from typing import Optional
 
 class GitHubIntegration:

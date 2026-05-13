@@ -1,0 +1,41 @@
+version: 2.1
+
+executors:
+  python:
+    docker:
+      - image: cimg/python:3.12
+    resource_class: small
+
+jobs:
+  quality:
+    executor: python
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - pip-v1-{{ checksum "pyproject.toml" }}
+            - pip-v1-
+      - run:
+          name: Install package and dev tools
+          command: |
+            python -m pip install --upgrade pip
+            python -m pip install -e ".[dev]"
+      - save_cache:
+          key: pip-v1-{{ checksum "pyproject.toml" }}
+          paths:
+            - ~/.cache/pip
+      - run:
+          name: Lint
+          command: python -m ruff check .
+      - run:
+          name: Test
+          command: |
+            mkdir -p test-results/pytest
+            python -m pytest tests/ -q --junitxml=test-results/pytest/results.xml
+      - store_test_results:
+          path: test-results
+
+workflows:
+  quality:
+    jobs:
+      - quality
