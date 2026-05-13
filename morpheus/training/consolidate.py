@@ -8,7 +8,7 @@ for LoRA fine-tuning.
 import json
 import hashlib
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Iterator
 import typer
 from rich.console import Console
@@ -186,7 +186,7 @@ def consolidate_sessions(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show details")
 ):
     """Find sessions from last N days and create training dataset."""
-    cutoff = datetime.utcnow() - timedelta(days=days)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     all_pairs = []
     processed_files = 0
     

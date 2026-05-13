@@ -7,10 +7,48 @@ Stop starting AI agents from scratch. Morpheus generates `WAKE.md` — a compile
 ## Quick Start
 
 ```bash
-pip install morpheus-ai
+# Install
+pip install -e .
+
+# Initialize project
 morpheus init
+
+# Compile state + generate receipt
 morpheus compile
+
+# Verify chain integrity
 morpheus verify --all
+
+# Show project status
+morpheus status
+```
+
+## CLI Reference
+
+| Command | Description |
+|---------|-------------|
+| `morpheus init` | Initialize .morpheus/ with keys |
+| `morpheus compile` | Compile sources → WAKE.md + receipt |
+| `morpheus verify` | Quick verify latest receipt |
+| `morpheus verify --all` | Full chain + signature verification |
+| `morpheus status` | Show sources/claims/evidence counts |
+| `morpheus wake` | Print WAKE.md to stdout |
+| `morpheus integrate --list` | Show available integrations |
+| `morpheus consolidate --days 7` | Sessions → training dataset |
+| `morpheus train --epochs 3` | QLoRA fine-tuning |
+| `morpheus version` | Show version |
+
+## Training Pipeline (Phase 3)
+
+```bash
+# 1. Consolidate sessions
+morpheus consolidate --days 7 --output dataset.jsonl
+
+# 2. Train adapter
+morpheus train --base-model qwen2.5:7b --dataset dataset.jsonl
+
+# 3. Evaluate
+morpheus eval --adapter-path morpheus_adapters/
 ```
 
 ## What is this?
@@ -24,23 +62,30 @@ WAKE.md       → tells agents where we are now
 .morpheus/   → machine state, receipts, evidence
 ```
 
-## Features
-
-- **State Compilation**: Extract decisions, tasks, and facts from project files
-- **Provenance Chain**: Signed receipts with SHA-256 evidence chains
-- **Verification**: `morpheus verify --provenance` validates the entire chain
-- **Integrations**: Gmail, Google Calendar, GitHub (more coming)
-- **Daily Training Ready**: Phase 3 adds QLoRA fine-tuning for weights-as-memory
-
 ## Architecture
 
 ```
 morpheus compile
-  → extracts sources
-  → builds claims from markers (TODO:, DECISION:, etc)
-  → generates evidence chain
+  → extracts sources from project files
+  → builds claims from markers (TODO:, DECISION:, FIXME:, NOTE:)
+  → generates evidence chain with SHA-256 hashes
   → signs receipt with ed25519
   → writes WAKE.md + state.json + receipt
+```
+
+## Project Structure
+
+```
+morpheus-ai/
+├── morpheus/
+│   ├── cli.py           # CLI commands
+│   ├── core/            # Compiler, provenance, models
+│   ├── integrations/     # Gmail, Calendar, GitHub
+│   ├── api/             # FastAPI server
+│   └── training/        # Phase 3: QLoRA pipeline
+├── ui/                  # Tauri desktop app
+├── tests/               # 19 tests
+└── scripts/             # Automation scripts
 ```
 
 ## License

@@ -4,7 +4,7 @@ Provenance: SHA256 utilities and receipt signing with ed25519.
 import hashlib
 import base64
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.hazmat.primitives import serialization
 
@@ -31,7 +31,7 @@ def build_receipt(state_dict: dict, wake_md_sha: str, sources_data: list, privat
     evidence_bytes = json.dumps(evidence_items, default=str).encode()
     evidence_sha = compute_sha256_bytes(evidence_bytes)
 
-    ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     short_hash = wake_md_sha[:8]
     receipt_id = f"rcpt_{ts}_{short_hash}"
 

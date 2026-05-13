@@ -2,7 +2,7 @@
 Tests for morpheus.core.wake
 """
 import pytest
-from datetime import datetime
+from datetime import datetime, timezone
 from morpheus.core.wake import generate_wake_md
 from morpheus.core.models import Source, Claim, Evidence, ProjectState
 
@@ -15,7 +15,7 @@ def test_generate_wake_md_basic():
         sha256="abc123",
         size_bytes=100,
         line_count=10,
-        modified_at=datetime.utcnow()
+        modified_at=datetime.now(timezone.utc)
     )
     
     claim = Claim(
@@ -25,14 +25,14 @@ def test_generate_wake_md_basic():
         line_end=5,
         excerpt="TODO: implement feature X",
         category="task",
-        created_at=datetime.utcnow()
+        created_at=datetime.now(timezone.utc)
     )
     
     state = ProjectState(
         sources=[source],
         claims=[claim],
         evidence=[],
-        compiled_at=datetime.utcnow(),
+        compiled_at=datetime.now(timezone.utc),
         receipt_id="rcpt_test_001"
     )
     
@@ -48,18 +48,18 @@ def test_generate_wake_md_basic():
 def test_generate_wake_md_claims_by_category():
     claims = [
         Claim(id="clm_001", source_id="src_001", line_start=1, line_end=1,
-              excerpt="TODO: task 1", category="task", created_at=datetime.utcnow()),
+              excerpt="TODO: task 1", category="task", created_at=datetime.now(timezone.utc)),
         Claim(id="clm_002", source_id="src_001", line_start=2, line_end=2,
-              excerpt="DECISION: use Python", category="decision", created_at=datetime.utcnow()),
+              excerpt="DECISION: use Python", category="decision", created_at=datetime.now(timezone.utc)),
         Claim(id="clm_003", source_id="src_001", line_start=3, line_end=3,
-              excerpt="FIXME: broken thing", category="fixme", created_at=datetime.utcnow()),
+              excerpt="FIXME: broken thing", category="fixme", created_at=datetime.now(timezone.utc)),
     ]
     
     state = ProjectState(
         sources=[],
         claims=claims,
         evidence=[],
-        compiled_at=datetime.utcnow(),
+        compiled_at=datetime.now(timezone.utc),
         receipt_id="rcpt_001"
     )
     
@@ -78,7 +78,7 @@ def test_generate_wake_md_empty_project():
         sources=[],
         claims=[],
         evidence=[],
-        compiled_at=datetime.utcnow(),
+        compiled_at=datetime.now(timezone.utc),
         receipt_id="rcpt_empty"
     )
     

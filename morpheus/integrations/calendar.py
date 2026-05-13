@@ -2,7 +2,7 @@
 Google Calendar integration - reads events as evidence.
 """
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 class CalendarIntegration:
@@ -33,7 +33,7 @@ class CalendarIntegration:
     def _load_from_cache(self, cache_path: Path, days: int) -> list[dict]:
         import json
         data = json.loads(cache_path.read_text())
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         return [e for e in data if datetime.fromisoformat(e.get("start", "2000")) > cutoff]
     
     def extract_evidence(self, event: dict) -> list[dict]:

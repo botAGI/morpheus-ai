@@ -1,7 +1,7 @@
 """
 Core Pydantic models for Morpheus.
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from pydantic import BaseModel, Field
 
@@ -13,7 +13,7 @@ class Source(BaseModel):
     sha256: str = ""
     size_bytes: int = 0
     line_count: int = 0
-    modified_at: datetime = Field(default_factory=datetime.utcnow)
+    modified_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class Claim(BaseModel):
@@ -25,7 +25,7 @@ class Claim(BaseModel):
     status: str = "active"
     category: str = "fact"
     inference: bool = False
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class Evidence(BaseModel):
@@ -38,7 +38,7 @@ class Evidence(BaseModel):
     excerpt: str
     source_sha256: str
     excerpt_sha256: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class Receipt(BaseModel):
@@ -60,5 +60,5 @@ class ProjectState(BaseModel):
     sources: list[Source] = Field(default_factory=list)
     claims: list[Claim] = Field(default_factory=list)
     evidence: list[Evidence] = Field(default_factory=list)
-    compiled_at: datetime = Field(default_factory=datetime.utcnow)
+    compiled_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     receipt_id: Optional[str] = None
