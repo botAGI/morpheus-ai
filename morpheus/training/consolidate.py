@@ -499,13 +499,18 @@ def consolidate_sessions(
         raise typer.Exit(1) from exc
 
     if stats_output_path:
-        write_stats_report(
-            stats_output_path,
-            stats,
-            sessions_dir=sessions_dir,
-            output_path=output_path,
-            days=days,
-        )
+        try:
+            write_stats_report(
+                stats_output_path,
+                stats,
+                sessions_dir=sessions_dir,
+                output_path=output_path,
+                days=days,
+            )
+        except OSError as exc:
+            console.print(f"[red]Stats output write failed: {stats_output_path}[/red]")
+            console.print(f"[yellow]{exc}[/yellow]")
+            raise typer.Exit(1) from exc
 
     console.print(f"\n[green]✓ Dataset created:[/green] {len(unique_pairs)} Q&A pairs")
     console.print(f"[green]✓ Saved to:[/green] {output_path}")

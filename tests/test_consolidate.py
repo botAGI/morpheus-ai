@@ -329,6 +329,41 @@ def test_consolidate_sessions_reports_unwritable_dataset_output(tmp_path):
         )
 
 
+def test_consolidate_sessions_reports_unwritable_stats_output(tmp_path):
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    write_jsonl(
+        sessions_dir / "session.jsonl",
+        [
+            message("user", [{"type": "text", "text": "How should automation inspect consolidation?"}]),
+            message(
+                "assistant",
+                [
+                    {
+                        "type": "text",
+                        "text": (
+                            "Implemented controlled stats report write errors for automation "
+                            "and recorded the failure as a user-facing training pipeline diagnostic."
+                        ),
+                    }
+                ],
+            ),
+        ],
+    )
+    output_path = tmp_path / "dataset.jsonl"
+    stats_path = tmp_path / "stats.json"
+    stats_path.mkdir()
+
+    with pytest.raises(click.exceptions.Exit):
+        consolidate_sessions(
+            sessions_dir=sessions_dir,
+            output_path=output_path,
+            days=1,
+            min_pairs=1,
+            stats_output_path=stats_path,
+        )
+
+
 def test_consolidate_sessions_errors_when_no_pairs(tmp_path):
     sessions_dir = tmp_path / "sessions"
     sessions_dir.mkdir()
