@@ -136,6 +136,10 @@ def run_eval(
         console.print(f"   [green]Answer:[/green] {answer[:150]}...")
         console.print(f"   [yellow]Score: {score:.0%} ({keywords_found}/{len(expected)})[/yellow]\n")
     
+    if total == 0:
+        console.print("[red]No valid evaluation questions found[/red]")
+        raise typer.Exit(1)
+
     # Summary
     success_rate = (passed / total * 100) if total > 0 else 0
     
