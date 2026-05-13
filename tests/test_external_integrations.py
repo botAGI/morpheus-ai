@@ -22,6 +22,7 @@ def test_gmail_cache_loads_timezone_dates_and_skips_invalid_rows(tmp_path):
                     "snippet": "TODO: too old",
                 },
                 {"id": "bad-date", "date": "not-a-date", "snippet": "TODO: bad"},
+                {"id": "bad-type", "date": 1234567890, "snippet": "TODO: bad type"},
                 ["not", "a", "message"],
             ]
         )
@@ -74,6 +75,7 @@ def test_calendar_cache_loads_timezone_dates_and_skips_invalid_rows(tmp_path):
                     "summary": "DECISION: too old",
                 },
                 {"id": "bad-date", "start": "not-a-date", "summary": "DECISION: bad"},
+                {"id": "bad-type", "start": 1234567890, "summary": "DECISION: bad type"},
                 "not an event",
             ]
         )
@@ -125,6 +127,7 @@ def test_github_get_issues_filters_by_recent_update(monkeypatch, tmp_path):
                 {"number": 1, "updated_at": now.isoformat()},
                 {"number": 2, "updated_at": (now - timedelta(days=45)).isoformat()},
                 {"number": 3, "updated_at": "not-a-date"},
+                {"number": 4, "updated_at": 1234567890},
                 "not an issue",
             ]
 

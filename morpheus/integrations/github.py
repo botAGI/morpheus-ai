@@ -67,7 +67,7 @@ class GitHubIntegration:
 
 
 def _parse_github_datetime(value: str | None) -> datetime | None:
-    if not value:
+    if not value or not isinstance(value, str):
         return None
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
