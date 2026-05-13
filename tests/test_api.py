@@ -229,6 +229,18 @@ def test_compile_returns_bad_request_for_invalid_signing_key(tmp_path):
     assert "Signing failed" in response.json()["detail"]
 
 
+def test_compile_returns_bad_request_for_output_write_failures(tmp_path):
+    MorpheusConfig(project_root=tmp_path).init_default()
+    (tmp_path / "README.md").write_text("TODO: compile API with blocked output path\n")
+    (tmp_path / ".morpheus" / "WAKE.md").mkdir()
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post("/compile", json={"project_root": str(tmp_path)})
+
+    assert response.status_code == 400
+    assert "Output write failed" in response.json()["detail"]
+
+
 def test_get_wake_rejects_project_path_traversal(tmp_path, monkeypatch):
     safe_dir = tmp_path / "safe"
     safe_dir.mkdir()

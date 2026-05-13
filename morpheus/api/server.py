@@ -135,25 +135,28 @@ def compile(request: CompileRequest):
     except (OSError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=f"Signing failed: {exc}") from exc
     
-    # Write WAKE with real receipt
-    (morpheus_dir / "WAKE.md").write_text(wake_md)
+    try:
+        # Write WAKE with real receipt
+        (morpheus_dir / "WAKE.md").write_text(wake_md)
 
-    # Save state
-    state_path = morpheus_dir / "state.json"
-    state_path.write_text(state_json)
+        # Save state
+        state_path = morpheus_dir / "state.json"
+        state_path.write_text(state_json)
 
-    # Save evidence
-    evidence_path = morpheus_dir / "evidence.jsonl"
-    evidence_path.write_bytes(evidence_jsonl)
-    
-    # Save receipt
-    receipt_path = receipts_dir / receipt_file_name(receipt["receipt_id"])
-    receipt_path.parent.mkdir(parents=True, exist_ok=True)
-    receipt_path.write_text(json.dumps(receipt, indent=2, default=str))
+        # Save evidence
+        evidence_path = morpheus_dir / "evidence.jsonl"
+        evidence_path.write_bytes(evidence_jsonl)
+        
+        # Save receipt
+        receipt_path = receipts_dir / receipt_file_name(receipt["receipt_id"])
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        receipt_path.write_text(json.dumps(receipt, indent=2, default=str))
 
-    audit_log = receipts_dir / "audit.log"
-    with audit_log.open("a") as f:
-        f.write(f"{receipt['issued_at']} {receipt['receipt_id']}\n")
+        audit_log = receipts_dir / "audit.log"
+        with audit_log.open("a") as f:
+            f.write(f"{receipt['issued_at']} {receipt['receipt_id']}\n")
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=f"Output write failed: {exc}") from exc
     
     return CompileResponse(
         receipt_id=receipt["receipt_id"],
