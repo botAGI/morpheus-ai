@@ -5,6 +5,7 @@ Fine-tunes a base model (Qwen2.5-7B or similar) with LoRA adapter
 on consolidated session data for "weights-as-memory" effect.
 """
 import subprocess
+import shlex
 from pathlib import Path
 import typer
 from rich.console import Console
@@ -35,9 +36,9 @@ TRAINING_SCRIPT = """#!/bin/bash
 
 set -e
 
-BASE_MODEL="{base_model}"
-OUTPUT_DIR="{output_dir}"
-DATASET="{dataset}"
+BASE_MODEL={base_model}
+OUTPUT_DIR={output_dir}
+DATASET={dataset}
 
 # LlamaFactory training
 llamafactory-cli train \\
@@ -78,11 +79,12 @@ def generate_training_script(config: dict, output_path: Path):
     lora_target = config.get("lora_target", "all")
     if isinstance(lora_target, list):
         lora_target = ",".join(lora_target)
+    lora_target = shlex.quote(str(lora_target))
     
     script_content = TRAINING_SCRIPT.format(
-        base_model=config.get("base_model", "qwen2.5:7b"),
-        output_dir=config.get("output_dir", "./morpheus_adapters"),
-        dataset=config.get("dataset", "./dataset.jsonl"),
+        base_model=shlex.quote(str(config.get("base_model", "qwen2.5:7b"))),
+        output_dir=shlex.quote(str(config.get("output_dir", "./morpheus_adapters"))),
+        dataset=shlex.quote(str(config.get("dataset", "./dataset.jsonl"))),
         lora_rank=config.get("lora_rank", 64),
         lora_alpha=config.get("lora_alpha", 128),
         lora_dropout=config.get("lora_dropout", 0.05),
