@@ -162,7 +162,9 @@ def verify(project_root: Optional[str] = None):
     valid, errors = verify_receipt_chain(morpheus_dir)
     
     receipts_dir = morpheus_dir / "receipts"
-    latest_path = latest_receipt_file(receipts_dir) if receipts_dir.exists() else None
+    latest_path = None
+    if receipts_dir.exists() and valid:
+        latest_path = latest_receipt_file(receipts_dir)
     
     return VerifyResponse(
         valid=valid,
