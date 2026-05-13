@@ -383,6 +383,42 @@ def test_consolidate_sessions_rejects_sessions_path_file(tmp_path, capsys):
     assert not output_path.exists()
 
 
+def test_consolidate_sessions_skips_symlinked_session_files(tmp_path):
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    outside_session = tmp_path / "outside.jsonl"
+    write_jsonl(
+        outside_session,
+        [
+            message("user", [{"type": "text", "text": "How should symlinked sessions be handled?"}]),
+            message(
+                "assistant",
+                [
+                    {
+                        "type": "text",
+                        "text": (
+                            "Implemented consolidation hardening that skips symlinked session "
+                            "files instead of reading data outside the configured sessions directory."
+                        ),
+                    }
+                ],
+            ),
+        ],
+    )
+    (sessions_dir / "session.jsonl").symlink_to(outside_session)
+    output_path = tmp_path / "dataset.jsonl"
+
+    with pytest.raises(click.exceptions.Exit):
+        consolidate_sessions(
+            sessions_dir=sessions_dir,
+            output_path=output_path,
+            days=1,
+            min_pairs=1,
+        )
+
+    assert not output_path.exists()
+
+
 def test_consolidate_sessions_errors_when_no_pairs(tmp_path):
     sessions_dir = tmp_path / "sessions"
     sessions_dir.mkdir()
