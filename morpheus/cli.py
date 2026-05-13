@@ -66,6 +66,11 @@ def load_json_or_exit(path: Path, label: str) -> dict:
     return data
 
 
+def list_count(value) -> int:
+    """Return the length only for JSON arrays."""
+    return len(value) if isinstance(value, list) else 0
+
+
 @app.command()
 def init(
     force: bool = typer.Option(False, "--force", "-f", help="Reinitialize even if already initialized")
@@ -272,9 +277,9 @@ def status():
     table.add_column("Value", style="green")
     compiled_at = state.get("compiled_at")
     compiled_at_display = str(compiled_at)[:19] if compiled_at else "unknown"
-    table.add_row("Sources", str(len(state.get("sources", []))))
-    table.add_row("Claims", str(len(state.get("claims", []))))
-    table.add_row("Evidence", str(len(state.get("evidence", []))))
+    table.add_row("Sources", str(list_count(state.get("sources"))))
+    table.add_row("Claims", str(list_count(state.get("claims"))))
+    table.add_row("Evidence", str(list_count(state.get("evidence"))))
     table.add_row("Last Compiled", compiled_at_display)
     table.add_row("Latest Receipt", receipt_path.name.replace("receipt_", "").replace(".json", "") if receipt_path else "none")
     console.print(table)

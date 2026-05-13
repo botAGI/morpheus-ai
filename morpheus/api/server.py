@@ -68,6 +68,10 @@ def load_json_object_or_http_error(path: Path, label: str) -> dict:
     return data
 
 
+def _list_count(value) -> int:
+    return len(value) if isinstance(value, list) else 0
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "version": "0.1.0"}
@@ -219,8 +223,8 @@ def status(project_root: Optional[str] = None):
     state = load_json_object_or_http_error(state_path, "State file")
     return {
         "initialized": True,
-        "sources": len(state.get("sources", [])),
-        "claims": len(state.get("claims", [])),
-        "evidence": len(state.get("evidence", [])),
+        "sources": _list_count(state.get("sources")),
+        "claims": _list_count(state.get("claims")),
+        "evidence": _list_count(state.get("evidence")),
         "compiled_at": state.get("compiled_at")
     }
