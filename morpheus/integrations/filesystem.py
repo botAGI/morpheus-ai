@@ -60,6 +60,10 @@ class FileSystemWatcher:
     def extract_claims(self, path: str) -> list[dict]:
         """Extract claims from a file"""
         full_path = self.root / path
+        try:
+            full_path.resolve().relative_to(self.root.resolve())
+        except ValueError:
+            return []
         if full_path.is_symlink() or not full_path.exists():
             return []
         

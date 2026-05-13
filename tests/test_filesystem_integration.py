@@ -82,6 +82,18 @@ def test_scan_ignores_symlinked_files_outside_root(tmp_path):
     assert changes == []
 
 
+def test_extract_claims_rejects_paths_outside_root(tmp_path):
+    watched = tmp_path / "watched"
+    outside = tmp_path / "outside"
+    watched.mkdir()
+    outside.mkdir()
+    (outside / "secret.txt").write_text("TODO: do not read outside root\n")
+
+    claims = FileSystemWatcher(watched).extract_claims("../outside/secret.txt")
+
+    assert claims == []
+
+
 def test_extract_claims_returns_marker_locations(tmp_path):
     source = tmp_path / "notes.md"
     source.write_text("intro\nDECISION: use receipts\nplain\nXXX: investigate edge case\n")
