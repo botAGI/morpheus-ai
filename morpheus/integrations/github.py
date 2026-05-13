@@ -37,7 +37,10 @@ class GitHubIntegration:
         resp.raise_for_status()
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         recent_issues = []
-        for issue in resp.json():
+        data = resp.json()
+        if not isinstance(data, list):
+            return []
+        for issue in data:
             if not isinstance(issue, dict):
                 continue
             if "pull_request" in issue:
