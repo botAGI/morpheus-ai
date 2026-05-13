@@ -56,6 +56,8 @@ class MorpheusConfig(BaseModel):
         if config_path.exists():
             try:
                 data = toml.loads(config_path.read_text())
+            except OSError as exc:
+                raise ValueError(f"Config unreadable: {exc}") from exc
             except toml.TomlDecodeError as exc:
                 raise ValueError(f"Config invalid: {exc}") from exc
             try:

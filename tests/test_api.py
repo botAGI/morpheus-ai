@@ -217,6 +217,19 @@ def test_compile_returns_bad_request_for_invalid_config_types(tmp_path):
     assert "Config invalid" in response.json()["detail"]
 
 
+def test_compile_returns_bad_request_for_unreadable_config(tmp_path):
+    MorpheusConfig(project_root=tmp_path).init_default()
+    config_path = tmp_path / ".morpheus" / "morpheus.toml"
+    config_path.unlink()
+    config_path.mkdir()
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post("/compile", json={"project_root": str(tmp_path)})
+
+    assert response.status_code == 400
+    assert "Config unreadable" in response.json()["detail"]
+
+
 def test_compile_returns_bad_request_for_invalid_signing_key(tmp_path):
     MorpheusConfig(project_root=tmp_path).init_default()
     (tmp_path / "README.md").write_text("TODO: compile through API with corrupted key\n")
