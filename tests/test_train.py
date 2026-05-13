@@ -201,3 +201,25 @@ def test_train_reports_unwritable_training_script(monkeypatch, tmp_path):
             epochs=3,
             dry_run=True,
         )
+
+
+def test_train_rejects_symlinked_training_script(monkeypatch, tmp_path):
+    dataset = tmp_path / "dataset.jsonl"
+    dataset.write_text('{"instruction":"Q","output":"A"}\n')
+    external_script = tmp_path / "external-train.sh"
+    external_script.write_text("do not modify")
+    (tmp_path / "morpheus_train.sh").symlink_to(external_script)
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(click.exceptions.Exit):
+        train_module.train(
+            base_model="qwen2.5:7b",
+            dataset=dataset,
+            output_dir=tmp_path / "adapter",
+            lora_rank=64,
+            lora_alpha=128,
+            epochs=3,
+            dry_run=True,
+        )
+
+    assert external_script.read_text() == "do not modify"
