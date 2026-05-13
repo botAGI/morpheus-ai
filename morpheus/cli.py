@@ -44,6 +44,15 @@ def ensure_initialized():
     return morpheus_dir
 
 
+def latest_receipt_or_exit(receipts_dir: Path) -> Path | None:
+    """Return the receipt chain tail or exit with a user-facing error."""
+    try:
+        return latest_receipt_file(receipts_dir)
+    except (json.JSONDecodeError, ValueError) as exc:
+        console.print(f"[red]Receipt chain invalid:[/red] {exc}")
+        raise typer.Exit(1) from exc
+
+
 @app.command()
 def init(
     force: bool = typer.Option(False, "--force", "-f", help="Reinitialize even if already initialized")
@@ -91,7 +100,7 @@ def compile(
     receipts_dir = morpheus_dir / "receipts"
     prev_hash = None
     if receipts_dir.exists():
-        latest = latest_receipt_file(receipts_dir)
+        latest = latest_receipt_or_exit(receipts_dir)
         if latest:
             prev_hash = compute_sha256_file(latest)
     
@@ -206,7 +215,7 @@ def verify(
             raise typer.Exit(1)
     else:
         # Quick check
-        latest = latest_receipt_file(receipts_dir)
+        latest = latest_receipt_or_exit(receipts_dir)
         receipt = json.loads(latest.read_text())
         
         if verbose:
@@ -240,7 +249,7 @@ def status():
     state = json.loads(state_path.read_text())
     
     receipts_dir = morpheus_dir / "receipts"
-    receipt_path = latest_receipt_file(receipts_dir) if receipts_dir.exists() else None
+    receipt_path = latest_receipt_or_exit(receipts_dir) if receipts_dir.exists() else None
     
     table = Table(title="Project Status")
     table.add_column("Metric", style="cyan")
