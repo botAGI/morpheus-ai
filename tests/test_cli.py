@@ -181,6 +181,20 @@ def test_compile_receipt_hashes_final_evidence_file(tmp_path):
         )
 
 
+def test_compile_reports_invalid_config_without_traceback(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        init_result = runner.invoke(app, ["init"])
+        assert init_result.exit_code == 0, init_result.output
+        (Path.cwd() / ".morpheus" / "morpheus.toml").write_text("{not toml")
+
+        result = runner.invoke(app, ["compile"])
+
+        assert result.exit_code == 1
+        assert "Config invalid" in result.output
+
+
 def test_verify_quick_reports_receipt_chain_tail_not_filename_latest(tmp_path):
     runner = CliRunner()
 

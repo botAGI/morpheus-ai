@@ -107,7 +107,11 @@ def compile(
     console.print("[blue]Compiling project state...[/blue]")
     
     # Compile
-    state = compile_project(project_root)
+    try:
+        state = compile_project(project_root)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
     
     # Get previous receipt hash
     receipts_dir = morpheus_dir / "receipts"

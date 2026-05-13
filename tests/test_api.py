@@ -179,6 +179,17 @@ def test_compile_returns_bad_request_for_broken_receipt_chain(tmp_path):
     assert "expected exactly one receipt chain tail" in response.json()["detail"]
 
 
+def test_compile_returns_bad_request_for_invalid_config(tmp_path):
+    MorpheusConfig(project_root=tmp_path).init_default()
+    (tmp_path / ".morpheus" / "morpheus.toml").write_text("{not toml")
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post("/compile", json={"project_root": str(tmp_path)})
+
+    assert response.status_code == 400
+    assert "Config invalid" in response.json()["detail"]
+
+
 def test_get_wake_rejects_project_path_traversal(tmp_path, monkeypatch):
     safe_dir = tmp_path / "safe"
     safe_dir.mkdir()
