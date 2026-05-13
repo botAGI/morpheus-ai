@@ -33,6 +33,10 @@ def evidence_jsonl_bytes(evidence_items: list) -> bytes:
     return ("\n".join(lines) + "\n").encode()
 
 
+def _list_or_empty(value) -> list:
+    return value if isinstance(value, list) else []
+
+
 def receipt_signature_payload(receipt: dict) -> bytes:
     """Return the canonical receipt payload protected by the ed25519 signature."""
     signed_receipt = {key: value for key, value in receipt.items() if key != "signature"}
@@ -100,7 +104,7 @@ def build_receipt(
     state_json_bytes = json.dumps(state_dict, default=str).encode()
     state_sha = state_json_sha or compute_sha256_bytes(state_json_bytes)
 
-    evidence_items = [e for e in state_dict.get("evidence", [])]
+    evidence_items = _list_or_empty(state_dict.get("evidence"))
     evidence_sha = evidence_jsonl_sha or compute_sha256_bytes(evidence_jsonl_bytes(evidence_items))
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -113,7 +117,9 @@ def build_receipt(
     tool_info = {"name": "morpheus", "version": "0.1.0"}
 
     claim_counts = {"active": 0, "superseded": 0, "unverified": 0}
-    for c in state_dict.get("claims", []):
+    for c in _list_or_empty(state_dict.get("claims")):
+        if not isinstance(c, dict):
+            continue
         cat = c.get("status", "active")
         if cat in claim_counts:
             claim_counts[cat] += 1
