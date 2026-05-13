@@ -209,10 +209,13 @@ def verify(project_root: Optional[str] = None):
     receipts_dir = morpheus_dir / "receipts"
     latest_path = None
     if receipts_dir.exists() and valid:
-        latest_path = latest_receipt_file(receipts_dir)
+        latest_path = latest_receipt_or_http_error(receipts_dir)
     receipt_id = "none"
     if latest_path:
-        receipt_id = json.loads(latest_path.read_text()).get("receipt_id", latest_path.stem)
+        receipt_id = load_json_object_or_http_error(
+            latest_path,
+            "Latest receipt",
+        ).get("receipt_id", latest_path.stem)
     
     return VerifyResponse(
         valid=valid,

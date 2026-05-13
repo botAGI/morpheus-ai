@@ -182,6 +182,30 @@ def test_verify_returns_invalid_response_for_broken_receipt_chain(tmp_path):
     assert any("expected exactly one root receipt" in error for error in payload["errors"])
 
 
+def test_verify_returns_bad_request_when_latest_receipt_tail_cannot_be_loaded(
+    monkeypatch,
+    tmp_path,
+):
+    MorpheusConfig(project_root=tmp_path).init_default()
+
+    import morpheus.api.server as server_module
+    import morpheus.core.verify as verify_module
+
+    monkeypatch.setattr(verify_module, "verify_receipt_chain", lambda morpheus_dir: (True, []))
+
+    def fail_latest_receipt(receipts_dir):
+        raise ValueError("tail receipt changed during verification")
+
+    monkeypatch.setattr(server_module, "latest_receipt_file", fail_latest_receipt)
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post("/verify", params={"project_root": str(tmp_path)})
+
+    assert response.status_code == 400
+    assert "Receipt chain invalid" in response.json()["detail"]
+    assert "tail receipt changed during verification" in response.json()["detail"]
+
+
 def test_compile_returns_bad_request_for_broken_receipt_chain(tmp_path):
     MorpheusConfig(project_root=tmp_path).init_default()
     (tmp_path / "README.md").write_text("TODO: do not compile onto broken chain\n")
