@@ -89,3 +89,18 @@ def test_generate_wake_md_empty_project():
     assert "rcpt_empty" in wake
     assert "## Current State" in wake
     assert "## Evidence Summary" in wake
+
+
+def test_generate_wake_md_formats_aware_compiled_time_as_utc_z():
+    state = ProjectState(
+        sources=[],
+        claims=[],
+        evidence=[],
+        compiled_at=datetime(2026, 5, 13, 12, 0, 0, tzinfo=timezone.utc),
+        receipt_id="rcpt_time",
+    )
+
+    wake = generate_wake_md(state, "rcpt_time")
+
+    assert "2026-05-13T12:00:00Z" in wake
+    assert "+00:00Z" not in wake

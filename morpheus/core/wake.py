@@ -1,15 +1,18 @@
 """
 WAKE.md generator.
 """
+from datetime import datetime, timezone
+
 from morpheus.core.models import ProjectState
 
 
 def generate_wake_md(state: ProjectState, receipt_id: str) -> str:
     """Generate WAKE.md from project state."""
+    compiled_at = format_utc_timestamp(state.compiled_at)
     lines = [
         "# WAKE.md — Project State",
         "",
-        f"**Compiled:** {state.compiled_at.isoformat()}Z",
+        f"**Compiled:** {compiled_at}",
         f"**Receipt:** {receipt_id}",
         "**Morpheus:** v0.1.0",
         "",
@@ -44,7 +47,7 @@ def generate_wake_md(state: ProjectState, receipt_id: str) -> str:
     lines.extend([
         "## Evidence Summary",
         f"- {len(active_claims)} active claims from {len(state.sources)} sources",
-        f"- Compiled: {state.compiled_at.isoformat()}Z",
+        f"- Compiled: {compiled_at}",
         "",
         "---",
         "",
@@ -52,3 +55,10 @@ def generate_wake_md(state: ProjectState, receipt_id: str) -> str:
     ])
 
     return "\n".join(lines)
+
+
+def format_utc_timestamp(value: datetime) -> str:
+    """Return an ISO-8601 UTC timestamp with a single trailing Z."""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).replace(tzinfo=None).isoformat() + "Z"
