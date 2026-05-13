@@ -238,6 +238,33 @@ def test_compile_reports_unreadable_config_without_traceback(tmp_path):
         assert "Config unreadable" in result.output
 
 
+def test_compile_reports_previous_receipt_hash_failures_without_traceback(
+    monkeypatch,
+    tmp_path,
+):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        Path("README.md").write_text("TODO: compile with racy previous receipt\n")
+        init_result = runner.invoke(app, ["init"])
+        assert init_result.exit_code == 0, init_result.output
+
+        def fake_latest_receipt(receipts_dir):
+            return receipts_dir / "receipt_old.json"
+
+        def fail_sha256(path):
+            raise OSError("permission denied")
+
+        monkeypatch.setattr(cli_module, "latest_receipt_file", fake_latest_receipt)
+        monkeypatch.setattr(cli_module, "compute_sha256_file", fail_sha256)
+
+        result = runner.invoke(app, ["compile"])
+
+        assert result.exit_code == 1
+        assert "Receipt chain invalid" in result.output
+        assert "permission denied" in result.output
+
+
 def test_compile_reports_invalid_signing_key_without_traceback(tmp_path):
     runner = CliRunner()
 
