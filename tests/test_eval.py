@@ -56,6 +56,25 @@ def test_run_eval_exits_when_no_valid_questions(tmp_path):
     assert not output.exists()
 
 
+def test_run_eval_exits_when_question_file_unreadable(tmp_path):
+    adapter_dir = tmp_path / "adapter"
+    adapter_dir.mkdir()
+    (adapter_dir / "adapter.safetensors").write_text("stub")
+    test_file = tmp_path / "eval_questions.jsonl"
+    output = tmp_path / "eval_results.jsonl"
+    test_file.mkdir()
+
+    with pytest.raises(click.exceptions.Exit):
+        eval_module.run_eval(
+            adapter_path=adapter_dir,
+            base_model="qwen2.5:7b",
+            test_file=test_file,
+            output=output,
+        )
+
+    assert not output.exists()
+
+
 def test_run_eval_exits_when_model_query_errors(monkeypatch, tmp_path):
     adapter_dir = tmp_path / "adapter"
     adapter_dir.mkdir()
