@@ -15,7 +15,12 @@ from rich.syntax import Syntax
 from morpheus.core.config import MorpheusConfig
 from morpheus.core.compiler import compile_project
 from morpheus.core.wake import generate_wake_md
-from morpheus.core.provenance import compute_sha256_file, build_receipt, receipt_file_name
+from morpheus.core.provenance import (
+    compute_sha256_file,
+    build_receipt,
+    latest_receipt_file,
+    receipt_file_name,
+)
 from morpheus.core.verify import verify_receipt_chain
 from morpheus.training.consolidate import consolidate_sessions
 from morpheus.training.train import check_dependencies
@@ -82,10 +87,9 @@ def compile(
     receipts_dir = morpheus_dir / "receipts"
     prev_hash = None
     if receipts_dir.exists():
-        existing = sorted(receipts_dir.glob("receipt_*.json"))
-        if existing:
-            last = sorted(existing)[-1]
-            prev_hash = compute_sha256_file(last)
+        latest = latest_receipt_file(receipts_dir)
+        if latest:
+            prev_hash = compute_sha256_file(latest)
     
     # Build sources list
     sources_data = [{
