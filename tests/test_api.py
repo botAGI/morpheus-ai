@@ -371,6 +371,37 @@ def test_get_wake_rejects_project_path_traversal(tmp_path, monkeypatch):
     assert response.json()["detail"] == "Invalid project name"
 
 
+def test_get_wake_rejects_symlinked_project_escape(tmp_path, monkeypatch):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "WAKE.md").write_text("secret outside wake")
+    (tmp_path / "linked").symlink_to(outside, target_is_directory=True)
+    monkeypatch.chdir(tmp_path)
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.get("/wake/linked")
+
+    assert response.status_code == 404
+    assert "secret outside wake" not in response.text
+
+
+def test_get_wake_rejects_symlinked_wake_file_escape(tmp_path, monkeypatch):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    secret_wake = outside / "WAKE.md"
+    secret_wake.write_text("secret symlink wake")
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    (project_dir / "WAKE.md").symlink_to(secret_wake)
+    monkeypatch.chdir(tmp_path)
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.get("/wake/project")
+
+    assert response.status_code == 404
+    assert "secret symlink wake" not in response.text
+
+
 def test_get_wake_returns_bad_request_for_unreadable_wake_file(tmp_path, monkeypatch):
     project_dir = tmp_path / "project"
     project_dir.mkdir()
