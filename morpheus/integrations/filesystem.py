@@ -4,6 +4,7 @@ Filesystem integration - watches local files for changes.
 from fnmatch import fnmatch
 import hashlib
 import json
+import string
 from pathlib import Path
 from datetime import datetime
 
@@ -37,6 +38,7 @@ DEFAULT_EXCLUDE_PATTERNS = {
     "id_ed25519",
     "id_rsa",
 }
+HEX_DIGITS = set(string.hexdigits)
 
 
 class FileSystemWatcher:
@@ -139,7 +141,11 @@ class FileSystemWatcher:
         if not isinstance(data, dict):
             return {}
 
-        return {str(path): str(file_hash) for path, file_hash in data.items()}
+        return {
+            path: file_hash
+            for path, file_hash in data.items()
+            if isinstance(path, str) and _is_sha256_hex(file_hash)
+        }
 
     def _is_excluded(self, path: Path) -> bool:
         try:
@@ -162,3 +168,11 @@ class FileSystemWatcher:
             for chunk in iter(lambda: file.read(1024 * 1024), b""):
                 digest.update(chunk)
         return digest.hexdigest()
+
+
+def _is_sha256_hex(value) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in HEX_DIGITS for character in value)
+    )
