@@ -281,3 +281,16 @@ def test_verify_receipt_chain_rejects_unsigned_receipt(tmp_path):
 
     assert not valid
     assert "missing ed25519 signature" in errors[0]
+
+
+def test_verify_receipt_chain_rejects_non_object_receipt_json(tmp_path):
+    morpheus_dir = tmp_path / ".morpheus"
+    _write_keypair(morpheus_dir / "keys")
+    receipts_dir = morpheus_dir / "receipts"
+    receipts_dir.mkdir(parents=True)
+    (receipts_dir / "receipt_bad.json").write_text("[]")
+
+    valid, errors = verify_receipt_chain(morpheus_dir)
+
+    assert not valid
+    assert "receipt_bad.json: expected JSON object" in errors

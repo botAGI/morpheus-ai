@@ -33,6 +33,9 @@ def verify_receipt_chain(morpheus_dir: Path) -> tuple[bool, list[str]]:
         except json.JSONDecodeError as exc:
             errors.append(f"{receipt_file.name}: invalid JSON ({exc.msg})")
             continue
+        if not isinstance(receipt, dict):
+            errors.append(f"{receipt_file.name}: expected JSON object")
+            continue
 
         receipt_records.append({
             "path": receipt_file,
