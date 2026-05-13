@@ -48,6 +48,15 @@ class VerifyResponse(BaseModel):
     errors: list[str]
     receipt_id: str
 
+
+def latest_receipt_or_http_error(receipts_dir: Path) -> Path | None:
+    """Return the receipt chain tail or fail with a client-visible API error."""
+    try:
+        return latest_receipt_file(receipts_dir)
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"Receipt chain invalid: {exc}") from exc
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "version": "0.1.0"}
@@ -68,7 +77,7 @@ def compile(request: CompileRequest):
     receipts_dir = morpheus_dir / "receipts"
     prev_hash = None
     if receipts_dir.exists():
-        latest = latest_receipt_file(receipts_dir)
+        latest = latest_receipt_or_http_error(receipts_dir)
         if latest:
             prev_hash = compute_sha256_file(latest)
     
