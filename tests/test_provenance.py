@@ -11,6 +11,7 @@ from morpheus.core.provenance import (
     compute_sha256_file,
     compute_sha256_bytes,
     build_receipt,
+    latest_receipt_file,
     receipt_file_name,
 )
 
@@ -59,6 +60,15 @@ def test_receipt_file_name_rejects_path_separators():
     for receipt_id in ["../evil", "nested/evil", "nested\\evil", "", ".", ".."]:
         with pytest.raises(ValueError, match="invalid receipt id"):
             receipt_file_name(receipt_id)
+
+
+def test_latest_receipt_file_rejects_non_object_receipt_json(tmp_path):
+    receipts_dir = tmp_path / "receipts"
+    receipts_dir.mkdir()
+    (receipts_dir / "receipt_bad.json").write_text("[]")
+
+    with pytest.raises(ValueError, match="receipt_bad.json: expected JSON object"):
+        latest_receipt_file(receipts_dir)
 
 
 def test_build_receipt_basic():

@@ -66,6 +66,8 @@ def latest_receipt_file(receipts_dir: Path) -> Path | None:
     records = []
     for receipt_file in receipt_files:
         receipt = json.loads(receipt_file.read_text())
+        if not isinstance(receipt, dict):
+            raise ValueError(f"{receipt_file.name}: expected JSON object")
         records.append({
             "path": receipt_file,
             "sha256": compute_sha256_file(receipt_file),
