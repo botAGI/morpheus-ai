@@ -6,7 +6,7 @@ import json
 import pytest
 
 from morpheus.core.config import MorpheusConfig
-from morpheus.core.provenance import compute_sha256_file
+from morpheus.core.provenance import build_receipt, compute_sha256_file, receipt_file_name
 
 fastapi_testclient = pytest.importorskip(
     "fastapi.testclient",
@@ -114,3 +114,33 @@ def test_compile_receipt_hashes_final_evidence_file(tmp_path):
     assert receipt["evidence_jsonl_sha256"] == compute_sha256_file(
         morpheus_dir / "evidence.jsonl"
     )
+
+
+def test_verify_returns_invalid_response_for_broken_receipt_chain(tmp_path):
+    MorpheusConfig(project_root=tmp_path).init_default()
+    morpheus_dir = tmp_path / ".morpheus"
+    private_key_path = morpheus_dir / "keys" / "local.key"
+    receipts_dir = morpheus_dir / "receipts"
+    first = build_receipt(
+        state_dict={"claims": [], "evidence": []},
+        wake_md_sha="1" * 64,
+        sources_data=[],
+        private_key_path=private_key_path,
+    )
+    second = build_receipt(
+        state_dict={"claims": [], "evidence": []},
+        wake_md_sha="2" * 64,
+        sources_data=[],
+        private_key_path=private_key_path,
+    )
+    (receipts_dir / receipt_file_name(first["receipt_id"])).write_text(json.dumps(first))
+    (receipts_dir / receipt_file_name(second["receipt_id"])).write_text(json.dumps(second))
+    client = api_client()
+
+    response = client.post("/verify", params={"project_root": str(tmp_path)})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["valid"] is False
+    assert payload["receipt_id"] == "none"
+    assert any("expected exactly one root receipt" in error for error in payload["errors"])
