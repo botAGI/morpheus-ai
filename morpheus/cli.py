@@ -524,16 +524,26 @@ def bootstrap_agent(
         "--api-base",
         help="API base URL to embed in AGENTS.md",
     ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Print the AGENTS.md preview without writing it",
+    ),
 ):
-    """Create or refresh the Morpheus-managed AGENTS.md section."""
+    """Create, refresh, or preview the Morpheus-managed AGENTS.md section."""
     from fastapi import HTTPException
-    from morpheus.api.server import write_agent_bootstrap
+    from morpheus.api.server import preview_agent_bootstrap, write_agent_bootstrap
 
     try:
-        response = write_agent_bootstrap(request_context(api_base), Path.cwd())
+        handler = preview_agent_bootstrap if dry_run else write_agent_bootstrap
+        response = handler(request_context(api_base), Path.cwd())
     except HTTPException as exc:
         console.print(f"[red]Bootstrap failed:[/red] {exc.detail}")
         raise typer.Exit(1) from exc
+
+    if dry_run:
+        console.out(response.content)
+        return
 
     if response.created:
         action = "Created AGENTS.md"

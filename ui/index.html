@@ -594,6 +594,12 @@
         font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
       }
 
+      .code-box.tall {
+        min-height: 160px;
+        max-height: 360px;
+        overflow: auto;
+      }
+
       .muted-line {
         color: var(--text-secondary);
         font-size: 12px;
@@ -823,8 +829,13 @@
                 <label for="agent-connect-url">Manifest URL</label>
                 <pre class="code-box" id="agent-connect-url"></pre>
               </div>
+              <div class="form-row">
+                <label for="agent-local-command">Local command</label>
+                <pre class="code-box" id="agent-local-command"></pre>
+              </div>
               <div class="button-row">
                 <button id="copy-agent-url-btn">Copy URL</button>
+                <button id="copy-agent-command-btn" class="secondary-button">Copy Command</button>
                 <button id="refresh-agent-connect-btn" class="secondary-button">Refresh</button>
                 <button id="bootstrap-agent-btn" class="secondary-button">Bootstrap AGENTS.md</button>
               </div>
@@ -835,6 +846,16 @@
               <pre class="code-box" id="agent-prompt"></pre>
               <div class="button-row" style="margin-top: 12px;">
                 <button id="copy-agent-prompt-btn">Copy Agent Prompt</button>
+              </div>
+            </div>
+
+            <div class="card full-width">
+              <h4>AGENTS.md Preview</h4>
+              <p class="muted-line" id="agent-bootstrap-preview-summary">Preview not loaded</p>
+              <pre class="code-box tall" id="agent-bootstrap-preview"></pre>
+              <div class="button-row" style="margin-top: 12px;">
+                <button id="preview-agent-bootstrap-btn">Preview AGENTS.md</button>
+                <button id="copy-bootstrap-preview-btn" class="secondary-button">Copy Preview</button>
               </div>
             </div>
 
@@ -972,12 +993,18 @@
       const startCompileBtn = document.getElementById('start-compile-btn');
       const startVerifyBtn = document.getElementById('start-verify-btn');
       const agentConnectUrl = document.getElementById('agent-connect-url');
+      const agentLocalCommand = document.getElementById('agent-local-command');
       const agentPrompt = document.getElementById('agent-prompt');
       const agentStateSummary = document.getElementById('agent-state-summary');
       const copyAgentUrlBtn = document.getElementById('copy-agent-url-btn');
+      const copyAgentCommandBtn = document.getElementById('copy-agent-command-btn');
       const copyAgentPromptBtn = document.getElementById('copy-agent-prompt-btn');
       const refreshAgentConnectBtn = document.getElementById('refresh-agent-connect-btn');
       const bootstrapAgentBtn = document.getElementById('bootstrap-agent-btn');
+      const previewAgentBootstrapBtn = document.getElementById('preview-agent-bootstrap-btn');
+      const copyBootstrapPreviewBtn = document.getElementById('copy-bootstrap-preview-btn');
+      const agentBootstrapPreviewSummary = document.getElementById('agent-bootstrap-preview-summary');
+      const agentBootstrapPreview = document.getElementById('agent-bootstrap-preview');
       const refreshDiagnosticsBtn = document.getElementById('refresh-diagnostics-btn');
       const copyDiagnosticsBtn = document.getElementById('copy-diagnostics-btn');
       const diagnosticsSummary = document.getElementById('diagnostics-summary');
@@ -1120,10 +1147,15 @@
         return endpoint('/agent/connect', { project_root: selectedProjectRoot() }).toString();
       }
 
+      function agentConnectCommand(payload = null) {
+        return (payload && payload.cli && payload.cli.agent_connect) || 'morpheus agent-connect --json';
+      }
+
       function buildAgentPrompt(connectUrl = agentConnectEndpoint()) {
         return [
           'Before changing this project, connect to Morpheus:',
           connectUrl,
+          agentConnectCommand(),
           '',
           'Follow the manifest sequence: status, initialize if needed, compile, read WAKE.md, verify.',
           'Read WAKE.md before edits and compile plus verify after meaningful changes.',
@@ -1133,6 +1165,7 @@
       function updateAgentConnectPreview(payload = null) {
         const connectUrl = agentConnectEndpoint();
         agentConnectUrl.textContent = connectUrl;
+        agentLocalCommand.textContent = agentConnectCommand(payload);
         agentPrompt.textContent = payload && payload.agent_prompt
           ? payload.agent_prompt
           : buildAgentPrompt(connectUrl);
@@ -1214,6 +1247,33 @@
         }
       }
 
+      async function previewAgentBootstrap({ silent = false } = {}) {
+        agentBootstrapPreviewSummary.textContent = 'Loading preview...';
+        previewAgentBootstrapBtn.disabled = true;
+        try {
+          const payload = await apiRequest('/agent/bootstrap/preview', {
+            method: 'POST',
+            body: { project_root: selectedProjectRoot() },
+          });
+          rememberProjectRoot(payload.project_root);
+          agentBootstrapPreview.textContent = payload.content;
+          const action = payload.created
+            ? 'AGENTS.md will be created'
+            : payload.updated
+              ? 'AGENTS.md will be updated'
+              : 'AGENTS.md is already current';
+          agentBootstrapPreviewSummary.textContent = `${action}: ${payload.path}`;
+          return payload;
+        } catch (error) {
+          agentBootstrapPreview.textContent = '';
+          agentBootstrapPreviewSummary.textContent = `Preview failed: ${error.message}`;
+          if (!silent) addMessage(`AGENTS.md preview failed: ${error.message}`);
+          throw error;
+        } finally {
+          previewAgentBootstrapBtn.disabled = false;
+        }
+      }
+
       async function runAgentBootstrap() {
         addMessage('Writing Morpheus bootstrap to AGENTS.md...');
         bootstrapAgentBtn.disabled = true;
@@ -1229,6 +1289,8 @@
             : payload.updated
               ? 'Updated AGENTS.md'
               : 'AGENTS.md already current';
+          agentBootstrapPreview.textContent = payload.content;
+          agentBootstrapPreviewSummary.textContent = `${action}: ${payload.path}`;
           addMessage(`${action}: ${payload.path}`);
           mascotSpeak();
         } catch (error) {
@@ -1528,6 +1590,9 @@
       copyAgentUrlBtn.addEventListener('click', () => {
         copyText(agentConnectEndpoint(), 'Agent connect URL');
       });
+      copyAgentCommandBtn.addEventListener('click', () => {
+        copyText(agentLocalCommand.textContent || agentConnectCommand(), 'Agent command');
+      });
       copyAgentPromptBtn.addEventListener('click', () => {
         copyText(agentPrompt.textContent, 'Agent prompt');
       });
@@ -1535,6 +1600,12 @@
         refreshAgentConnect({ silent: false });
       });
       bootstrapAgentBtn.addEventListener('click', runAgentBootstrap);
+      previewAgentBootstrapBtn.addEventListener('click', () => {
+        previewAgentBootstrap({ silent: false });
+      });
+      copyBootstrapPreviewBtn.addEventListener('click', () => {
+        copyText(agentBootstrapPreview.textContent || agentBootstrapPreviewSummary.textContent, 'AGENTS.md preview');
+      });
       refreshDiagnosticsBtn.addEventListener('click', () => {
         runDiagnostics({ silent: false });
       });

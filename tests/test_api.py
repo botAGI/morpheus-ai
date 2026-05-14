@@ -178,6 +178,40 @@ def test_agent_bootstrap_creates_agents_md_without_initializing_project(tmp_path
     assert not (tmp_path / ".morpheus").exists()
 
 
+def test_agent_bootstrap_preview_does_not_write_agents_md(tmp_path):
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post("/agent/bootstrap/preview", json={"project_root": str(tmp_path)})
+
+    agents_path = tmp_path / "AGENTS.md"
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["path"] == str(agents_path)
+    assert payload["created"] is True
+    assert payload["updated"] is True
+    assert payload["project_root"] == str(tmp_path)
+    assert "<!-- MORPHEUS:BEGIN -->" in payload["content"]
+    assert "morpheus agent-connect --json" in payload["content"]
+    assert not agents_path.exists()
+
+
+def test_agent_bootstrap_preview_preserves_existing_file_without_rewriting(tmp_path):
+    agents_path = tmp_path / "AGENTS.md"
+    original = "# Existing Agent Notes\n\nKeep this rule.\n"
+    agents_path.write_text(original)
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post("/agent/bootstrap/preview", json={"project_root": str(tmp_path)})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["created"] is False
+    assert payload["updated"] is True
+    assert "Keep this rule." in payload["content"]
+    assert "<!-- MORPHEUS:BEGIN -->" in payload["content"]
+    assert agents_path.read_text() == original
+
+
 def test_agent_bootstrap_replaces_managed_section_and_preserves_existing_content(tmp_path):
     agents_path = tmp_path / "AGENTS.md"
     agents_path.write_text(

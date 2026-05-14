@@ -25,6 +25,7 @@ morpheus status
 # Inspect readiness and generate agent instructions
 morpheus agent-connect --json
 morpheus diagnostics --json
+morpheus bootstrap-agent --dry-run
 morpheus bootstrap-agent
 
 # Run backend + browser UI
@@ -62,6 +63,9 @@ Agents can discover Morpheus over HTTP without reading this README first:
 curl -s http://127.0.0.1:8000/.well-known/morpheus.json
 curl -s "http://127.0.0.1:8000/agent/connect?project_root=$PWD"
 curl -s "http://127.0.0.1:8000/diagnostics?project_root=$PWD"
+curl -s -X POST http://127.0.0.1:8000/agent/bootstrap/preview \
+  -H 'Content-Type: application/json' \
+  -d "{\"project_root\":\"$PWD\"}"
 curl -s -X POST http://127.0.0.1:8000/agent/bootstrap \
   -H 'Content-Type: application/json' \
   -d "{\"project_root\":\"$PWD\"}"
@@ -83,6 +87,7 @@ Agents running locally can use the CLI equivalent without starting the HTTP API:
 ```bash
 morpheus agent-connect --json
 morpheus diagnostics --json
+morpheus bootstrap-agent --dry-run
 morpheus bootstrap-agent --api-base http://127.0.0.1:8000
 ```
 
@@ -98,6 +103,7 @@ morpheus bootstrap-agent --api-base http://127.0.0.1:8000
 | `morpheus wake` | Print WAKE.md to stdout |
 | `morpheus agent-connect --json` | Print full self-connect manifest for agents |
 | `morpheus diagnostics --json` | Print readiness checks for agents/tools |
+| `morpheus bootstrap-agent --dry-run` | Preview Morpheus instructions for AGENTS.md |
 | `morpheus bootstrap-agent` | Create/update Morpheus instructions in AGENTS.md |
 | `morpheus integrate --list` | Show available integrations |
 | `morpheus consolidate --days 7` | Sessions → training dataset |
