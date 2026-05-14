@@ -124,6 +124,23 @@ def test_compile_project_rejects_symlinked_project_root_without_scanning_target(
         compile_project(project_root)
 
 
+def test_compile_project_rejects_symlinked_project_root_parent(tmp_path):
+    outside_parent = tmp_path / "outside-parent"
+    outside_project = outside_parent / "project"
+    outside_project.mkdir(parents=True)
+    (outside_project / "README.md").write_text(
+        "TODO: do not compile through symlinked project parent\n"
+    )
+    linked_parent = tmp_path / "linked-parent"
+    try:
+        linked_parent.symlink_to(outside_parent, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+
+    with pytest.raises(ValueError, match="Project root must not contain a symlink"):
+        compile_project(linked_parent / "project")
+
+
 def test_compile_project_records_actual_file_size_for_non_utf8_bytes():
     with tempfile.TemporaryDirectory() as tmpdir:
         tmppath = Path(tmpdir)

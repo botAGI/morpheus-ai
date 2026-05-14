@@ -82,6 +82,7 @@ def compile_project(project_root: Path) -> ProjectState:
     """Scan project sources and extract claims."""
     if project_root.is_symlink():
         raise ValueError(f"Project root must not be a symlink: {project_root}")
+    reject_symlink_components(project_root, "Project root")
     project_root = project_root.resolve()
     config = MorpheusConfig(project_root=project_root).load()
     exclude_patterns = DEFAULT_EXCLUDE_PATTERNS | set(config.exclude_patterns)
