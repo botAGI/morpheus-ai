@@ -103,9 +103,10 @@ def run_eval(
     passed = 0
     
     try:
+        reject_symlink_paths([test_file], "Evaluation test file path")
         with test_file.open(encoding="utf-8") as f:
             lines = f.readlines()
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         console.print(f"[red]Test file unreadable: {test_file}[/red]")
         console.print(f"[yellow]{exc}[/yellow]")
         raise typer.Exit(1) from exc
