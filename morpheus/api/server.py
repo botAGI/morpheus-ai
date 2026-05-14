@@ -284,6 +284,45 @@ def diagnostic_check(check_id: str, label: str, ok: bool, detail: str) -> dict:
     }
 
 
+def agent_bootstrap_diagnostic(request: Request, project_root: Path) -> dict:
+    agents_path = project_root / "AGENTS.md"
+    try:
+        reject_symlink_paths([agents_path], "AGENTS.md")
+        if not agents_path.exists():
+            return diagnostic_check(
+                "agent_bootstrap",
+                "AGENTS.md bootstrap",
+                False,
+                "Run Bootstrap AGENTS.md",
+            )
+        if not agents_path.is_file():
+            return diagnostic_check(
+                "agent_bootstrap",
+                "AGENTS.md bootstrap",
+                False,
+                "AGENTS.md path is not a file",
+            )
+        existing = agents_path.read_text()
+        expected = merge_morpheus_agent_section(
+            existing,
+            morpheus_agent_section(request, project_root),
+        )
+    except (OSError, ValueError) as exc:
+        return diagnostic_check(
+            "agent_bootstrap",
+            "AGENTS.md bootstrap",
+            False,
+            str(exc),
+        )
+
+    return diagnostic_check(
+        "agent_bootstrap",
+        "AGENTS.md bootstrap",
+        existing == expected,
+        "AGENTS.md is current" if existing == expected else "Refresh AGENTS.md bootstrap",
+    )
+
+
 def diagnostics_payload(request: Request, project_root: Path) -> dict:
     api_base = api_base_url(request)
     status_payload = normalize_agent_state(project_status_payload(project_root))
@@ -323,6 +362,7 @@ def diagnostics_payload(request: Request, project_root: Path) -> dict:
             wake_ok,
             str(wake_path) if wake_ok else "WAKE.md not available yet",
         ),
+        agent_bootstrap_diagnostic(request, project_root),
     ]
 
     return {
