@@ -146,6 +146,7 @@ def build_receipt(
 
     if private_key_path.is_symlink():
         raise ValueError("private signing key must not be a symlink")
+    reject_symlink_components(private_key_path, "private signing key path")
     if not private_key_path.exists():
         raise FileNotFoundError(f"private signing key not found: {private_key_path}")
 
