@@ -273,6 +273,24 @@ def test_gmail_extract_evidence_handles_null_snippet(tmp_path):
     assert evidence == []
 
 
+def test_gmail_extract_evidence_truncates_long_snippets(tmp_path):
+    snippet = "TODO: " + ("x" * 600)
+
+    evidence = GmailIntegration(token_path=tmp_path / "token.json").extract_evidence(
+        {"id": "email-1", "snippet": snippet}
+    )
+
+    assert evidence == [
+        {
+            "type": "email_claim",
+            "source": "gmail",
+            "email_id": "email-1",
+            "keyword": "TODO:",
+            "excerpt": snippet[:500],
+        }
+    ]
+
+
 def test_calendar_cache_loads_timezone_dates_and_skips_invalid_rows(tmp_path):
     now = datetime.now(timezone.utc)
     cache_path = tmp_path / "calendar_cache.json"
