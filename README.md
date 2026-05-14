@@ -26,17 +26,16 @@ morpheus status
 morpheus diagnostics --json
 morpheus bootstrap-agent
 
-# Run backend for the desktop UI
-morpheus serve --host 127.0.0.1 --port 8000
+# Run backend + browser UI
+morpheus serve --ui --host 127.0.0.1 --port 8000
 ```
 
 ## UI Quick Start
 
-Run the backend and open the UI:
+Run the backend and browser UI with one command:
 
 ```bash
-morpheus serve --host 0.0.0.0 --port 8000
-python3 -m http.server 5173 --bind 0.0.0.0
+morpheus serve --ui --host 0.0.0.0 --port 8000 --ui-port 5173
 ```
 
 Open `http://127.0.0.1:5173/ui/index.html` on the same machine, or
@@ -102,6 +101,7 @@ morpheus bootstrap-agent --api-base http://127.0.0.1:8000
 | `morpheus train --epochs 3` | QLoRA fine-tuning |
 | `morpheus eval --test-file eval_questions.jsonl` | Evaluate adapter quality |
 | `morpheus serve --port 8000` | Run FastAPI backend for the UI |
+| `morpheus serve --ui --ui-port 5173` | Run backend and static browser UI together |
 | `morpheus version` | Show version |
 
 ## Training Pipeline (Phase 3)

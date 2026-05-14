@@ -248,6 +248,7 @@ def agent_connect_payload(request: Request, project_root: Path) -> dict:
             "read_wake": "morpheus wake",
             "verify": "morpheus verify --all",
             "serve": "morpheus serve --host 0.0.0.0 --port 8000",
+            "serve_ui": "morpheus serve --ui --host 0.0.0.0 --port 8000 --ui-port 5173",
         },
         "curl": {
             "connect": f"curl -s {shlex.quote(connect_url)}",
@@ -337,6 +338,7 @@ def diagnostics_payload(request: Request, project_root: Path) -> dict:
             "compile": "morpheus compile",
             "read_wake": "morpheus wake",
             "verify": "morpheus verify --all",
+            "serve_ui": "morpheus serve --ui --host 0.0.0.0 --port 8000 --ui-port 5173",
         },
     }
 
@@ -352,7 +354,8 @@ def morpheus_agent_section(request: Request, project_root: Path) -> str:
         f"- Connect manifest: `{connect_url}`",
         "- Read `WAKE.md` before edits.",
         "- Run compile and verify after meaningful changes.",
-        "- If the API is unavailable, start it with `morpheus serve --host 0.0.0.0 --port 8000`.",
+        "- If the API/UI are unavailable, start them with "
+        "`morpheus serve --ui --host 0.0.0.0 --port 8000 --ui-port 5173`.",
         "",
         "Agent sequence:",
         "",

@@ -92,6 +92,148 @@ def test_serve_starts_fastapi_server_with_uvicorn(monkeypatch):
     ]
 
 
+def test_serve_with_ui_starts_static_server_and_api(tmp_path, monkeypatch):
+    runner = CliRunner()
+    uvicorn_calls = []
+    static_calls = []
+    server_events = []
+
+    def fake_run(app_path, *, host, port, reload):
+        uvicorn_calls.append(
+            {
+                "app_path": app_path,
+                "host": host,
+                "port": port,
+                "reload": reload,
+            }
+        )
+
+    def fake_start_static_ui_server(*, directory, host, port):
+        static_calls.append({"directory": directory, "host": host, "port": port})
+
+        class FakeServer:
+            def shutdown(self):
+                server_events.append("shutdown")
+
+            def server_close(self):
+                server_events.append("server_close")
+
+        return FakeServer()
+
+    monkeypatch.setitem(sys.modules, "uvicorn", SimpleNamespace(run=fake_run))
+    monkeypatch.setattr(cli_module, "start_static_ui_server", fake_start_static_ui_server)
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        Path("ui").mkdir()
+        Path("ui/index.html").write_text("<html></html>")
+
+        result = runner.invoke(
+            app,
+            [
+                "serve",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "8123",
+                "--ui",
+                "--ui-port",
+                "5179",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert static_calls == [
+            {
+                "directory": Path.cwd(),
+                "host": "0.0.0.0",
+                "port": 5179,
+            }
+        ]
+        assert uvicorn_calls == [
+            {
+                "app_path": "morpheus.api.server:app",
+                "host": "0.0.0.0",
+                "port": 8123,
+                "reload": False,
+            }
+        ]
+        assert server_events == ["shutdown", "server_close"]
+        assert "UI: http://127.0.0.1:5179/ui/index.html" in result.output
+        assert "API: http://127.0.0.1:8123" in result.output
+
+
+def test_serve_with_ui_rejects_missing_ui_index(tmp_path, monkeypatch):
+    runner = CliRunner()
+    uvicorn_calls = []
+
+    def fake_run(app_path, *, host, port, reload):
+        uvicorn_calls.append(app_path)
+
+    monkeypatch.setitem(sys.modules, "uvicorn", SimpleNamespace(run=fake_run))
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        result = runner.invoke(app, ["serve", "--ui", "--ui-root", str(Path.cwd())])
+
+        assert result.exit_code == 1
+        assert "UI entrypoint not found" in result.output
+        assert "ui/index.html" in result.output
+        assert uvicorn_calls == []
+
+
+def test_serve_with_ui_closes_static_server_when_api_fails(tmp_path, monkeypatch):
+    runner = CliRunner()
+    server_events = []
+
+    def fake_run(app_path, *, host, port, reload):
+        raise RuntimeError("backend stopped")
+
+    def fake_start_static_ui_server(*, directory, host, port):
+        class FakeServer:
+            def shutdown(self):
+                server_events.append("shutdown")
+
+            def server_close(self):
+                server_events.append("server_close")
+
+        return FakeServer()
+
+    monkeypatch.setitem(sys.modules, "uvicorn", SimpleNamespace(run=fake_run))
+    monkeypatch.setattr(cli_module, "start_static_ui_server", fake_start_static_ui_server)
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        Path("ui").mkdir()
+        Path("ui/index.html").write_text("<html></html>")
+
+        result = runner.invoke(app, ["serve", "--ui"])
+
+        assert result.exit_code == 1
+        assert isinstance(result.exception, RuntimeError)
+        assert server_events == ["shutdown", "server_close"]
+
+
+def test_static_ui_server_does_not_require_reverse_dns(tmp_path, monkeypatch):
+    def fail_getfqdn(name):
+        raise AssertionError(f"reverse DNS should not be required for {name}")
+
+    monkeypatch.setattr(cli_module.socket, "getfqdn", fail_getfqdn)
+
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        Path("ui").mkdir()
+        Path("ui/index.html").write_text("<html></html>")
+        server = cli_module.start_static_ui_server(
+            directory=Path.cwd(),
+            host="127.0.0.1",
+            port=0,
+        )
+        try:
+            assert server.server_address[1] > 0
+            assert server.server_name == "127.0.0.1"
+        finally:
+            server.shutdown()
+            server.server_close()
+
+
 def test_diagnostics_json_reports_current_project_without_server(tmp_path):
     runner = CliRunner()
 
