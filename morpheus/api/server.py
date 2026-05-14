@@ -1,7 +1,7 @@
 """
 Morpheus API Server
 """
-from fastapi import FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
@@ -36,6 +36,9 @@ app.add_middleware(
 )
 
 class CompileRequest(BaseModel):
+    project_root: Optional[str] = None
+
+class VerifyRequest(BaseModel):
     project_root: Optional[str] = None
 
 class CompileResponse(BaseModel):
@@ -215,11 +218,15 @@ def get_wake(project: str):
     raise HTTPException(status_code=404, detail="WAKE.md not found")
 
 @app.post("/verify")
-def verify(project_root: Optional[str] = None):
+def verify(
+    request: VerifyRequest | None = Body(default=None),
+    project_root: Optional[str] = None,
+):
     """Verify receipt chain"""
     from morpheus.core.verify import verify_receipt_chain
     
-    root = Path(project_root) if project_root else Path.cwd()
+    root_value = project_root or (request.project_root if request else None)
+    root = Path(root_value) if root_value else Path.cwd()
     morpheus_dir = root / ".morpheus"
     
     if not _is_real_directory(morpheus_dir):
