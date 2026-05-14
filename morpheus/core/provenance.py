@@ -9,8 +9,11 @@ from pathlib import Path
 from datetime import datetime, timezone
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
+from morpheus.core.safe_io import reject_symlink_paths
+
 
 def compute_sha256_file(path: Path) -> str:
+    reject_symlink_paths([path], "Hash input path")
     h = hashlib.sha256()
     with path.open("rb") as file:
         for chunk in iter(lambda: file.read(1024 * 1024), b""):
