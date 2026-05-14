@@ -11,6 +11,32 @@ import pytest
 eval_module = importlib.import_module("morpheus.training.eval")
 
 
+def test_load_adapter_rejects_symlinked_adapter_directory(tmp_path):
+    outside_adapter = tmp_path / "outside-adapter"
+    outside_adapter.mkdir()
+    (outside_adapter / "adapter.safetensors").write_text("stub")
+    adapter_dir = tmp_path / "adapter"
+    try:
+        adapter_dir.symlink_to(outside_adapter, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+
+    assert not eval_module.load_adapter(adapter_dir)
+
+
+def test_load_adapter_ignores_symlinked_adapter_files(tmp_path):
+    outside_adapter_file = tmp_path / "outside-adapter.safetensors"
+    outside_adapter_file.write_text("stub")
+    adapter_dir = tmp_path / "adapter"
+    adapter_dir.mkdir()
+    try:
+        (adapter_dir / "adapter.safetensors").symlink_to(outside_adapter_file)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+
+    assert not eval_module.load_adapter(adapter_dir)
+
+
 def test_run_eval_skips_malformed_question_rows(monkeypatch, tmp_path):
     adapter_dir = tmp_path / "adapter"
     adapter_dir.mkdir()
@@ -224,3 +250,15 @@ def test_create_sample_eval_exits_when_output_file_unwritable(monkeypatch, tmp_p
 
     with pytest.raises(click.exceptions.Exit):
         eval_module.create_sample_eval()
+
+
+def test_create_sample_eval_rejects_symlinked_output(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    external_output = tmp_path / "external-eval-questions.jsonl"
+    external_output.write_text("do not modify")
+    (tmp_path / "eval_questions.jsonl").symlink_to(external_output)
+
+    with pytest.raises(click.exceptions.Exit):
+        eval_module.create_sample_eval()
+
+    assert external_output.read_text() == "do not modify"

@@ -27,11 +27,15 @@ Answer what you know. If you don't know, say you don't have that information."""
 
 def load_adapter(adapter_path: Path, base_model: str = "qwen2.5:7b") -> bool:
     """Check if adapter exists and is loadable."""
-    if not adapter_path.exists():
+    if adapter_path.is_symlink() or not adapter_path.is_dir():
         return False
     
     # Check for adapter files
-    adapter_files = list(adapter_path.glob("*.safetensors"))
+    adapter_files = [
+        path
+        for path in adapter_path.glob("*.safetensors")
+        if path.is_file() and not path.is_symlink()
+    ]
     return len(adapter_files) > 0
 
 
