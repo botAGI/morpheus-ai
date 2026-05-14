@@ -123,6 +123,23 @@ def test_latest_receipt_file_rejects_receipts_path_symlink(tmp_path):
         latest_receipt_file(receipts_dir)
 
 
+def test_latest_receipt_file_rejects_symlinked_receipts_ancestor(tmp_path):
+    outside_morpheus = tmp_path / "outside-morpheus"
+    outside_receipts = outside_morpheus / "receipts"
+    outside_receipts.mkdir(parents=True)
+    (outside_receipts / "receipt_outside.json").write_text(
+        '{"receipt_id": "outside", "previous_receipt_sha256": null}'
+    )
+    morpheus_dir = tmp_path / ".morpheus"
+    try:
+        morpheus_dir.symlink_to(outside_morpheus, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+
+    with pytest.raises(ValueError, match="receipts path must not contain a symlink"):
+        latest_receipt_file(morpheus_dir / "receipts")
+
+
 def test_latest_receipt_file_rejects_non_string_previous_hash(tmp_path):
     receipts_dir = tmp_path / "receipts"
     receipts_dir.mkdir()
