@@ -198,6 +198,22 @@ def test_sha256_rejects_symlinked_files(tmp_path):
         FileSystemWatcher(tmp_path)._sha256(link)
 
 
+def test_sha256_rejects_symlinked_parent_directories(tmp_path):
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir()
+    (outside_dir / "source.txt").write_text("secret")
+    linked_dir = tmp_path / "linked"
+    try:
+        linked_dir.symlink_to(outside_dir, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+
+    with pytest.raises(
+        ValueError, match="Filesystem source path must not contain a symlink"
+    ):
+        FileSystemWatcher(tmp_path)._sha256(linked_dir / "source.txt")
+
+
 def test_scan_skips_files_that_cannot_be_hashed(tmp_path, monkeypatch):
     bad = tmp_path / "bad.md"
     good = tmp_path / "good.md"

@@ -8,7 +8,7 @@ import string
 from pathlib import Path
 from datetime import datetime
 
-from morpheus.core.safe_io import reject_symlink_paths
+from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
 
 
 DEFAULT_EXCLUDE_PARTS = {
@@ -196,6 +196,7 @@ class FileSystemWatcher:
 
     def _sha256(self, path: Path) -> str:
         reject_symlink_paths([path], "Filesystem source path")
+        reject_symlink_components(path, "Filesystem source path")
         digest = hashlib.sha256()
         with path.open("rb") as file:
             for chunk in iter(lambda: file.read(1024 * 1024), b""):
