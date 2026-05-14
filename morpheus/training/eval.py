@@ -12,7 +12,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from morpheus.core.safe_io import reject_symlink_paths
+from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
 
 console = Console()
 
@@ -174,6 +174,7 @@ def run_eval(
     
     # Save results
     try:
+        reject_symlink_components(output.parent, "Evaluation output directory")
         output.parent.mkdir(parents=True, exist_ok=True)
         reject_symlink_paths([output], "Evaluation output path")
         with output.open("w", encoding="utf-8") as f:
