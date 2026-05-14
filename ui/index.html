@@ -677,6 +677,7 @@
               <input class="settings-input" id="project-root-input" type="text" placeholder="/path/to/project" />
             </div>
             <p id="project-root">Backend working directory</p>
+            <button id="init-project-btn">Initialize Project</button>
           </div>
           <div class="card">
             <h4>Backend API</h4>
@@ -718,6 +719,7 @@
       const apiBaseInput = document.getElementById('api-base-input');
       const projectRootLabel = document.getElementById('project-root');
       const wakeContent = document.getElementById('wake-content');
+      const initProjectBtn = document.getElementById('init-project-btn');
 
       let isRecording = false;
       let currentPanel = 'chat';
@@ -855,7 +857,7 @@
             document.getElementById('last-compile').textContent = 'Not initialized';
             document.getElementById('receipt-chain').textContent = 'No receipts';
             if (!silent) {
-              addMessage('Project is not initialized. Run morpheus init in that project first.');
+              addMessage('Project is not initialized. Use Settings → Initialize Project.');
             }
             return status;
           }
@@ -863,8 +865,10 @@
           document.getElementById('stat-sources').textContent = String(status.sources || 0);
           document.getElementById('stat-claims').textContent = String(status.claims || 0);
           document.getElementById('stat-evidence').textContent = String(status.evidence || 0);
-          document.getElementById('last-compile').textContent = status.compiled_at || 'Unknown';
-          document.getElementById('receipt-chain').textContent = 'Available';
+          document.getElementById('last-compile').textContent = status.compiled
+            ? (status.compiled_at || 'Unknown')
+            : 'Not compiled yet';
+          document.getElementById('receipt-chain').textContent = status.compiled ? 'Available' : 'No receipts';
           return status;
         } catch (error) {
           setBackendStatus('error', 'Backend offline');
@@ -915,6 +919,29 @@
         }
       }
 
+      async function runInit() {
+        addMessage('Initializing project...');
+        showTyping(true);
+        initProjectBtn.disabled = true;
+        try {
+          const payload = await apiRequest('/init', {
+            method: 'POST',
+            body: { project_root: selectedProjectRoot() },
+          });
+          syncProjectRootLabel();
+          await refreshStatus({ silent: true });
+          const action = payload.created ? 'initialized' : 'already initialized';
+          addMessage(`Project ${action}: ${payload.project_root}`);
+          mascotSpeak();
+        } catch (error) {
+          setBackendStatus('error', 'Backend error');
+          addMessage(`Initialize failed: ${error.message}`);
+        } finally {
+          initProjectBtn.disabled = false;
+          showTyping(false);
+        }
+      }
+
       async function runVerify() {
         addMessage('Running morpheus verify --all...');
         showTyping(true);
@@ -949,6 +976,10 @@
         const lower = text.toLowerCase();
         if (lower.includes('compile')) {
           runCompile();
+          return;
+        }
+        if (lower.includes('init')) {
+          runInit();
           return;
         }
         if (lower.includes('verify')) {
@@ -989,6 +1020,7 @@
         }
       });
 
+      initProjectBtn.addEventListener('click', runInit);
       document.getElementById('compile-btn').addEventListener('click', runCompile);
       document.getElementById('verify-btn').addEventListener('click', runVerify);
       document.getElementById('save-settings-btn').addEventListener('click', () => {

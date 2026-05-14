@@ -66,6 +66,78 @@ def test_cors_preflight_does_not_allow_credentials_for_wildcard_origins():
     assert "access-control-allow-credentials" not in response.headers
 
 
+def test_init_creates_project_state_for_ui(tmp_path):
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post("/init", json={"project_root": str(tmp_path)})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "initialized": True,
+        "project_root": str(tmp_path),
+        "created": True,
+    }
+    assert (tmp_path / ".morpheus" / "morpheus.toml").exists()
+    assert (tmp_path / ".morpheus" / "keys" / "local.key").exists()
+    assert (tmp_path / ".morpheus" / "keys" / "local.pub").exists()
+
+
+def test_init_reports_existing_project_without_reinitializing(tmp_path):
+    MorpheusConfig(project_root=tmp_path).init_default()
+    key_path = tmp_path / ".morpheus" / "keys" / "local.key"
+    original_key = key_path.read_bytes()
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post("/init", json={"project_root": str(tmp_path)})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "initialized": True,
+        "project_root": str(tmp_path),
+        "created": False,
+    }
+    assert key_path.read_bytes() == original_key
+
+
+def test_init_rejects_symlinked_project_root_parent(tmp_path):
+    outside_parent = tmp_path / "outside-parent"
+    outside_project = outside_parent / "project"
+    outside_project.mkdir(parents=True)
+    linked_parent = tmp_path / "linked-parent"
+    try:
+        linked_parent.symlink_to(outside_parent, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post(
+        "/init",
+        json={"project_root": str(linked_parent / "project")},
+    )
+
+    assert response.status_code == 400
+    assert "Project root must not contain a symlink" in response.json()["detail"]
+    assert not (outside_project / ".morpheus").exists()
+
+
+def test_status_reports_initialized_project_before_first_compile(tmp_path):
+    client = api_client(raise_server_exceptions=False)
+    init_response = client.post("/init", json={"project_root": str(tmp_path)})
+
+    response = client.get("/status", params={"project_root": str(tmp_path)})
+
+    assert init_response.status_code == 200
+    assert response.status_code == 200
+    assert response.json() == {
+        "initialized": True,
+        "compiled": False,
+        "sources": 0,
+        "claims": 0,
+        "evidence": 0,
+        "compiled_at": None,
+    }
+
+
 def test_compile_persists_state_and_receipt_for_status_and_verify(tmp_path):
     MorpheusConfig(project_root=tmp_path).init_default()
     (tmp_path / "README.md").write_text("TODO: compile through API\n")
