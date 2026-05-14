@@ -8,6 +8,7 @@ from typing import Optional
 import json
 from pathlib import Path
 
+from morpheus.core.config import MorpheusConfig
 from morpheus.core.compiler import compile_project
 from morpheus.core.wake import generate_wake_md
 from morpheus.core.provenance import (
@@ -38,6 +39,9 @@ app.add_middleware(
 class CompileRequest(BaseModel):
     project_root: Optional[str] = None
 
+class InitRequest(BaseModel):
+    project_root: Optional[str] = None
+
 class VerifyRequest(BaseModel):
     project_root: Optional[str] = None
 
@@ -51,6 +55,11 @@ class VerifyResponse(BaseModel):
     valid: bool
     errors: list[str]
     receipt_id: str
+
+class InitResponse(BaseModel):
+    initialized: bool
+    project_root: str
+    created: bool
 
 
 def latest_receipt_or_http_error(receipts_dir: Path) -> Path | None:
@@ -94,6 +103,25 @@ def _has_symlink_component(path: Path) -> bool:
 @app.get("/health")
 def health():
     return {"status": "ok", "version": "0.1.0"}
+
+
+@app.post("/init", response_model=InitResponse)
+def init_project(request: InitRequest):
+    """Initialize Morpheus project state for the desktop UI."""
+    project_root = Path(request.project_root) if request.project_root else Path.cwd()
+    morpheus_dir = project_root / ".morpheus"
+    created = not morpheus_dir.exists()
+
+    try:
+        MorpheusConfig(project_root=project_root).init_default()
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return InitResponse(
+        initialized=True,
+        project_root=str(project_root),
+        created=created,
+    )
 
 
 @app.get("/wake")
@@ -305,11 +333,21 @@ def status(project_root: Optional[str] = None):
 
     state_path = morpheus_dir / "state.json"
     if not state_path.exists():
+        if _is_real_directory(morpheus_dir):
+            return {
+                "initialized": True,
+                "compiled": False,
+                "sources": 0,
+                "claims": 0,
+                "evidence": 0,
+                "compiled_at": None,
+            }
         return {"initialized": False}
     
     state = load_json_object_or_http_error(state_path, "State file")
     return {
         "initialized": True,
+        "compiled": True,
         "sources": _list_count(state.get("sources")),
         "claims": _list_count(state.get("claims")),
         "evidence": _list_count(state.get("evidence")),
