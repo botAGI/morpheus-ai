@@ -154,6 +154,37 @@ def test_scan_ignores_symlinked_files_outside_root(tmp_path):
     assert changes == []
 
 
+def test_scan_rejects_symlinked_root_without_writing_target(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("TODO: do not scan symlinked roots\n")
+    watched = tmp_path / "watched"
+    try:
+        watched.symlink_to(outside, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+
+    changes = FileSystemWatcher(watched).scan()
+
+    assert changes == []
+    assert not (outside / ".morpheus" / "fs_cache.json").exists()
+
+
+def test_extract_claims_rejects_symlinked_root(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("TODO: do not read through symlinked root\n")
+    watched = tmp_path / "watched"
+    try:
+        watched.symlink_to(outside, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+
+    claims = FileSystemWatcher(watched).extract_claims("secret.txt")
+
+    assert claims == []
+
+
 def test_sha256_rejects_symlinked_files(tmp_path):
     outside = tmp_path / "outside.txt"
     outside.write_text("secret")
