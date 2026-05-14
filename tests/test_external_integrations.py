@@ -5,6 +5,7 @@ import json
 from datetime import datetime, timedelta, timezone
 
 import httpx
+import pytest
 
 import morpheus.integrations.calendar as calendar_module
 import morpheus.integrations.gmail as gmail_module
@@ -265,6 +266,27 @@ def test_gmail_cache_rejects_symlinked_cache(tmp_path):
     assert emails == []
 
 
+def test_gmail_cache_rejects_symlinked_cache_parent(tmp_path):
+    now = datetime.now(timezone.utc)
+    external_cache_dir = tmp_path / "external-cache-dir"
+    external_cache_dir.mkdir()
+    (external_cache_dir / "gmail_cache.json").write_text(
+        json.dumps([{"id": "external", "date": now.isoformat(), "snippet": "TODO: secret"}])
+    )
+    linked_cache_dir = tmp_path / "linked-cache-dir"
+    try:
+        linked_cache_dir.symlink_to(external_cache_dir, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+
+    emails = GmailIntegration(token_path=tmp_path / "token.json")._load_from_cache(
+        linked_cache_dir / "gmail_cache.json",
+        days=30,
+    )
+
+    assert emails == []
+
+
 def test_gmail_extract_evidence_handles_null_snippet(tmp_path):
     evidence = GmailIntegration(token_path=tmp_path / "token.json").extract_evidence(
         {"id": "email-1", "snippet": None}
@@ -434,6 +456,27 @@ def test_calendar_cache_rejects_symlinked_cache(tmp_path):
 
     events = CalendarIntegration(token_path=tmp_path / "token.json")._load_from_cache(
         cache_path,
+        days=30,
+    )
+
+    assert events == []
+
+
+def test_calendar_cache_rejects_symlinked_cache_parent(tmp_path):
+    now = datetime.now(timezone.utc)
+    external_cache_dir = tmp_path / "external-cache-dir"
+    external_cache_dir.mkdir()
+    (external_cache_dir / "calendar_cache.json").write_text(
+        json.dumps([{"id": "external", "start": now.isoformat(), "summary": "TODO: secret"}])
+    )
+    linked_cache_dir = tmp_path / "linked-cache-dir"
+    try:
+        linked_cache_dir.symlink_to(external_cache_dir, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+
+    events = CalendarIntegration(token_path=tmp_path / "token.json")._load_from_cache(
+        linked_cache_dir / "calendar_cache.json",
         days=30,
     )
 
