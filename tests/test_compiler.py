@@ -356,6 +356,26 @@ def test_compile_project_extracts_xxx_markers_by_default():
         ]
 
 
+def test_compile_project_matches_markers_case_insensitively():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        (tmppath / "notes.md").write_text(
+            "todo: handle lowercase markers\nDecision: keep mixed-case markers\n"
+        )
+
+        state = compile_project(tmppath)
+
+        assert [claim.excerpt for claim in state.claims] == [
+            "todo: handle lowercase markers",
+            "Decision: keep mixed-case markers",
+        ]
+        assert [claim.category for claim in state.claims] == ["task", "decision"]
+        assert [evidence.excerpt for evidence in state.evidence] == [
+            "todo: handle lowercase markers",
+            "Decision: keep mixed-case markers",
+        ]
+
+
 def test_compile_project_empty():
     with tempfile.TemporaryDirectory() as tmpdir:
         tmppath = Path(tmpdir)
@@ -502,6 +522,29 @@ integrations = {}
         assert [evidence.excerpt for evidence in state.evidence] == [
             "TODO: keep one claim per marker"
         ]
+
+
+def test_compile_project_deduplicates_case_variant_evidence_markers():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        morpheus_dir = tmppath / ".morpheus"
+        morpheus_dir.mkdir()
+        (morpheus_dir / "morpheus.toml").write_text(
+            """
+watch_dirs = ["."]
+exclude_patterns = [".git", "node_modules", "__pycache__", ".morpheus"]
+evidence_markers = ["TODO:", "todo:"]
+integrations = {}
+"""
+        )
+        (tmppath / "notes.md").write_text("ToDo: keep one claim for case variants\n")
+
+        state = compile_project(tmppath)
+
+        assert [claim.excerpt for claim in state.claims] == [
+            "ToDo: keep one claim for case variants"
+        ]
+        assert [claim.category for claim in state.claims] == ["task"]
 
 
 def test_compile_project_strips_configured_evidence_markers_before_matching():
