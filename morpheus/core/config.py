@@ -5,6 +5,8 @@ import toml
 from pathlib import Path
 from pydantic import BaseModel, ValidationError
 
+from morpheus.core.safe_io import reject_symlink_components
+
 
 class MorpheusConfig(BaseModel):
     project_root: Path
@@ -98,3 +100,4 @@ class MorpheusConfig(BaseModel):
     def _reject_invalid_project_root(self) -> None:
         if self.project_root.is_symlink():
             raise ValueError(f"Project root must not be a symlink: {self.project_root}")
+        reject_symlink_components(self.project_root, "Project root")
