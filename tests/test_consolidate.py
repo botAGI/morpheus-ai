@@ -197,6 +197,35 @@ def test_parse_session_file_rejects_symlinked_session(tmp_path):
     assert stats.files_unreadable == 1
 
 
+def test_parse_session_file_rejects_symlinked_parent_directory(tmp_path):
+    external_dir = tmp_path / "external-sessions"
+    external_dir.mkdir()
+    write_jsonl(
+        external_dir / "session.jsonl",
+        [
+            message("user", "How should session parent symlinks be handled?"),
+            message(
+                "assistant",
+                (
+                    "Implemented parser hardening so parent directory symlinks do not "
+                    "allow reading sessions outside the intended directory."
+                ),
+            ),
+        ],
+    )
+    linked_dir = tmp_path / "linked-sessions"
+    try:
+        linked_dir.symlink_to(external_dir, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+    stats = ConsolidationStats()
+
+    messages = parse_session_file(linked_dir / "session.jsonl", stats)
+
+    assert messages == []
+    assert stats.files_unreadable == 1
+
+
 def test_is_high_quality_pair_rejects_low_signal_assistant_ack():
     assert not is_high_quality_pair("Fix the parser", "Working on it")
     assert is_high_quality_pair(
@@ -596,6 +625,48 @@ def test_consolidate_sessions_rejects_symlinked_sessions_dir(tmp_path, capsys):
 
     captured = capsys.readouterr().out
     assert "Sessions path must not be a symlink" in captured
+    assert not output_path.exists()
+
+
+def test_consolidate_sessions_rejects_symlinked_sessions_parent(tmp_path, capsys):
+    external_parent = tmp_path / "external-parent"
+    sessions_dir = external_parent / "sessions"
+    sessions_dir.mkdir(parents=True)
+    write_jsonl(
+        sessions_dir / "session.jsonl",
+        [
+            message("user", [{"type": "text", "text": "How should sessions parent symlinks be handled?"}]),
+            message(
+                "assistant",
+                [
+                    {
+                        "type": "text",
+                        "text": (
+                            "Implemented consolidation hardening that rejects symlinked "
+                            "parent directories before reading external session files."
+                        ),
+                    }
+                ],
+            ),
+        ],
+    )
+    linked_parent = tmp_path / "linked-parent"
+    try:
+        linked_parent.symlink_to(external_parent, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+    output_path = tmp_path / "dataset.jsonl"
+
+    with pytest.raises(click.exceptions.Exit):
+        consolidate_sessions(
+            sessions_dir=linked_parent / "sessions",
+            output_path=output_path,
+            days=1,
+            min_pairs=1,
+        )
+
+    captured = capsys.readouterr().out
+    assert "Sessions path must not contain a symlink" in captured
     assert not output_path.exists()
 
 
