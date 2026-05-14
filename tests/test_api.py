@@ -2,6 +2,7 @@
 Tests for morpheus.api.server.
 """
 import json
+from pathlib import Path
 
 import pytest
 
@@ -459,6 +460,29 @@ def test_get_wake_rejects_symlinked_project_escape(tmp_path, monkeypatch):
 
     assert response.status_code == 404
     assert "secret outside wake" not in response.text
+
+
+def test_get_wake_rejects_symlinked_home_morpheus_escape(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    outside_morpheus = tmp_path / "outside-morpheus"
+    project_dir = outside_morpheus / "project"
+    project_dir.mkdir(parents=True)
+    (project_dir / "WAKE.md").write_text("secret home wake")
+    try:
+        (home / ".morpheus").symlink_to(outside_morpheus, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+    safe_cwd = tmp_path / "safe"
+    safe_cwd.mkdir()
+    monkeypatch.chdir(safe_cwd)
+    monkeypatch.setattr(Path, "home", lambda: home)
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.get("/wake/project")
+
+    assert response.status_code == 404
+    assert "secret home wake" not in response.text
 
 
 def test_get_wake_rejects_symlinked_wake_file_escape(tmp_path, monkeypatch):
