@@ -296,6 +296,25 @@ def test_compile_returns_bad_request_for_morpheus_symlink(tmp_path):
     assert "Signing failed" not in response.json()["detail"]
 
 
+def test_compile_rejects_symlinked_project_root_without_writing_target(tmp_path):
+    target = tmp_path / "target"
+    target.mkdir()
+    MorpheusConfig(project_root=target).init_default()
+    (target / "README.md").write_text("TODO: do not compile through symlinked root\n")
+    project_root = tmp_path / "linked-project"
+    try:
+        project_root.symlink_to(target, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post("/compile", json={"project_root": str(project_root)})
+
+    assert response.status_code == 400
+    assert "Not initialized" in response.json()["detail"]
+    assert not list((target / ".morpheus" / "receipts").glob("receipt_*.json"))
+
+
 def test_compile_returns_bad_request_for_receipts_path_file(tmp_path):
     MorpheusConfig(project_root=tmp_path).init_default()
     (tmp_path / "README.md").write_text("TODO: compile with invalid receipts path\n")
@@ -525,6 +544,34 @@ def test_status_treats_morpheus_symlink_as_uninitialized(tmp_path):
     client = api_client(raise_server_exceptions=False)
 
     response = client.get("/status", params={"project_root": str(tmp_path)})
+
+    assert response.status_code == 200
+    assert response.json() == {"initialized": False}
+
+
+def test_status_treats_symlinked_project_root_as_uninitialized(tmp_path):
+    target = tmp_path / "target"
+    target.mkdir()
+    morpheus_dir = target / ".morpheus"
+    morpheus_dir.mkdir()
+    (morpheus_dir / "state.json").write_text(
+        json.dumps(
+            {
+                "sources": [],
+                "claims": [],
+                "evidence": [],
+                "compiled_at": "2026-05-13T00:00:00Z",
+            }
+        )
+    )
+    project_root = tmp_path / "linked-project"
+    try:
+        project_root.symlink_to(target, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.get("/status", params={"project_root": str(project_root)})
 
     assert response.status_code == 200
     assert response.json() == {"initialized": False}
