@@ -20,6 +20,13 @@ class GmailIntegration:
                 "Gmail not authenticated. Run: morpheus integrate gmail\n"
                 "You need credentials.json from Google Cloud Console"
             )
+        try:
+            reject_symlink_components(self.token_path, "Gmail token path")
+        except ValueError as exc:
+            raise RuntimeError(
+                "Gmail not authenticated. Run: morpheus integrate gmail\n"
+                "You need credentials.json from Google Cloud Console"
+            ) from exc
         return True
     
     def get_emails(self, days: int = 30, max_results: int = 50) -> list[dict]:

@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
+from morpheus.core.safe_io import reject_symlink_components
+
 MAX_GITHUB_PAGES = 10
 GITHUB_EVIDENCE_KEYWORDS = (
     "DECISION:",
@@ -26,7 +28,13 @@ class GitHubIntegration:
         self.api_url = "https://api.github.com"
     
     def authenticate(self) -> bool:
-        return self.token_path.is_file() and not self.token_path.is_symlink()
+        if not self.token_path.is_file() or self.token_path.is_symlink():
+            return False
+        try:
+            reject_symlink_components(self.token_path, "GitHub token path")
+        except ValueError:
+            return False
+        return True
     
     def get_repo(self, owner: str, repo: str) -> dict:
         """Get repo info"""

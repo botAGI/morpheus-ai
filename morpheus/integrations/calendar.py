@@ -18,6 +18,12 @@ class CalendarIntegration:
             raise RuntimeError(
                 "Calendar not authenticated. Run: morpheus integrate calendar"
             )
+        try:
+            reject_symlink_components(self.token_path, "Calendar token path")
+        except ValueError as exc:
+            raise RuntimeError(
+                "Calendar not authenticated. Run: morpheus integrate calendar"
+            ) from exc
         return True
     
     def get_events(self, days: int = 30, max_results: int = 100) -> list[dict]:
