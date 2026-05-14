@@ -11,7 +11,7 @@ import typer
 from rich.console import Console
 from rich.panel import Panel
 
-from morpheus.core.safe_io import reject_symlink_paths
+from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
 
 console = Console()
 
@@ -105,6 +105,7 @@ def generate_training_script(config: dict, output_path: Path):
     
     if output_path.parent.is_symlink():
         raise ValueError(f"Training script directory must not be a symlink: {output_path.parent}")
+    reject_symlink_components(output_path.parent, "Training script directory")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     reject_symlink_paths([output_path], "Training script path")
     output_path.write_text(script_content)
