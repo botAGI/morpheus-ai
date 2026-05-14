@@ -288,6 +288,7 @@ def morpheus_agent_section_current(existing: str) -> bool:
     required = [
         MORPHEUS_AGENT_BEGIN,
         MORPHEUS_AGENT_END,
+        "morpheus handoff",
         "morpheus agent-connect --json",
         "morpheus diagnostics --json",
         "morpheus serve --ui --host 0.0.0.0 --port 8000 --ui-port 5173",
@@ -397,6 +398,101 @@ def diagnostics_payload(request: Request, project_root: Path) -> dict:
     }
 
 
+def project_wake_or_none(project_root: Path) -> str | None:
+    wake_path = project_root / ".morpheus" / "WAKE.md"
+    if not wake_path.exists():
+        return None
+    try:
+        reject_symlink_paths([wake_path], "WAKE.md")
+        reject_symlink_components(wake_path, "WAKE.md")
+        return wake_path.read_text()
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"WAKE.md unreadable: {exc}") from exc
+
+
+def agent_handoff_markdown(payload: dict) -> str:
+    diagnostics_checks = payload["diagnostics"].get("checks", [])
+    readiness_lines = [
+        f"- {check['label']}: {'OK' if check['ok'] else 'Needs action'} - {check['detail']}"
+        for check in diagnostics_checks
+    ]
+    command_lines = [
+        f"- `{command}`"
+        for command in payload["commands"].values()
+    ]
+    wake_md = payload.get("wake_md")
+    wake_section = wake_md if wake_md else "WAKE.md is not compiled yet. Run `morpheus compile` first."
+
+    return "\n".join([
+        "# Morpheus Agent Handoff",
+        "",
+        f"Project: `{payload['project_root']}`",
+        f"API: `{payload['api_base']}`",
+        "",
+        "## Agent Sequence",
+        "",
+        "1. Read this handoff.",
+        "2. Run diagnostics and bootstrap AGENTS.md when needed.",
+        "3. Compile, then read WAKE.md before edits.",
+        "4. Make the requested change.",
+        "5. Compile again and run `morpheus verify --all`.",
+        "",
+        "## Readiness",
+        "",
+        *readiness_lines,
+        "",
+        "## Commands",
+        "",
+        *command_lines,
+        "",
+        "## Agent Prompt",
+        "",
+        payload["manifest"]["agent_prompt"],
+        "",
+        "## AGENTS.md Preview",
+        "",
+        "````markdown",
+        payload["agent_bootstrap_preview"]["content"].rstrip(),
+        "````",
+        "",
+        "## WAKE.md",
+        "",
+        "````markdown",
+        wake_section.rstrip(),
+        "````",
+        "",
+    ])
+
+
+def agent_handoff_payload(request: Request, project_root: Path) -> dict:
+    api_base = api_base_url(request)
+    commands = {
+        "handoff": "morpheus handoff",
+        "handoff_json": "morpheus handoff --json",
+        "agent_connect": "morpheus agent-connect --json",
+        "diagnostics": "morpheus diagnostics --json",
+        "bootstrap_preview": "morpheus bootstrap-agent --dry-run",
+        "bootstrap_write": "morpheus bootstrap-agent",
+        "compile": "morpheus compile",
+        "read_wake": "morpheus wake",
+        "verify": "morpheus verify --all",
+        "serve_ui": "morpheus serve --ui --host 0.0.0.0 --port 8000 --ui-port 5173",
+    }
+    payload = {
+        "service": "morpheus",
+        "version": "0.1.0",
+        "api_base": api_base,
+        "project_root": str(project_root),
+        "manifest": agent_connect_payload(request, project_root),
+        "diagnostics": diagnostics_payload(request, project_root),
+        "agent_bootstrap_preview": preview_agent_bootstrap(request, project_root).model_dump(),
+        "wake_md": project_wake_or_none(project_root),
+        "commands": commands,
+    }
+    payload["markdown"] = agent_handoff_markdown(payload)
+    return payload
+
+
 def morpheus_agent_section(request: Request, project_root: Path) -> str:
     connect_url = endpoint_url(api_base_url(request), "/agent/connect", project_root)
     return "\n".join([
@@ -406,6 +502,7 @@ def morpheus_agent_section(request: Request, project_root: Path) -> str:
         "Fetch the Morpheus manifest before making changes:",
         "",
         f"- Connect manifest: `{connect_url}`",
+        "- Local handoff bundle: `morpheus handoff`.",
         "- Local CLI manifest: `morpheus agent-connect --json`.",
         "- Local diagnostics: `morpheus diagnostics --json`.",
         "- Read `WAKE.md` before edits.",
@@ -500,6 +597,7 @@ def well_known_morpheus(request: Request):
         "version": "0.1.0",
         "description": "Agent State Compiler with verifiable provenance",
         "connect_url": f"{api_base}/agent/connect",
+        "handoff_url": f"{api_base}/agent/handoff",
         "docs": {
             "human_quickstart": "README.md",
             "state_file": ".morpheus/WAKE.md",
@@ -512,6 +610,13 @@ def agent_connect(request: Request, project_root: Optional[str] = None):
     """Return a machine-readable connection manifest for autonomous agents."""
     root = Path(project_root) if project_root else Path.cwd()
     return agent_connect_payload(request, root)
+
+
+@app.get("/agent/handoff")
+def agent_handoff(request: Request, project_root: Optional[str] = None):
+    """Return a complete agent handoff bundle for the selected project."""
+    root = Path(project_root) if project_root else Path.cwd()
+    return agent_handoff_payload(request, root)
 
 
 @app.get("/diagnostics")
