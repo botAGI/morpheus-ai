@@ -180,10 +180,20 @@ def train(
         console.print(f"[red]Dataset file not found: {dataset}[/red]")
         console.print("[yellow]Run 'morpheus consolidate' first[/yellow]")
         raise typer.Exit(1)
+    try:
+        reject_symlink_components(dataset, "Dataset path")
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
 
     if output_dir.is_symlink():
         console.print(f"[red]Output directory must not be a symlink: {output_dir}[/red]")
         raise typer.Exit(1)
+    try:
+        reject_symlink_components(output_dir, "Output directory")
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
 
     if not dry_run:
         ok, missing = check_dependencies()
