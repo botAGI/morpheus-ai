@@ -68,7 +68,7 @@ WAKE.md       → tells agents where we are now
 ```
 morpheus compile
   → extracts sources from project files
-  → builds claims from markers (TODO:, DECISION:, FIXME:, NOTE:)
+  → builds claims from markers (TODO:, DECISION:, FIXME:, NOTE:, HACK:, XXX:)
   → generates evidence chain with SHA-256 hashes
   → signs receipt with ed25519
   → writes WAKE.md + state.json + receipt
