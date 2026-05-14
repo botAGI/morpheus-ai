@@ -2,7 +2,9 @@
 Tests for morpheus.cli.
 """
 import json
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from typer.testing import CliRunner
@@ -56,6 +58,38 @@ def write_unlinked_receipts(morpheus_dir: Path):
         (receipts_dir / receipt_file_name(receipt["receipt_id"])).write_text(
             json.dumps(receipt, default=str)
         )
+
+
+def test_serve_starts_fastapi_server_with_uvicorn(monkeypatch):
+    runner = CliRunner()
+    calls = []
+
+    def fake_run(app_path, *, host, port, reload):
+        calls.append(
+            {
+                "app_path": app_path,
+                "host": host,
+                "port": port,
+                "reload": reload,
+            }
+        )
+
+    monkeypatch.setitem(sys.modules, "uvicorn", SimpleNamespace(run=fake_run))
+
+    result = runner.invoke(
+        app,
+        ["serve", "--host", "0.0.0.0", "--port", "8123", "--reload"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls == [
+        {
+            "app_path": "morpheus.api.server:app",
+            "host": "0.0.0.0",
+            "port": 8123,
+            "reload": True,
+        }
+    ]
 
 
 def test_init_creates_morpheus_state(tmp_path):

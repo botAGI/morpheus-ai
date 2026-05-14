@@ -502,6 +502,36 @@ def test_get_wake_rejects_symlinked_wake_file_escape(tmp_path, monkeypatch):
     assert "secret symlink wake" not in response.text
 
 
+def test_get_wake_by_project_root_returns_compiled_wake(tmp_path):
+    morpheus_dir = tmp_path / ".morpheus"
+    morpheus_dir.mkdir()
+    (morpheus_dir / "WAKE.md").write_text("# WAKE\n\nCompiled project state\n")
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.get("/wake", params={"project_root": str(tmp_path)})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "project_root": str(tmp_path),
+        "wake_md": "# WAKE\n\nCompiled project state\n",
+    }
+
+
+def test_get_wake_by_project_root_rejects_symlinked_wake_file(tmp_path):
+    morpheus_dir = tmp_path / ".morpheus"
+    morpheus_dir.mkdir()
+    external_wake = tmp_path / "external-WAKE.md"
+    external_wake.write_text("secret wake")
+    (morpheus_dir / "WAKE.md").symlink_to(external_wake)
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.get("/wake", params={"project_root": str(tmp_path)})
+
+    assert response.status_code == 400
+    assert "WAKE.md unreadable" in response.json()["detail"]
+    assert "secret wake" not in response.text
+
+
 def test_get_wake_returns_bad_request_for_unreadable_wake_file(tmp_path, monkeypatch):
     project_dir = tmp_path / "project"
     project_dir.mkdir()
