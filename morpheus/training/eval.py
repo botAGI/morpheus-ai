@@ -27,6 +27,10 @@ Answer what you know. If you don't know, say you don't have that information."""
 
 def load_adapter(adapter_path: Path, base_model: str = "qwen2.5:7b") -> bool:
     """Check if adapter exists and is loadable."""
+    try:
+        reject_symlink_components(adapter_path, "Adapter path")
+    except ValueError:
+        return False
     if adapter_path.is_symlink() or not adapter_path.is_dir():
         return False
     
@@ -104,6 +108,7 @@ def run_eval(
     
     try:
         reject_symlink_paths([test_file], "Evaluation test file path")
+        reject_symlink_components(test_file, "Evaluation test file path")
         with test_file.open(encoding="utf-8") as f:
             lines = f.readlines()
     except (OSError, ValueError) as exc:

@@ -24,6 +24,20 @@ def test_load_adapter_rejects_symlinked_adapter_directory(tmp_path):
     assert not eval_module.load_adapter(adapter_dir)
 
 
+def test_load_adapter_rejects_symlinked_adapter_parent_directory(tmp_path):
+    external_parent = tmp_path / "external-parent"
+    external_parent.mkdir()
+    (external_parent / "adapter").mkdir()
+    (external_parent / "adapter" / "adapter.safetensors").write_text("stub")
+    linked_parent = tmp_path / "linked-parent"
+    try:
+        linked_parent.symlink_to(external_parent, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+
+    assert not eval_module.load_adapter(linked_parent / "adapter")
+
+
 def test_load_adapter_ignores_symlinked_adapter_files(tmp_path):
     outside_adapter_file = tmp_path / "outside-adapter.safetensors"
     outside_adapter_file.write_text("stub")
@@ -124,6 +138,41 @@ def test_run_eval_exits_when_question_file_is_symlink(monkeypatch, tmp_path):
             adapter_path=adapter_dir,
             base_model="qwen2.5:7b",
             test_file=test_file,
+            output=output,
+        )
+
+    assert not output.exists()
+
+
+def test_run_eval_exits_when_question_file_parent_is_symlink(monkeypatch, tmp_path):
+    adapter_dir = tmp_path / "adapter"
+    adapter_dir.mkdir()
+    (adapter_dir / "adapter.safetensors").write_text("stub")
+    external_questions_dir = tmp_path / "external-questions"
+    external_questions_dir.mkdir()
+    (external_questions_dir / "eval_questions.jsonl").write_text(
+        '{"question":"What changed?","expected_keywords":["receipt"]}\n'
+    )
+    linked_questions_dir = tmp_path / "linked-questions"
+    try:
+        linked_questions_dir.symlink_to(
+            external_questions_dir,
+            target_is_directory=True,
+        )
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+    output = tmp_path / "eval_results.jsonl"
+
+    def fail_query(*args, **kwargs):
+        raise AssertionError("question file under symlinked parent should not be evaluated")
+
+    monkeypatch.setattr(eval_module, "query_model", fail_query)
+
+    with pytest.raises(click.exceptions.Exit):
+        eval_module.run_eval(
+            adapter_path=adapter_dir,
+            base_model="qwen2.5:7b",
+            test_file=linked_questions_dir / "eval_questions.jsonl",
             output=output,
         )
 
