@@ -80,6 +80,19 @@ def receipt_claim_total(value) -> int:
     return sum(count for count in value.values() if isinstance(count, int))
 
 
+def github_token_path_error(token_path: Path) -> str | None:
+    token_dir = token_path.parent
+    if token_dir.is_symlink():
+        return f"GitHub token directory must not be a symlink: {token_dir}"
+    if token_dir.exists() and not token_dir.is_dir():
+        return f"GitHub token directory is not a directory: {token_dir}"
+    if token_path.is_symlink():
+        return f"GitHub token path must not be a symlink: {token_path}"
+    if token_path.exists() and not token_path.is_file():
+        return f"GitHub token path is not a file: {token_path}"
+    return None
+
+
 @app.command()
 def init(
     force: bool = typer.Option(False, "--force", "-f", help="Reinitialize even if already initialized")
@@ -367,7 +380,7 @@ def integrate(
     """
     if list_services:
         github_token_path = Path.home() / ".morpheus" / "github_token.txt"
-        if github_token_path.is_symlink() or (github_token_path.exists() and not github_token_path.is_file()):
+        if github_token_path_error(github_token_path):
             github_status = "[red]invalid[/red]"
         elif github_token_path.is_file():
             github_status = "[green]configured[/green]"
@@ -396,15 +409,18 @@ def integrate(
     
     if service == "github":
         token_path = Path.home() / ".morpheus" / "github_token.txt"
-        if token_path.is_symlink():
-            console.print(f"[red]GitHub token path must not be a symlink:[/red] {token_path}")
+        path_error = github_token_path_error(token_path)
+        if path_error:
+            console.print(f"[red]{path_error}[/red]")
             raise typer.Exit(1)
         if token_path.is_file():
             console.print("[green]✓ GitHub token already configured[/green]")
-        elif token_path.exists():
-            console.print(f"[red]GitHub token path is not a file:[/red] {token_path}")
-            raise typer.Exit(1)
         else:
+            try:
+                token_path.parent.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                console.print(f"[red]GitHub token directory cannot be created:[/red] {exc}")
+                raise typer.Exit(1) from exc
             console.print("[yellow]GitHub PAT required[/yellow]")
             console.print("1. Go to https://github.com/settings/tokens")
             console.print("2. Generate new token (classic) with 'repo' scope")
