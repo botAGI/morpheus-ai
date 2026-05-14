@@ -1,16 +1,51 @@
 """
 Morpheus API Server
 """
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit, urlunsplit
 import json
 import shlex
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Body, FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
+
+try:
+    from fastapi import Body, FastAPI, HTTPException, Request
+    from fastapi.middleware.cors import CORSMiddleware
+    from fastapi.responses import PlainTextResponse
+except ModuleNotFoundError:
+    def Body(default=None, **_kwargs):
+        return default
+
+    class HTTPException(Exception):
+        def __init__(self, status_code: int, detail: str):
+            super().__init__(detail)
+            self.status_code = status_code
+            self.detail = detail
+
+    class FastAPI:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def add_middleware(self, *_args, **_kwargs):
+            pass
+
+        def get(self, *_args, **_kwargs):
+            return lambda func: func
+
+        def post(self, *_args, **_kwargs):
+            return lambda func: func
+
+    class PlainTextResponse:
+        def __init__(self, content: str, media_type: str = "text/plain"):
+            self.content = content
+            self.media_type = media_type
+
+    class Request:
+        base_url: str
+
+    class CORSMiddleware:
+        pass
 
 from morpheus.core.config import MorpheusConfig
 from morpheus.core.compiler import compile_project
@@ -171,6 +206,17 @@ def normalize_agent_state(status_payload: dict) -> dict:
 def api_base_url(request: Request) -> str:
     """Return the externally visible API base from the incoming request."""
     return str(request.base_url).rstrip("/")
+
+
+def embedded_agent_api_base_url(request: Request) -> str:
+    """Return the stable API base to persist inside AGENTS.md."""
+    configured = getattr(request, "embedded_agent_api_base", None)
+    if configured:
+        return str(configured).rstrip("/")
+
+    parsed = urlsplit(api_base_url(request))
+    port = parsed.port or (443 if parsed.scheme == "https" else 8000)
+    return urlunsplit((parsed.scheme, f"127.0.0.1:{port}", "", "", ""))
 
 
 def endpoint_url(api_base: str, path: str, project_root: Path | None = None) -> str:
@@ -574,7 +620,11 @@ def agent_prepare_payload(request: Request, project_root: Path) -> dict:
 
 
 def morpheus_agent_section(request: Request, project_root: Path) -> str:
-    connect_url = endpoint_url(api_base_url(request), "/agent/connect", project_root)
+    connect_url = endpoint_url(
+        embedded_agent_api_base_url(request),
+        "/agent/connect",
+        project_root,
+    )
     return "\n".join([
         MORPHEUS_AGENT_BEGIN,
         "## Morpheus Bootstrap",

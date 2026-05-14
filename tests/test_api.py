@@ -274,6 +274,26 @@ def test_agent_prepare_rejects_symlinked_agents_file_without_writing_target(tmp_
     assert outside.read_text() == "do not overwrite\n"
 
 
+def test_agent_prepare_writes_stable_local_bootstrap_when_requested_through_lan(tmp_path):
+    (tmp_path / "README.md").write_text("TODO: prepare over lan\n")
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post(
+        "/agent/prepare",
+        json={"project_root": str(tmp_path)},
+        headers={"host": "192.168.1.54:8000"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    content = (tmp_path / "AGENTS.md").read_text()
+    assert payload["bootstrapped"]["agent_connect_url"].startswith(
+        "http://192.168.1.54:8000/agent/connect"
+    )
+    assert "http://127.0.0.1:8000/agent/connect" in content
+    assert "http://192.168.1.54:8000/agent/connect" not in content
+
+
 def test_diagnostics_agent_bootstrap_is_not_tied_to_request_host(tmp_path):
     agents_path = tmp_path / "AGENTS.md"
     agents_path.write_text(
@@ -323,7 +343,7 @@ def test_agent_bootstrap_creates_agents_md_without_initializing_project(tmp_path
     assert "<!-- MORPHEUS:BEGIN -->" in content
     assert "Fetch the Morpheus manifest before making changes" in content
     assert "morpheus handoff" in content
-    assert "http://testserver/agent/connect" in content
+    assert "http://127.0.0.1:8000/agent/connect" in content
     assert not (tmp_path / ".morpheus").exists()
 
 
