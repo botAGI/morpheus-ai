@@ -204,11 +204,7 @@ def _extract_claims(
     evidence = []
     claim_id_counter = claim_start
     evidence_id_counter = evidence_start
-    markers = [
-        marker
-        for marker in (evidence_markers if evidence_markers is not None else EVIDENCE_MARKERS)
-        if marker.strip()
-    ]
+    markers = _normalized_markers(evidence_markers)
 
     for i, line in enumerate(lines, 1):
         for marker in markers:
@@ -245,3 +241,16 @@ def _extract_claims(
                 )
                 evidence.append(ev)
     return claims, evidence
+
+
+def _normalized_markers(evidence_markers: list[str] | None) -> list[str]:
+    markers = evidence_markers if evidence_markers is not None else EVIDENCE_MARKERS
+    normalized = []
+    seen = set()
+    for marker in markers:
+        marker = marker.strip()
+        if not marker or marker in seen:
+            continue
+        normalized.append(marker)
+        seen.add(marker)
+    return normalized
