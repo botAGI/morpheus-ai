@@ -297,6 +297,32 @@ def test_build_receipt_rejects_private_key_symlink(tmp_path):
         )
 
 
+def test_build_receipt_rejects_symlinked_private_key_ancestor(tmp_path):
+    private_key = ed25519.Ed25519PrivateKey.generate()
+    outside_keys = tmp_path / "outside-keys"
+    outside_keys.mkdir()
+    (outside_keys / "local.key").write_bytes(
+        private_key.private_bytes(
+            serialization.Encoding.Raw,
+            serialization.PrivateFormat.Raw,
+            serialization.NoEncryption(),
+        )
+    )
+    keys_dir = tmp_path / "keys"
+    try:
+        keys_dir.symlink_to(outside_keys, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+
+    with pytest.raises(ValueError, match="private signing key path must not contain a symlink"):
+        build_receipt(
+            state_dict={"claims": [], "evidence": []},
+            wake_md_sha="wake_sha",
+            sources_data=[],
+            private_key_path=keys_dir / "local.key",
+        )
+
+
 def test_build_receipt_rejects_invalid_receipt_id_before_signing(tmp_path):
     private_key_path = tmp_path / "private.key"
 
