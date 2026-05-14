@@ -169,6 +169,34 @@ def test_parse_session_file_skips_non_object_json_entries(tmp_path):
     ]
 
 
+def test_parse_session_file_rejects_symlinked_session(tmp_path):
+    outside_session = tmp_path / "outside.jsonl"
+    write_jsonl(
+        outside_session,
+        [
+            message("user", "How should low-level parsing handle symlinked sessions?"),
+            message(
+                "assistant",
+                (
+                    "Implemented low-level session parser hardening so direct callers do "
+                    "not read symlinked files outside the configured sessions directory."
+                ),
+            ),
+        ],
+    )
+    session_path = tmp_path / "session.jsonl"
+    try:
+        session_path.symlink_to(outside_session)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+    stats = ConsolidationStats()
+
+    messages = parse_session_file(session_path, stats)
+
+    assert messages == []
+    assert stats.files_unreadable == 1
+
+
 def test_is_high_quality_pair_rejects_low_signal_assistant_ack():
     assert not is_high_quality_pair("Fix the parser", "Working on it")
     assert is_high_quality_pair(
