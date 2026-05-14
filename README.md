@@ -22,6 +22,10 @@ morpheus verify --all
 # Show project status
 morpheus status
 
+# Inspect readiness and generate agent instructions
+morpheus diagnostics --json
+morpheus bootstrap-agent
+
 # Run backend for the desktop UI
 morpheus serve --host 127.0.0.1 --port 8000
 ```
@@ -74,6 +78,13 @@ CLI equivalents, curl commands, and a ready-to-copy agent prompt. A new agent sh
 `/agent/bootstrap` creates or refreshes the Morpheus-managed section in
 `AGENTS.md` without overwriting existing project-specific instructions.
 
+Agents running locally can use the CLI equivalent without starting the HTTP API:
+
+```bash
+morpheus diagnostics --json
+morpheus bootstrap-agent --api-base http://127.0.0.1:8000
+```
+
 ## CLI Reference
 
 | Command | Description |
@@ -84,6 +95,8 @@ CLI equivalents, curl commands, and a ready-to-copy agent prompt. A new agent sh
 | `morpheus verify --all` | Full chain + signature verification |
 | `morpheus status` | Show sources/claims/evidence counts |
 | `morpheus wake` | Print WAKE.md to stdout |
+| `morpheus diagnostics --json` | Print readiness checks for agents/tools |
+| `morpheus bootstrap-agent` | Create/update Morpheus instructions in AGENTS.md |
 | `morpheus integrate --list` | Show available integrations |
 | `morpheus consolidate --days 7` | Sessions → training dataset |
 | `morpheus train --epochs 3` | QLoRA fine-tuning |

@@ -92,6 +92,73 @@ def test_serve_starts_fastapi_server_with_uvicorn(monkeypatch):
     ]
 
 
+def test_diagnostics_json_reports_current_project_without_server(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        result = runner.invoke(app, ["diagnostics", "--json"])
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["service"] == "morpheus"
+        assert payload["api_base"] == "http://127.0.0.1:8000"
+        assert payload["project_root"] == str(Path.cwd())
+        assert payload["state"]["initialized"] is False
+        checks = {check["id"]: check for check in payload["checks"]}
+        assert checks["backend"]["ok"] is True
+        assert checks["project_root"]["ok"] is True
+        assert checks["initialized"]["ok"] is False
+
+
+def test_bootstrap_agent_creates_agents_md_from_cli(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        result = runner.invoke(
+            app,
+            ["bootstrap-agent", "--api-base", "http://morpheus.local:8000"],
+        )
+
+        agents_path = Path.cwd() / "AGENTS.md"
+        assert result.exit_code == 0, result.output
+        assert "Created AGENTS.md" in result.output
+        assert agents_path.exists()
+        content = agents_path.read_text()
+        assert "<!-- MORPHEUS:BEGIN -->" in content
+        assert "Fetch the Morpheus manifest before making changes" in content
+        assert "http://morpheus.local:8000/agent/connect" in content
+
+
+def test_bootstrap_agent_reports_current_when_agents_md_is_unchanged(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        first = runner.invoke(app, ["bootstrap-agent"])
+        second = runner.invoke(app, ["bootstrap-agent"])
+
+        assert first.exit_code == 0, first.output
+        assert second.exit_code == 0, second.output
+        assert "AGENTS.md already current" in second.output
+
+
+def test_bootstrap_agent_rejects_symlinked_agents_md(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        outside = tmp_path / "outside.md"
+        outside.write_text("do not overwrite\n")
+        try:
+            Path("AGENTS.md").symlink_to(outside)
+        except OSError as exc:
+            pytest.skip(f"symlink creation unsupported: {exc}")
+
+        result = runner.invoke(app, ["bootstrap-agent"])
+
+        assert result.exit_code == 1
+        assert "AGENTS.md must not be a symlink" in result.output
+        assert outside.read_text() == "do not overwrite\n"
+
+
 def test_init_creates_morpheus_state(tmp_path):
     runner = CliRunner()
 

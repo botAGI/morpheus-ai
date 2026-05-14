@@ -5,6 +5,7 @@ Morpheus CLI - morpheus <command>
 Agent State Compiler with verifiable provenance.
 """
 import json
+from types import SimpleNamespace
 
 import typer
 from pathlib import Path
@@ -91,6 +92,11 @@ def github_token_path_error(token_path: Path) -> str | None:
     if token_path.exists() and not token_path.is_file():
         return f"GitHub token path is not a file: {token_path}"
     return None
+
+
+def request_context(api_base: str):
+    """Build the small request shape shared API helpers need."""
+    return SimpleNamespace(base_url=api_base.rstrip("/") + "/")
 
 
 @app.command()
@@ -344,6 +350,71 @@ def status():
     table.add_row("Last Compiled", compiled_at_display)
     table.add_row("Latest Receipt", receipt_path.name.replace("receipt_", "").replace(".json", "") if receipt_path else "none")
     console.print(table)
+
+
+@app.command("diagnostics")
+def diagnostics_command(
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON"),
+    api_base: str = typer.Option(
+        "http://127.0.0.1:8000",
+        "--api-base",
+        help="API base URL to embed in agent connect links",
+    ),
+):
+    """Inspect backend-style readiness for the current project without starting a server."""
+    from morpheus.api.server import diagnostics_payload
+
+    payload = diagnostics_payload(request_context(api_base), Path.cwd())
+    if json_output:
+        console.out(json.dumps(payload, indent=2))
+        return
+
+    table = Table(title="Morpheus Diagnostics")
+    table.add_column("Check", style="cyan")
+    table.add_column("Status", style="green")
+    table.add_column("Detail", style="yellow")
+    for check in payload["checks"]:
+        table.add_row(
+            check["label"],
+            "OK" if check["ok"] else "Needs action",
+            check["detail"],
+        )
+    console.print(table)
+    console.print(f"Agent connect: {payload['agent_connect_url']}")
+
+
+@app.command("bootstrap-agent")
+def bootstrap_agent(
+    api_base: str = typer.Option(
+        "http://127.0.0.1:8000",
+        "--api-base",
+        help="API base URL to embed in AGENTS.md",
+    ),
+):
+    """Create or refresh the Morpheus-managed AGENTS.md section."""
+    from fastapi import HTTPException
+    from morpheus.api.server import write_agent_bootstrap
+
+    try:
+        response = write_agent_bootstrap(request_context(api_base), Path.cwd())
+    except HTTPException as exc:
+        console.print(f"[red]Bootstrap failed:[/red] {exc.detail}")
+        raise typer.Exit(1) from exc
+
+    if response.created:
+        action = "Created AGENTS.md"
+    elif response.updated:
+        action = "Updated AGENTS.md"
+    else:
+        action = "AGENTS.md already current"
+
+    console.print(Panel.fit(
+        f"[green]{action}[/green]\n"
+        f"Path: [bold]{response.path}[/bold]\n"
+        f"Agent connect: {response.agent_connect_url}",
+        title="Morpheus Agent Bootstrap",
+        border_style="green",
+    ))
 
 
 @app.command()
