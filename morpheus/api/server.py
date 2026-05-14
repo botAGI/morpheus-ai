@@ -284,6 +284,18 @@ def diagnostic_check(check_id: str, label: str, ok: bool, detail: str) -> dict:
     }
 
 
+def morpheus_agent_section_current(existing: str) -> bool:
+    required = [
+        MORPHEUS_AGENT_BEGIN,
+        MORPHEUS_AGENT_END,
+        "morpheus agent-connect --json",
+        "morpheus diagnostics --json",
+        "morpheus serve --ui --host 0.0.0.0 --port 8000 --ui-port 5173",
+        "Run compile and verify after meaningful changes",
+    ]
+    return all(snippet in existing for snippet in required)
+
+
 def agent_bootstrap_diagnostic(request: Request, project_root: Path) -> dict:
     agents_path = project_root / "AGENTS.md"
     try:
@@ -303,10 +315,6 @@ def agent_bootstrap_diagnostic(request: Request, project_root: Path) -> dict:
                 "AGENTS.md path is not a file",
             )
         existing = agents_path.read_text()
-        expected = merge_morpheus_agent_section(
-            existing,
-            morpheus_agent_section(request, project_root),
-        )
     except (OSError, ValueError) as exc:
         return diagnostic_check(
             "agent_bootstrap",
@@ -318,8 +326,10 @@ def agent_bootstrap_diagnostic(request: Request, project_root: Path) -> dict:
     return diagnostic_check(
         "agent_bootstrap",
         "AGENTS.md bootstrap",
-        existing == expected,
-        "AGENTS.md is current" if existing == expected else "Refresh AGENTS.md bootstrap",
+        morpheus_agent_section_current(existing),
+        "AGENTS.md is current"
+        if morpheus_agent_section_current(existing)
+        else "Refresh AGENTS.md bootstrap",
     )
 
 
