@@ -15,6 +15,7 @@ class MorpheusConfig(BaseModel):
 
     def init_default(self) -> None:
         """Initialize .morpheus directory with default config."""
+        self._reject_invalid_project_root()
         morpheus_dir = self.project_root / ".morpheus"
         if morpheus_dir.is_symlink():
             raise ValueError(".morpheus path must not be a symlink")
@@ -72,6 +73,7 @@ class MorpheusConfig(BaseModel):
 
     def load(self) -> "MorpheusConfig":
         """Load config from .morpheus/morpheus.toml."""
+        self._reject_invalid_project_root()
         morpheus_dir = self.project_root / ".morpheus"
         if morpheus_dir.is_symlink():
             raise ValueError(".morpheus path must not be a symlink")
@@ -92,3 +94,7 @@ class MorpheusConfig(BaseModel):
             except ValidationError as exc:
                 raise ValueError(f"Config invalid: {exc}") from exc
         return self
+
+    def _reject_invalid_project_root(self) -> None:
+        if self.project_root.is_symlink():
+            raise ValueError(f"Project root must not be a symlink: {self.project_root}")
