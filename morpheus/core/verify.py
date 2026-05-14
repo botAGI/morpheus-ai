@@ -14,6 +14,9 @@ from morpheus.core.provenance import compute_sha256_file, receipt_signature_payl
 
 def verify_receipt_chain(morpheus_dir: Path) -> tuple[bool, list[str]]:
     """Verify the full receipt chain in .morpheus/receipts/."""
+    if morpheus_dir.is_symlink():
+        return False, ["morpheus path must not be a symlink"]
+
     receipts_dir = morpheus_dir / "receipts"
     errors = []
 
