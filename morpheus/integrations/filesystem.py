@@ -206,7 +206,13 @@ class FileSystemWatcher:
         return digest.hexdigest()
 
     def _has_valid_root(self) -> bool:
-        return self.root.is_dir() and not self.root.is_symlink()
+        if not self.root.is_dir() or self.root.is_symlink():
+            return False
+        try:
+            reject_symlink_components(self.root, "Filesystem root")
+        except ValueError:
+            return False
+        return True
 
 
 def _is_sha256_hex(value) -> bool:
