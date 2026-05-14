@@ -96,6 +96,20 @@ def test_compile_project_basic():
         assert "main.py" in paths
 
 
+def test_compile_project_rejects_symlinked_project_root_without_scanning_target(tmp_path):
+    outside = tmp_path / "outside-project"
+    outside.mkdir()
+    (outside / "README.md").write_text("TODO: do not compile through symlinked root\n")
+    project_root = tmp_path / "linked-project"
+    try:
+        project_root.symlink_to(outside, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+
+    with pytest.raises(ValueError, match="Project root must not be a symlink"):
+        compile_project(project_root)
+
+
 def test_compile_project_records_actual_file_size_for_non_utf8_bytes():
     with tempfile.TemporaryDirectory() as tmpdir:
         tmppath = Path(tmpdir)
