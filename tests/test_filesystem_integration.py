@@ -136,6 +136,23 @@ def test_scan_ignores_malformed_cache_entries(tmp_path):
     assert json.loads((morpheus_dir / "fs_cache.json").read_text()) == {}
 
 
+def test_scan_ignores_cache_entries_outside_root(tmp_path):
+    morpheus_dir = tmp_path / ".morpheus"
+    morpheus_dir.mkdir()
+    cache_path = morpheus_dir / "fs_cache.json"
+    cache_path.write_text(
+        json.dumps({
+            "../outside.md": "a" * 64,
+            str(tmp_path.parent / "outside.md"): "b" * 64,
+        })
+    )
+
+    changes = FileSystemWatcher(tmp_path).scan()
+
+    assert changes == []
+    assert json.loads(cache_path.read_text()) == {}
+
+
 def test_scan_ignores_symlinked_files_outside_root(tmp_path):
     watched = tmp_path / "watched"
     outside = tmp_path / "outside"
@@ -270,6 +287,29 @@ def test_scan_skips_files_that_cannot_be_hashed(tmp_path, monkeypatch):
     }
 
 
+def test_scan_preserves_cache_when_directory_traversal_fails(tmp_path, monkeypatch):
+    morpheus_dir = tmp_path / ".morpheus"
+    morpheus_dir.mkdir()
+    cached = {"old.md": "a" * 64}
+    cache_path = morpheus_dir / "fs_cache.json"
+    cache_path.write_text(json.dumps(cached))
+    watcher = FileSystemWatcher(tmp_path)
+
+    def raise_during_traversal(path, *args, **kwargs):
+        if path == tmp_path:
+            raise OSError("transient traversal failure")
+        return original_rglob(path, *args, **kwargs)
+
+    original_rglob = type(tmp_path).rglob
+    monkeypatch.setattr(type(tmp_path), "rglob", raise_during_traversal)
+
+    changes = watcher.scan()
+
+    assert changes == []
+    assert watcher.file_hashes == cached
+    assert json.loads(cache_path.read_text()) == cached
+
+
 def test_scan_reports_changes_when_cache_file_cannot_be_written(tmp_path):
     morpheus_dir = tmp_path / ".morpheus"
     morpheus_dir.mkdir()
@@ -375,6 +415,15 @@ def test_extract_claims_rejects_paths_outside_root(tmp_path):
     (outside / "secret.txt").write_text("TODO: do not read outside root\n")
 
     claims = FileSystemWatcher(watched).extract_claims("../outside/secret.txt")
+
+    assert claims == []
+
+
+def test_extract_claims_rejects_absolute_paths_inside_root(tmp_path):
+    source = tmp_path / "notes.md"
+    source.write_text("TODO: do not expose absolute source paths\n")
+
+    claims = FileSystemWatcher(tmp_path).extract_claims(str(source))
 
     assert claims == []
 
