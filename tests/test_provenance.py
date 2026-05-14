@@ -58,6 +58,19 @@ def test_compute_sha256_file_streams_large_files(monkeypatch):
         path.unlink()
 
 
+def test_compute_sha256_file_rejects_symlinked_files(tmp_path):
+    outside = tmp_path / "outside.txt"
+    outside.write_text("secret")
+    link = tmp_path / "link.txt"
+    try:
+        link.symlink_to(outside)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+
+    with pytest.raises(ValueError, match="must not be a symlink"):
+        compute_sha256_file(link)
+
+
 def test_receipt_file_name_rejects_path_separators():
     for receipt_id in ["../evil", "nested/evil", "nested\\evil", "", ".", ".."]:
         with pytest.raises(ValueError, match="invalid receipt id"):
