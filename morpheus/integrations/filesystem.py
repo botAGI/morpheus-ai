@@ -76,8 +76,13 @@ class FileSystemWatcher:
         self.file_hashes = self._load_cache()
         
         current_hashes = {}
-        
-        for path in sorted(self.root.rglob("*")):
+
+        try:
+            paths = sorted(self.root.rglob("*"))
+        except OSError:
+            return []
+
+        for path in paths:
             if path.is_symlink() or not path.is_file() or self._is_excluded(path):
                 continue
             
@@ -129,6 +134,9 @@ class FileSystemWatcher:
         if not self._has_valid_root():
             return []
 
+        if not _is_safe_relative_path(path):
+            return []
+
         full_path = self.root / path
         try:
             full_path.resolve().relative_to(self.root.resolve())
@@ -178,7 +186,7 @@ class FileSystemWatcher:
         return {
             path: file_hash
             for path, file_hash in data.items()
-            if isinstance(path, str) and _is_sha256_hex(file_hash)
+            if _is_safe_relative_path(path) and _is_sha256_hex(file_hash)
         }
 
     def _is_excluded(self, path: Path) -> bool:
@@ -221,3 +229,15 @@ def _is_sha256_hex(value) -> bool:
         and len(value) == 64
         and all(character in HEX_DIGITS for character in value)
     )
+
+
+def _is_safe_relative_path(value) -> bool:
+    if not isinstance(value, str) or not value or "\x00" in value:
+        return False
+
+    path = Path(value)
+    if path.is_absolute():
+        return False
+
+    parts = path.parts
+    return bool(parts) and all(part != ".." for part in parts)
