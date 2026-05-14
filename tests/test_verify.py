@@ -56,6 +56,28 @@ def test_verify_receipt_chain_accepts_valid_signed_receipt(tmp_path):
     assert errors == []
 
 
+def test_verify_receipt_chain_rejects_symlinked_morpheus_dir(tmp_path):
+    outside_morpheus = tmp_path / "outside-morpheus"
+    private_key_path = _write_keypair(outside_morpheus / "keys")
+    receipt = build_receipt(
+        state_dict={"claims": [], "evidence": []},
+        wake_md_sha="a" * 64,
+        sources_data=[],
+        private_key_path=private_key_path,
+    )
+    _write_receipt(outside_morpheus / "receipts", "receipt_001.json", receipt)
+    morpheus_dir = tmp_path / ".morpheus"
+    try:
+        morpheus_dir.symlink_to(outside_morpheus, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+
+    valid, errors = verify_receipt_chain(morpheus_dir)
+
+    assert not valid
+    assert errors == ["morpheus path must not be a symlink"]
+
+
 def test_verify_receipt_chain_rejects_tampered_signed_receipt(tmp_path):
     morpheus_dir = tmp_path / ".morpheus"
     private_key_path = _write_keypair(morpheus_dir / "keys")
