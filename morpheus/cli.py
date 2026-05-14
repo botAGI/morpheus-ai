@@ -5,6 +5,11 @@ Morpheus CLI - morpheus <command>
 Agent State Compiler with verifiable provenance.
 """
 import json
+import socket
+from functools import partial
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from socketserver import TCPServer
+from threading import Thread
 from types import SimpleNamespace
 
 import typer
@@ -26,7 +31,7 @@ from morpheus.core.provenance import (
     new_receipt_id,
     receipt_file_name,
 )
-from morpheus.core.safe_io import reject_symlink_paths
+from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
 from morpheus.core.verify import verify_receipt_chain
 from morpheus.training.consolidate import consolidate_sessions
 from morpheus.training.train import check_dependencies
@@ -36,6 +41,106 @@ app = typer.Typer(
     add_completion=False
 )
 console = Console()
+WILDCARD_HOSTS = {"0.0.0.0", "::", ""}
+
+
+class QuietHTTPRequestHandler(SimpleHTTPRequestHandler):
+    """Static file handler that keeps CLI output focused on Morpheus URLs."""
+
+    def log_message(self, format: str, *args) -> None:
+        return
+
+
+class ReusableThreadingHTTPServer(ThreadingHTTPServer):
+    allow_reuse_address = True
+
+    def server_bind(self):
+        TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        self.server_name = host
+        self.server_port = port
+
+
+def display_url(host: str, port: int, path: str = "") -> str:
+    """Return a URL humans can open when a service binds to host."""
+    visible_host = "127.0.0.1" if host in WILDCARD_HOSTS else host
+    if ":" in visible_host and not visible_host.startswith("["):
+        visible_host = f"[{visible_host}]"
+    visible_path = path if not path or path.startswith("/") else f"/{path}"
+    return f"http://{visible_host}:{port}{visible_path}"
+
+
+def primary_lan_ip() -> str | None:
+    """Best-effort LAN IP for cross-device URLs; returns None offline."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect(("8.8.8.8", 80))
+            ip_address = sock.getsockname()[0]
+    except OSError:
+        return None
+    if ip_address.startswith("127."):
+        return None
+    return ip_address
+
+
+def default_ui_root() -> Path:
+    """Find the source tree that contains ui/index.html."""
+    candidates = [Path.cwd(), Path(__file__).resolve().parents[1]]
+    for candidate in candidates:
+        if (candidate / "ui" / "index.html").is_file():
+            return candidate
+    return Path.cwd()
+
+
+def resolve_ui_root_or_exit(ui_root: Path | None) -> Path:
+    """Validate the directory served by `morpheus serve --ui`."""
+    root = ui_root.expanduser() if ui_root else default_ui_root()
+    try:
+        reject_symlink_components(root, "UI root")
+    except ValueError as exc:
+        console.print(f"[red]UI root invalid:[/red] {exc}")
+        raise typer.Exit(1) from exc
+
+    if not root.is_dir():
+        console.print(f"[red]UI root not found:[/red] {root}")
+        raise typer.Exit(1)
+
+    entrypoint = root / "ui" / "index.html"
+    try:
+        reject_symlink_components(entrypoint, "UI entrypoint")
+        reject_symlink_paths([entrypoint], "UI entrypoint")
+    except ValueError as exc:
+        console.print(f"[red]UI entrypoint invalid:[/red] {exc}")
+        raise typer.Exit(1) from exc
+
+    if not entrypoint.is_file():
+        console.print(f"[red]UI entrypoint not found:[/red] {entrypoint}")
+        raise typer.Exit(1)
+    return root
+
+
+def start_static_ui_server(*, directory: Path, host: str, port: int):
+    """Start the static UI server in a daemon thread and return the server."""
+    handler = partial(QuietHTTPRequestHandler, directory=str(directory))
+    server = ReusableThreadingHTTPServer((host, port), handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server
+
+
+def serve_summary_lines(host: str, port: int, ui_host: str | None, ui_port: int) -> list[str]:
+    lines = [f"API: {display_url(host, port)}"]
+    lan_ip = primary_lan_ip() if host in WILDCARD_HOSTS else None
+    if lan_ip:
+        lines.append(f"LAN API: {display_url(lan_ip, port)}")
+    if ui_host is not None:
+        lines.append(f"UI: {display_url(ui_host, ui_port, '/ui/index.html')}")
+        ui_lan_ip = primary_lan_ip() if ui_host in WILDCARD_HOSTS else None
+        if ui_lan_ip:
+            lines.append(f"LAN UI: {display_url(ui_lan_ip, ui_port, '/ui/index.html')}")
+    return lines
+
+
 
 def ensure_initialized():
     """Check if morpheus is initialized in current directory."""
@@ -590,8 +695,20 @@ def serve(
     host: str = typer.Option("127.0.0.1", help="Host for the FastAPI backend"),
     port: int = typer.Option(8000, help="Port for the FastAPI backend"),
     reload: bool = typer.Option(False, "--reload", help="Reload server on code changes"),
+    ui: bool = typer.Option(False, "--ui", help="Also serve the static web UI"),
+    ui_port: int = typer.Option(5173, "--ui-port", help="Port for the static web UI"),
+    ui_host: str | None = typer.Option(
+        None,
+        "--ui-host",
+        help="Host for the static web UI. Defaults to --host.",
+    ),
+    ui_root: Path | None = typer.Option(
+        None,
+        "--ui-root",
+        help="Directory that contains ui/index.html. Defaults to the current source tree.",
+    ),
 ):
-    """Run the FastAPI backend used by the desktop UI."""
+    """Run the FastAPI backend, optionally with the static browser UI."""
     try:
         import uvicorn
     except ImportError as exc:
@@ -599,13 +716,36 @@ def serve(
         console.print("[yellow]Install the project dependencies, then run again.[/yellow]")
         raise typer.Exit(1) from exc
 
-    console.print(f"[green]Serving Morpheus API:[/green] http://{host}:{port}")
-    uvicorn.run(
-        "morpheus.api.server:app",
-        host=host,
-        port=port,
-        reload=reload,
-    )
+    static_server = None
+    bound_ui_host = ui_host or host
+    if ui:
+        root = resolve_ui_root_or_exit(ui_root)
+        try:
+            static_server = start_static_ui_server(
+                directory=root,
+                host=bound_ui_host,
+                port=ui_port,
+            )
+        except OSError as exc:
+            console.print(f"[red]UI server failed:[/red] {exc}")
+            raise typer.Exit(1) from exc
+
+    console.print(Panel.fit(
+        "\n".join(serve_summary_lines(host, port, bound_ui_host if ui else None, ui_port)),
+        title="Morpheus Serve",
+        border_style="green",
+    ))
+    try:
+        uvicorn.run(
+            "morpheus.api.server:app",
+            host=host,
+            port=port,
+            reload=reload,
+        )
+    finally:
+        if static_server is not None:
+            static_server.shutdown()
+            static_server.server_close()
 
 
 @app.command()
