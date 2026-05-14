@@ -391,6 +391,43 @@ def test_consolidate_sessions_rejects_symlinked_dataset_output(tmp_path):
     assert external_output.read_text() == "do not modify"
 
 
+def test_consolidate_sessions_rejects_symlinked_dataset_output_parent(tmp_path):
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    write_jsonl(
+        sessions_dir / "session.jsonl",
+        [
+            message("user", [{"type": "text", "text": "How should output directory symlinks be handled?"}]),
+            message(
+                "assistant",
+                [
+                    {
+                        "type": "text",
+                        "text": "Implemented dataset output hardening that refuses symlinked parent directories.",
+                    }
+                ],
+            ),
+        ],
+    )
+    external_dir = tmp_path / "external-output"
+    external_dir.mkdir()
+    output_dir = tmp_path / "outputs"
+    try:
+        output_dir.symlink_to(external_dir, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+
+    with pytest.raises(click.exceptions.Exit):
+        consolidate_sessions(
+            sessions_dir=sessions_dir,
+            output_path=output_dir / "dataset.jsonl",
+            days=1,
+            min_pairs=1,
+        )
+
+    assert not (external_dir / "dataset.jsonl").exists()
+
+
 def test_consolidate_sessions_reports_unwritable_stats_output(tmp_path):
     sessions_dir = tmp_path / "sessions"
     sessions_dir.mkdir()
@@ -460,6 +497,46 @@ def test_consolidate_sessions_rejects_symlinked_stats_output(tmp_path):
         )
 
     assert external_stats.read_text() == "do not modify"
+
+
+def test_consolidate_sessions_rejects_symlinked_stats_output_parent(tmp_path):
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    write_jsonl(
+        sessions_dir / "session.jsonl",
+        [
+            message("user", [{"type": "text", "text": "How should stats output directory symlinks be handled?"}]),
+            message(
+                "assistant",
+                [
+                    {
+                        "type": "text",
+                        "text": "Implemented stats output hardening that refuses symlinked parent directories.",
+                    }
+                ],
+            ),
+        ],
+    )
+    output_path = tmp_path / "dataset.jsonl"
+    external_dir = tmp_path / "external-stats"
+    external_dir.mkdir()
+    stats_dir = tmp_path / "reports"
+    try:
+        stats_dir.symlink_to(external_dir, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+
+    with pytest.raises(click.exceptions.Exit):
+        consolidate_sessions(
+            sessions_dir=sessions_dir,
+            output_path=output_path,
+            days=1,
+            min_pairs=1,
+            stats_output_path=stats_dir / "stats.json",
+        )
+
+    assert output_path.exists()
+    assert not (external_dir / "stats.json").exists()
 
 
 def test_consolidate_sessions_rejects_sessions_path_file(tmp_path, capsys):

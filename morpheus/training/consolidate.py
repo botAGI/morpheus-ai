@@ -16,7 +16,7 @@ import typer
 from rich.console import Console
 from rich.progress import Progress
 
-from morpheus.core.safe_io import reject_symlink_paths
+from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
 
 console = Console()
 
@@ -389,6 +389,7 @@ def deduplicate_pairs(pairs: list[dict], stats: ConsolidationStats) -> list[dict
 
 def write_dataset(output_path: Path, pairs: list[dict]) -> None:
     """Write ShareGPT-style JSONL training pairs."""
+    reject_symlink_components(output_path.parent, "Dataset output directory")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     reject_symlink_paths([output_path], "Dataset output path")
     with output_path.open("w", encoding="utf-8") as f:
@@ -412,6 +413,7 @@ def write_stats_report(
         "days": days,
         "stats": stats.to_dict(),
     }
+    reject_symlink_components(stats_output_path.parent, "Stats output directory")
     stats_output_path.parent.mkdir(parents=True, exist_ok=True)
     reject_symlink_paths([stats_output_path], "Stats output path")
     stats_output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
