@@ -1,6 +1,7 @@
 """
 Tests for morpheus.integrations.filesystem.
 """
+import hashlib
 import json
 
 import pytest
@@ -183,6 +184,48 @@ def test_scan_reports_changes_when_cache_file_cannot_be_written(tmp_path):
     (tmp_path / "readme.md").write_text("TODO: keep scanning despite cache write failure\n")
 
     changes = FileSystemWatcher(tmp_path).scan()
+
+    assert [change["path"] for change in changes] == ["readme.md"]
+    assert changes[0]["status"] == "new"
+
+
+def test_scan_rejects_symlinked_cache_without_writing_target(tmp_path):
+    watched = tmp_path / "watched"
+    outside = tmp_path / "outside-cache.json"
+    watched.mkdir()
+    morpheus_dir = watched / ".morpheus"
+    morpheus_dir.mkdir()
+    outside.write_text("preserve me")
+    try:
+        (morpheus_dir / "fs_cache.json").symlink_to(outside)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+    (watched / "readme.md").write_text("TODO: keep scanning despite blocked cache\n")
+
+    changes = FileSystemWatcher(watched).scan()
+
+    assert [change["path"] for change in changes] == ["readme.md"]
+    assert changes[0]["status"] == "new"
+    assert outside.read_text() == "preserve me"
+
+
+def test_scan_ignores_symlinked_cache_contents(tmp_path):
+    watched = tmp_path / "watched"
+    outside = tmp_path / "outside-cache.json"
+    watched.mkdir()
+    morpheus_dir = watched / ".morpheus"
+    morpheus_dir.mkdir()
+    contents = "TODO: report this as new despite symlinked cache\n"
+    outside.write_text(
+        json.dumps({"readme.md": hashlib.sha256(contents.encode()).hexdigest()})
+    )
+    try:
+        (morpheus_dir / "fs_cache.json").symlink_to(outside)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+    (watched / "readme.md").write_text(contents)
+
+    changes = FileSystemWatcher(watched).scan()
 
     assert [change["path"] for change in changes] == ["readme.md"]
     assert changes[0]["status"] == "new"
