@@ -4,6 +4,7 @@ Tests for morpheus.core.verify.
 import json
 from pathlib import Path
 
+import pytest
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.hazmat.primitives import serialization
 
@@ -370,6 +371,55 @@ def test_verify_receipt_chain_rejects_keys_path_symlink(tmp_path):
 
     assert not valid
     assert any("keys path must not be a symlink" in error for error in errors)
+
+
+def test_verify_receipt_chain_rejects_public_key_symlink(tmp_path):
+    morpheus_dir = tmp_path / ".morpheus"
+    private_key_path = _write_keypair(morpheus_dir / "keys")
+    receipt = build_receipt(
+        state_dict={"claims": [], "evidence": []},
+        wake_md_sha="f" * 64,
+        sources_data=[],
+        private_key_path=private_key_path,
+    )
+    external_public_key = tmp_path / "external-local.pub"
+    external_public_key.write_bytes((morpheus_dir / "keys" / "local.pub").read_bytes())
+    (morpheus_dir / "keys" / "local.pub").unlink()
+    try:
+        (morpheus_dir / "keys" / "local.pub").symlink_to(external_public_key)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+    _write_receipt(morpheus_dir / "receipts", "receipt_001.json", receipt)
+
+    valid, errors = verify_receipt_chain(morpheus_dir)
+
+    assert not valid
+    assert any("public key must not be a symlink" in error for error in errors)
+
+
+def test_verify_receipt_chain_rejects_private_key_symlink_fallback(tmp_path):
+    morpheus_dir = tmp_path / ".morpheus"
+    private_key_path = _write_keypair(morpheus_dir / "keys")
+    receipt = build_receipt(
+        state_dict={"claims": [], "evidence": []},
+        wake_md_sha="f" * 64,
+        sources_data=[],
+        private_key_path=private_key_path,
+    )
+    external_private_key = tmp_path / "external-local.key"
+    external_private_key.write_bytes(private_key_path.read_bytes())
+    (morpheus_dir / "keys" / "local.pub").unlink()
+    private_key_path.unlink()
+    try:
+        private_key_path.symlink_to(external_private_key)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+    _write_receipt(morpheus_dir / "receipts", "receipt_001.json", receipt)
+
+    valid, errors = verify_receipt_chain(morpheus_dir)
+
+    assert not valid
+    assert any("private key must not be a symlink" in error for error in errors)
 
 
 def test_verify_receipt_chain_rejects_unsigned_receipt(tmp_path):
