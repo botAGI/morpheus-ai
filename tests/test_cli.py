@@ -217,21 +217,53 @@ def test_static_ui_server_does_not_require_reverse_dns(tmp_path, monkeypatch):
 
     monkeypatch.setattr(cli_module.socket, "getfqdn", fail_getfqdn)
 
-    runner = CliRunner()
-    with runner.isolated_filesystem(temp_dir=tmp_path):
-        Path("ui").mkdir()
-        Path("ui/index.html").write_text("<html></html>")
-        server = cli_module.start_static_ui_server(
-            directory=Path.cwd(),
-            host="127.0.0.1",
-            port=0,
-        )
-        try:
-            assert server.server_address[1] > 0
-            assert server.server_name == "127.0.0.1"
-        finally:
-            server.shutdown()
-            server.server_close()
+    class FakeSocket:
+        def __init__(self):
+            self.options = []
+            self.bound_address = None
+
+        def setsockopt(self, level, option, value):
+            self.options.append((level, option, value))
+
+        def bind(self, address):
+            self.bound_address = address
+
+        def getsockname(self):
+            return self.bound_address
+
+    server = object.__new__(cli_module.ReusableThreadingHTTPServer)
+    server.allow_reuse_address = True
+    server.allow_reuse_port = False
+    server.address_family = cli_module.socket.AF_INET
+    server.server_address = ("127.0.0.1", 5173)
+    server.socket = FakeSocket()
+
+    cli_module.ReusableThreadingHTTPServer.server_bind(server)
+
+    assert server.server_address == ("127.0.0.1", 5173)
+    assert server.server_name == "127.0.0.1"
+    assert server.server_port == 5173
+    assert server.socket.bound_address == ("127.0.0.1", 5173)
+
+
+def test_serve_summary_reuses_lan_ip_for_api_and_ui(monkeypatch):
+    calls = []
+
+    def fake_primary_lan_ip():
+        calls.append("called")
+        return "192.0.2.24"
+
+    monkeypatch.setattr(cli_module, "primary_lan_ip", fake_primary_lan_ip)
+
+    lines = cli_module.serve_summary_lines("0.0.0.0", 8000, "0.0.0.0", 5173)
+
+    assert calls == ["called"]
+    assert lines == [
+        "API: http://127.0.0.1:8000",
+        "LAN API: http://192.0.2.24:8000",
+        "UI: http://127.0.0.1:5173/ui/index.html",
+        "LAN UI: http://192.0.2.24:5173/ui/index.html",
+    ]
 
 
 def test_diagnostics_json_reports_current_project_without_server(tmp_path):

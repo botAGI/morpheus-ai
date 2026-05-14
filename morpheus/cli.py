@@ -8,7 +8,6 @@ import json
 import socket
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from socketserver import TCPServer
 from threading import Thread
 from types import SimpleNamespace
 
@@ -55,7 +54,16 @@ class ReusableThreadingHTTPServer(ThreadingHTTPServer):
     allow_reuse_address = True
 
     def server_bind(self):
-        TCPServer.server_bind(self)
+        if self.allow_reuse_address and hasattr(socket, "SO_REUSEADDR"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if (
+            self.allow_reuse_port
+            and hasattr(socket, "SO_REUSEPORT")
+            and self.address_family in (socket.AF_INET, socket.AF_INET6)
+        ):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        self.socket.bind(self.server_address)
+        self.server_address = self.socket.getsockname()
         host, port = self.server_address[:2]
         self.server_name = host
         self.server_port = port
@@ -130,14 +138,14 @@ def start_static_ui_server(*, directory: Path, host: str, port: int):
 
 def serve_summary_lines(host: str, port: int, ui_host: str | None, ui_port: int) -> list[str]:
     lines = [f"API: {display_url(host, port)}"]
-    lan_ip = primary_lan_ip() if host in WILDCARD_HOSTS else None
-    if lan_ip:
+    needs_lan_ip = host in WILDCARD_HOSTS or ui_host in WILDCARD_HOSTS
+    lan_ip = primary_lan_ip() if needs_lan_ip else None
+    if lan_ip and host in WILDCARD_HOSTS:
         lines.append(f"LAN API: {display_url(lan_ip, port)}")
     if ui_host is not None:
         lines.append(f"UI: {display_url(ui_host, ui_port, '/ui/index.html')}")
-        ui_lan_ip = primary_lan_ip() if ui_host in WILDCARD_HOSTS else None
-        if ui_lan_ip:
-            lines.append(f"LAN UI: {display_url(ui_lan_ip, ui_port, '/ui/index.html')}")
+        if lan_ip and ui_host in WILDCARD_HOSTS:
+            lines.append(f"LAN UI: {display_url(lan_ip, ui_port, '/ui/index.html')}")
     return lines
 
 
@@ -201,7 +209,11 @@ def github_token_path_error(token_path: Path) -> str | None:
 
 def request_context(api_base: str):
     """Build the small request shape shared API helpers need."""
-    return SimpleNamespace(base_url=api_base.rstrip("/") + "/")
+    clean_api_base = api_base.rstrip("/")
+    return SimpleNamespace(
+        base_url=clean_api_base + "/",
+        embedded_agent_api_base=clean_api_base,
+    )
 
 
 @app.command()
@@ -527,8 +539,7 @@ def handoff_command(
     ),
 ):
     """Print a complete copyable bundle for handing the project to another agent."""
-    from fastapi import HTTPException
-    from morpheus.api.server import agent_handoff_payload
+    from morpheus.api.server import HTTPException, agent_handoff_payload
 
     try:
         payload = agent_handoff_payload(request_context(api_base), Path.cwd())
@@ -553,8 +564,7 @@ def prepare_agent_command(
     ),
 ):
     """Initialize, compile, bootstrap AGENTS.md, verify, and print handoff."""
-    from fastapi import HTTPException
-    from morpheus.api.server import agent_prepare_payload
+    from morpheus.api.server import HTTPException, agent_prepare_payload
 
     try:
         payload = agent_prepare_payload(request_context(api_base), Path.cwd())
@@ -583,8 +593,8 @@ def bootstrap_agent(
     ),
 ):
     """Create, refresh, or preview the Morpheus-managed AGENTS.md section."""
-    from fastapi import HTTPException
     from morpheus.api.server import preview_agent_bootstrap, write_agent_bootstrap
+    from morpheus.api.server import HTTPException
 
     try:
         handler = preview_agent_bootstrap if dry_run else write_agent_bootstrap
