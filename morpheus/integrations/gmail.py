@@ -71,7 +71,7 @@ class GmailIntegration:
                     "source": "gmail",
                     "email_id": email.get("id"),
                     "keyword": keyword,
-                    "excerpt": text
+                    "excerpt": text[:500]
                 })
         return evidence
 
