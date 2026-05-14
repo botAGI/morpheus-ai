@@ -389,7 +389,12 @@ def merge_morpheus_agent_section(existing: str, section: str) -> str:
     return "# AGENTS.md\n\n" + section + "\n"
 
 
-def write_agent_bootstrap(request: Request, project_root: Path) -> AgentBootstrapResponse:
+def agent_bootstrap_response(
+    request: Request,
+    project_root: Path,
+    *,
+    write: bool,
+) -> AgentBootstrapResponse:
     if not _is_real_directory(project_root):
         raise HTTPException(
             status_code=400,
@@ -408,7 +413,7 @@ def write_agent_bootstrap(request: Request, project_root: Path) -> AgentBootstra
             morpheus_agent_section(request, project_root),
         )
         updated = content != existing
-        if updated:
+        if write and updated:
             agents_path.write_text(content)
     except (OSError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -421,6 +426,14 @@ def write_agent_bootstrap(request: Request, project_root: Path) -> AgentBootstra
         content=content,
         agent_connect_url=endpoint_url(api_base_url(request), "/agent/connect", project_root),
     )
+
+
+def preview_agent_bootstrap(request: Request, project_root: Path) -> AgentBootstrapResponse:
+    return agent_bootstrap_response(request, project_root, write=False)
+
+
+def write_agent_bootstrap(request: Request, project_root: Path) -> AgentBootstrapResponse:
+    return agent_bootstrap_response(request, project_root, write=True)
 
 
 @app.get("/health")
@@ -467,6 +480,17 @@ def agent_bootstrap(request: Request, bootstrap_request: AgentBootstrapRequest):
         else Path.cwd()
     )
     return write_agent_bootstrap(request, root)
+
+
+@app.post("/agent/bootstrap/preview", response_model=AgentBootstrapResponse)
+def agent_bootstrap_preview(request: Request, bootstrap_request: AgentBootstrapRequest):
+    """Preview the Morpheus-managed AGENTS.md content without writing it."""
+    root = (
+        Path(bootstrap_request.project_root)
+        if bootstrap_request.project_root
+        else Path.cwd()
+    )
+    return preview_agent_bootstrap(request, root)
 
 
 @app.post("/init", response_model=InitResponse)

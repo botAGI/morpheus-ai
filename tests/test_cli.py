@@ -319,6 +319,27 @@ def test_bootstrap_agent_creates_agents_md_from_cli(tmp_path):
         assert "http://morpheus.local:8000/agent/connect" in content
 
 
+def test_bootstrap_agent_dry_run_prints_preview_without_writing(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        result = runner.invoke(
+            app,
+            [
+                "bootstrap-agent",
+                "--dry-run",
+                "--api-base",
+                "http://morpheus.local:8000",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "<!-- MORPHEUS:BEGIN -->" in result.output
+        assert "morpheus agent-connect --json" in result.output
+        assert "http://morpheus.local:8000/agent/connect" in result.output
+        assert not Path("AGENTS.md").exists()
+
+
 def test_bootstrap_agent_reports_current_when_agents_md_is_unchanged(tmp_path):
     runner = CliRunner()
 
