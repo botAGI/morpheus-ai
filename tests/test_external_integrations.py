@@ -6,6 +6,8 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 
+import morpheus.integrations.calendar as calendar_module
+import morpheus.integrations.gmail as gmail_module
 from morpheus.integrations.calendar import CalendarIntegration
 from morpheus.integrations.github import GitHubIntegration
 from morpheus.integrations.gmail import GmailIntegration
@@ -141,6 +143,43 @@ def test_gmail_cache_loads_timezone_dates_and_skips_invalid_rows(tmp_path):
     assert [email["id"] for email in emails] == ["new"]
 
 
+def test_gmail_cache_loads_rfc3339_z_dates(tmp_path):
+    cache_path = tmp_path / "gmail_cache.json"
+    cache_path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "gmail-z",
+                    "date": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                    "snippet": "TODO: keep z timestamp",
+                }
+            ]
+        )
+    )
+
+    emails = GmailIntegration(token_path=tmp_path / "token.json")._load_from_cache(
+        cache_path,
+        days=30,
+    )
+
+    assert [email["id"] for email in emails] == ["gmail-z"]
+
+
+def test_gmail_parse_cache_datetime_normalizes_z_for_python310(monkeypatch):
+    class LegacyDateTime:
+        @staticmethod
+        def fromisoformat(value):
+            if value.endswith("Z"):
+                raise ValueError("Invalid isoformat string")
+            return datetime.fromisoformat(value)
+
+    monkeypatch.setattr(gmail_module, "datetime", LegacyDateTime)
+
+    parsed = gmail_module._parse_cache_datetime("2026-05-14T10:30:00Z")
+
+    assert parsed == datetime(2026, 5, 14, 10, 30, tzinfo=timezone.utc)
+
+
 def test_gmail_get_emails_respects_max_results_for_cache(tmp_path):
     now = datetime.now(timezone.utc)
     token_path = tmp_path / "gmail_token.json"
@@ -253,6 +292,43 @@ def test_calendar_cache_loads_timezone_dates_and_skips_invalid_rows(tmp_path):
     )
 
     assert [event["id"] for event in events] == ["new"]
+
+
+def test_calendar_cache_loads_rfc3339_z_dates(tmp_path):
+    cache_path = tmp_path / "calendar_cache.json"
+    cache_path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "calendar-z",
+                    "start": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                    "summary": "TODO: keep z timestamp",
+                }
+            ]
+        )
+    )
+
+    events = CalendarIntegration(token_path=tmp_path / "token.json")._load_from_cache(
+        cache_path,
+        days=30,
+    )
+
+    assert [event["id"] for event in events] == ["calendar-z"]
+
+
+def test_calendar_parse_cache_datetime_normalizes_z_for_python310(monkeypatch):
+    class LegacyDateTime:
+        @staticmethod
+        def fromisoformat(value):
+            if value.endswith("Z"):
+                raise ValueError("Invalid isoformat string")
+            return datetime.fromisoformat(value)
+
+    monkeypatch.setattr(calendar_module, "datetime", LegacyDateTime)
+
+    parsed = calendar_module._parse_cache_datetime("2026-05-14T10:30:00Z")
+
+    assert parsed == datetime(2026, 5, 14, 10, 30, tzinfo=timezone.utc)
 
 
 def test_calendar_get_events_respects_max_results_for_cache(tmp_path):
