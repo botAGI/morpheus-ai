@@ -80,7 +80,7 @@ def _parse_cache_datetime(value: str | None) -> datetime | None:
     if not value or not isinstance(value, str):
         return None
     try:
-        parsed = datetime.fromisoformat(value)
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
     if parsed.tzinfo is None:
