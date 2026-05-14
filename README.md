@@ -63,6 +63,7 @@ Agents can discover Morpheus over HTTP without reading this README first:
 
 ```bash
 curl -s http://127.0.0.1:8000/.well-known/morpheus.json
+curl -s "http://127.0.0.1:8000/agent/handoff.md?project_root=$PWD"
 curl -s "http://127.0.0.1:8000/agent/handoff?project_root=$PWD"
 curl -s "http://127.0.0.1:8000/agent/connect?project_root=$PWD"
 curl -s "http://127.0.0.1:8000/diagnostics?project_root=$PWD"
