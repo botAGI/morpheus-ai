@@ -448,6 +448,9 @@ def consolidate_sessions(
     if not sessions_dir.exists():
         console.print(f"[red]Sessions directory not found: {sessions_dir}[/red]")
         raise typer.Exit(1)
+    if sessions_dir.is_symlink():
+        console.print(f"[red]Sessions path must not be a symlink: {sessions_dir}[/red]")
+        raise typer.Exit(1)
     if not sessions_dir.is_dir():
         console.print(f"[red]Sessions path is not a directory: {sessions_dir}[/red]")
         raise typer.Exit(1)
