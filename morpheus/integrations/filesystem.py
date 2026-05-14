@@ -8,6 +8,8 @@ import string
 from pathlib import Path
 from datetime import datetime
 
+from morpheus.core.safe_io import reject_symlink_paths
+
 
 DEFAULT_EXCLUDE_PARTS = {
     ".git",
@@ -110,8 +112,9 @@ class FileSystemWatcher:
         
         try:
             self.cache_file.parent.mkdir(parents=True, exist_ok=True)
+            reject_symlink_paths([self.cache_file], "Filesystem cache path")
             self.cache_file.write_text(json.dumps(current_hashes, indent=2))
-        except OSError:
+        except (OSError, ValueError):
             pass
         self.file_hashes = current_hashes
         
@@ -153,8 +156,9 @@ class FileSystemWatcher:
             return {}
 
         try:
+            reject_symlink_paths([self.cache_file], "Filesystem cache path")
             data = json.loads(self.cache_file.read_text())
-        except (OSError, json.JSONDecodeError):
+        except (OSError, ValueError, json.JSONDecodeError):
             return {}
 
         if not isinstance(data, dict):
