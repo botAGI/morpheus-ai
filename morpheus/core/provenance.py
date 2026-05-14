@@ -9,7 +9,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
-from morpheus.core.safe_io import reject_symlink_paths
+from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
 
 
 def compute_sha256_file(path: Path) -> str:
@@ -68,6 +68,7 @@ def latest_receipt_file(receipts_dir: Path) -> Path | None:
     """Return the receipt chain tail by previous hash links."""
     if receipts_dir.is_symlink():
         raise ValueError("receipts path must not be a symlink")
+    reject_symlink_components(receipts_dir, "receipts path")
     if receipts_dir.exists() and not receipts_dir.is_dir():
         raise ValueError("receipts path is not a directory")
 
