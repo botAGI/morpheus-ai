@@ -80,6 +80,20 @@ def test_compute_sha256_rejects_symlinked_files(tmp_path):
         compute_sha256(link)
 
 
+def test_compute_sha256_rejects_symlinked_parent_directory(tmp_path):
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir()
+    (outside_dir / "source.txt").write_text("secret")
+    linked_dir = tmp_path / "linked"
+    try:
+        linked_dir.symlink_to(outside_dir, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+
+    with pytest.raises(ValueError, match="Source file must not contain a symlink"):
+        compute_sha256(linked_dir / "source.txt")
+
+
 def test_compile_project_basic():
     with tempfile.TemporaryDirectory() as tmpdir:
         tmppath = Path(tmpdir)
