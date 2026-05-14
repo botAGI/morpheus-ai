@@ -196,6 +196,32 @@ def test_run_eval_exits_when_output_file_is_symlink(monkeypatch, tmp_path):
     assert external_output.read_text() == "do not modify"
 
 
+def test_run_eval_exits_when_output_parent_is_symlink(monkeypatch, tmp_path):
+    adapter_dir = tmp_path / "adapter"
+    adapter_dir.mkdir()
+    (adapter_dir / "adapter.safetensors").write_text("stub")
+    test_file = tmp_path / "eval_questions.jsonl"
+    test_file.write_text('{"question":"What changed?","expected_keywords":["receipt"]}\n')
+    external_dir = tmp_path / "external-results"
+    external_dir.mkdir()
+    output_dir = tmp_path / "reports"
+    try:
+        output_dir.symlink_to(external_dir, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+    monkeypatch.setattr(eval_module, "query_model", lambda *args, **kwargs: "receipt chain")
+
+    with pytest.raises(click.exceptions.Exit):
+        eval_module.run_eval(
+            adapter_path=adapter_dir,
+            base_model="qwen2.5:7b",
+            test_file=test_file,
+            output=output_dir / "eval_results.jsonl",
+        )
+
+    assert not (external_dir / "eval_results.jsonl").exists()
+
+
 def test_query_model_reports_missing_ollama(monkeypatch):
     def raise_missing_executable(*args, **kwargs):
         raise FileNotFoundError("ollama")
