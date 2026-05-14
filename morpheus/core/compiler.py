@@ -209,8 +209,9 @@ def _extract_claims(
     markers = _normalized_markers(evidence_markers)
 
     for i, line in enumerate(lines, 1):
+        folded_line = line.casefold()
         for marker in markers:
-            if marker in line:
+            if marker.casefold() in folded_line:
                 claim_id_counter += 1
                 evidence_id_counter += 1
                 cid = f"clm_{claim_id_counter:04d}"
@@ -251,8 +252,9 @@ def _normalized_markers(evidence_markers: list[str] | None) -> list[str]:
     seen = set()
     for marker in markers:
         marker = marker.strip()
-        if not marker or marker in seen:
+        folded_marker = marker.casefold()
+        if not marker or folded_marker in seen:
             continue
         normalized.append(marker)
-        seen.add(marker)
+        seen.add(folded_marker)
     return normalized
