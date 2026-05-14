@@ -217,9 +217,13 @@ def _load_public_key(keys_dir: Path) -> tuple[ed25519.Ed25519PublicKey | None, s
 
     try:
         if public_key_path.exists():
+            if public_key_path.is_symlink():
+                return None, "public key must not be a symlink"
             return ed25519.Ed25519PublicKey.from_public_bytes(public_key_path.read_bytes()), None
 
         if private_key_path.exists():
+            if private_key_path.is_symlink():
+                return None, "private key must not be a symlink"
             private_key = ed25519.Ed25519PrivateKey.from_private_bytes(private_key_path.read_bytes())
             return private_key.public_key(), None
     except (OSError, ValueError) as exc:
