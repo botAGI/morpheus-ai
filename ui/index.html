@@ -819,6 +819,14 @@
                   </div>
                   <span class="step-state pending" id="step-verify-state">Pending</span>
                 </div>
+                <div class="setup-step">
+                  <span class="step-number">5</span>
+                  <div>
+                    <strong>Agent</strong>
+                    <small id="step-agent-detail">Bootstrap AGENTS.md</small>
+                  </div>
+                  <span class="step-state pending" id="step-agent-state">Pending</span>
+                </div>
               </div>
             </div>
 
@@ -1026,6 +1034,10 @@
           state: document.getElementById('step-verify-state'),
           detail: document.getElementById('step-verify-detail'),
         },
+        agent: {
+          state: document.getElementById('step-agent-state'),
+          detail: document.getElementById('step-agent-detail'),
+        },
       };
       const projectRootInputs = [startProjectRootInput, projectRootInput];
       const projectRootLabels = [startProjectRootLabel, projectRootLabel];
@@ -1190,11 +1202,33 @@
         target.detail.textContent = detail;
       }
 
-      function updateProjectSteps(status) {
+      function checkById(checks = [], id) {
+        return checks.find((check) => check.id === id) || null;
+      }
+
+      function updateAgentStep(status, checks = []) {
+        const agentCheck = checkById(checks, 'agent_bootstrap');
+        if (agentCheck && agentCheck.ok) {
+          setStep('agent', 'ready', 'Ready', agentCheck.detail);
+          return;
+        }
+        if (agentCheck) {
+          setStep('agent', 'pending', 'Pending', agentCheck.detail);
+          return;
+        }
+        if (status && status.compiled) {
+          setStep('agent', 'pending', 'Pending', 'Bootstrap AGENTS.md');
+        } else {
+          setStep('agent', 'pending', 'Pending', 'Compile before handoff');
+        }
+      }
+
+      function updateProjectSteps(status, checks = []) {
         if (!status || !status.initialized) {
           setStep('project', 'pending', 'Pending', 'Initialize project');
           setStep('state', 'pending', 'Pending', 'Compile to create WAKE.md');
           setStep('verify', 'pending', 'Pending', 'Verify after compile');
+          updateAgentStep(status, checks);
           return;
         }
 
@@ -1209,6 +1243,7 @@
         } else {
           setStep('state', 'pending', 'Pending', 'Run compile');
         }
+        updateAgentStep(status, checks);
       }
 
       async function refreshAgentConnect({ silent = true } = {}) {
@@ -1235,7 +1270,7 @@
           diagnosticsOutput.textContent = JSON.stringify(payload, null, 2);
           const passed = (payload.checks || []).filter((check) => check.ok).length;
           diagnosticsSummary.textContent = `${passed}/${(payload.checks || []).length} checks passing`;
-          updateProjectSteps(payload.state);
+          updateProjectSteps(payload.state, payload.checks || []);
           updateAgentConnectPreview({ agent_prompt: agentPrompt.textContent, state: payload.state });
           rememberProjectRoot();
           return payload;

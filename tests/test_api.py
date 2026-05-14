@@ -149,6 +149,8 @@ def test_diagnostics_reports_project_setup_steps(tmp_path):
     assert checks["initialized"]["ok"] is False
     assert checks["compiled"]["ok"] is False
     assert checks["wake"]["ok"] is False
+    assert checks["agent_bootstrap"]["ok"] is False
+    assert checks["agent_bootstrap"]["detail"] == "Run Bootstrap AGENTS.md"
     assert payload["agent_connect_url"].endswith("/agent/connect?project_root=" + str(tmp_path).replace("/", "%2F"))
     assert payload["commands"]["agent_connect"] == "morpheus agent-connect --json"
     assert payload["commands"]["serve"] == "morpheus serve --host 0.0.0.0 --port 8000"
@@ -156,6 +158,19 @@ def test_diagnostics_reports_project_setup_steps(tmp_path):
         payload["commands"]["serve_ui"]
         == "morpheus serve --ui --host 0.0.0.0 --port 8000 --ui-port 5173"
     )
+
+
+def test_diagnostics_reports_current_agent_bootstrap(tmp_path):
+    client = api_client(raise_server_exceptions=False)
+    bootstrap_response = client.post("/agent/bootstrap", json={"project_root": str(tmp_path)})
+
+    response = client.get("/diagnostics", params={"project_root": str(tmp_path)})
+
+    assert bootstrap_response.status_code == 200
+    assert response.status_code == 200
+    checks = {check["id"]: check for check in response.json()["checks"]}
+    assert checks["agent_bootstrap"]["ok"] is True
+    assert checks["agent_bootstrap"]["detail"] == "AGENTS.md is current"
 
 
 def test_agent_bootstrap_creates_agents_md_without_initializing_project(tmp_path):
