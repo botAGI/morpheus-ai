@@ -4,7 +4,7 @@ Google Calendar integration - reads events as evidence.
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
-from morpheus.core.safe_io import reject_symlink_paths
+from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
 
 class CalendarIntegration:
     SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
@@ -37,6 +37,7 @@ class CalendarIntegration:
         import json
         try:
             reject_symlink_paths([cache_path], "Calendar cache path")
+            reject_symlink_components(cache_path, "Calendar cache path")
             data = json.loads(cache_path.read_text())
         except (OSError, ValueError, json.JSONDecodeError):
             return []

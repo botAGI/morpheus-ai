@@ -4,7 +4,7 @@ Gmail integration - reads emails and extracts evidence.
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
-from morpheus.core.safe_io import reject_symlink_paths
+from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
 
 class GmailIntegration:
     SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
@@ -41,6 +41,7 @@ class GmailIntegration:
         import json
         try:
             reject_symlink_paths([cache_path], "Gmail cache path")
+            reject_symlink_components(cache_path, "Gmail cache path")
             data = json.loads(cache_path.read_text())
         except (OSError, ValueError, json.JSONDecodeError):
             return []
