@@ -9,6 +9,7 @@ from typing import Optional
 
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
 from morpheus.core.config import MorpheusConfig
@@ -598,6 +599,7 @@ def well_known_morpheus(request: Request):
         "description": "Agent State Compiler with verifiable provenance",
         "connect_url": f"{api_base}/agent/connect",
         "handoff_url": f"{api_base}/agent/handoff",
+        "handoff_markdown_url": f"{api_base}/agent/handoff.md",
         "docs": {
             "human_quickstart": "README.md",
             "state_file": ".morpheus/WAKE.md",
@@ -617,6 +619,16 @@ def agent_handoff(request: Request, project_root: Optional[str] = None):
     """Return a complete agent handoff bundle for the selected project."""
     root = Path(project_root) if project_root else Path.cwd()
     return agent_handoff_payload(request, root)
+
+
+@app.get("/agent/handoff.md", response_class=PlainTextResponse)
+def agent_handoff_markdown_route(request: Request, project_root: Optional[str] = None):
+    """Return the complete agent handoff as plain markdown."""
+    root = Path(project_root) if project_root else Path.cwd()
+    return PlainTextResponse(
+        agent_handoff_payload(request, root)["markdown"],
+        media_type="text/markdown",
+    )
 
 
 @app.get("/diagnostics")

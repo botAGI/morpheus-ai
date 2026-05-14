@@ -78,6 +78,7 @@ def test_well_known_morpheus_manifest_exposes_agent_connect_url():
     assert payload["version"] == "0.1.0"
     assert payload["connect_url"] == "http://testserver/agent/connect"
     assert payload["handoff_url"] == "http://testserver/agent/handoff"
+    assert payload["handoff_markdown_url"] == "http://testserver/agent/handoff.md"
     assert payload["docs"]["human_quickstart"] == "README.md"
 
 
@@ -192,6 +193,19 @@ def test_agent_handoff_returns_bundle_for_uninitialized_project(tmp_path):
     assert payload["commands"]["handoff"] == "morpheus handoff"
     assert "# Morpheus Agent Handoff" in payload["markdown"]
     assert "morpheus bootstrap-agent --dry-run" in payload["markdown"]
+    assert not (tmp_path / "AGENTS.md").exists()
+
+
+def test_agent_handoff_markdown_endpoint_returns_plain_markdown(tmp_path):
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.get("/agent/handoff.md", params={"project_root": str(tmp_path)})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/markdown")
+    assert response.text.startswith("# Morpheus Agent Handoff")
+    assert "morpheus handoff" in response.text
+    assert "morpheus bootstrap-agent --dry-run" in response.text
     assert not (tmp_path / "AGENTS.md").exists()
 
 
