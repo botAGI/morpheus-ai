@@ -10,12 +10,17 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
 from morpheus.core.provenance import compute_sha256_file, receipt_signature_payload
+from morpheus.core.safe_io import reject_symlink_components
 
 
 def verify_receipt_chain(morpheus_dir: Path) -> tuple[bool, list[str]]:
     """Verify the full receipt chain in .morpheus/receipts/."""
     if morpheus_dir.is_symlink():
         return False, ["morpheus path must not be a symlink"]
+    try:
+        reject_symlink_components(morpheus_dir, "morpheus path")
+    except ValueError as exc:
+        return False, [str(exc)]
 
     receipts_dir = morpheus_dir / "receipts"
     errors = []
