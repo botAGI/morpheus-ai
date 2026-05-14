@@ -157,6 +157,7 @@ morpheus verify --all           # Full provenance verification
 morpheus status                  # Show current state summary
 morpheus integrate <service>    # Connect Gmail/Calendar/GitHub
 morpheus wake                    # Print WAKE.md to stdout
+morpheus serve                   # Run FastAPI backend for desktop UI
 morpheus train                   # Phase 3: QLoRA fine-tune (future)
 ```
 

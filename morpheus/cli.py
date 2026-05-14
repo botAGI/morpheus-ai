@@ -515,6 +515,29 @@ def eval_command(
 
 
 @app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", help="Host for the FastAPI backend"),
+    port: int = typer.Option(8000, help="Port for the FastAPI backend"),
+    reload: bool = typer.Option(False, "--reload", help="Reload server on code changes"),
+):
+    """Run the FastAPI backend used by the desktop UI."""
+    try:
+        import uvicorn
+    except ImportError as exc:
+        console.print("[red]uvicorn is not installed.[/red]")
+        console.print("[yellow]Install the project dependencies, then run again.[/yellow]")
+        raise typer.Exit(1) from exc
+
+    console.print(f"[green]Serving Morpheus API:[/green] http://{host}:{port}")
+    uvicorn.run(
+        "morpheus.api.server:app",
+        host=host,
+        port=port,
+        reload=reload,
+    )
+
+
+@app.command()
 def version():
     """Show morpheus version."""
     from morpheus import __version__

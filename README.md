@@ -21,6 +21,9 @@ morpheus verify --all
 
 # Show project status
 morpheus status
+
+# Run backend for the desktop UI
+morpheus serve --host 127.0.0.1 --port 8000
 ```
 
 ## CLI Reference
@@ -37,6 +40,7 @@ morpheus status
 | `morpheus consolidate --days 7` | Sessions → training dataset |
 | `morpheus train --epochs 3` | QLoRA fine-tuning |
 | `morpheus eval --test-file eval_questions.jsonl` | Evaluate adapter quality |
+| `morpheus serve --port 8000` | Run FastAPI backend for the UI |
 | `morpheus version` | Show version |
 
 ## Training Pipeline (Phase 3)

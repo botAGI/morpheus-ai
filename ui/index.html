@@ -415,6 +415,15 @@
       .panel.active {
         display: block;
       }
+
+      .chat-area.panel {
+        padding: 0;
+        overflow: hidden;
+      }
+
+      .chat-area.panel.active {
+        display: flex;
+      }
       
       .panel h2 {
         font-size: 20px;
@@ -439,6 +448,34 @@
         font-size: 13px;
         color: var(--text-secondary);
         line-height: 1.5;
+      }
+
+      .form-row {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-bottom: 14px;
+      }
+
+      .form-row label {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text-secondary);
+      }
+
+      .settings-input {
+        width: 100%;
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 10px 12px;
+        color: var(--text-primary);
+        font-size: 13px;
+        outline: none;
+      }
+
+      .settings-input:focus {
+        border-color: var(--accent);
       }
       
       .stats {
@@ -544,8 +581,8 @@
             <span id="voice-status-text">Listening...</span>
           </div>
           <div class="status">
-            <div class="status-dot"></div>
-            <span>Connected</span>
+            <div class="status-dot" id="backend-status-dot"></div>
+            <span id="backend-status-text">Backend unknown</span>
           </div>
         </div>
       </header>
@@ -571,12 +608,12 @@
           </div>
         </aside>
         
-        <div class="chat-area">
+        <div class="chat-area panel active" id="panel-chat">
           <div class="messages" id="messages">
             <div class="message-wrapper morpheus">
               <div class="message-avatar">🤖</div>
               <div>
-                <div class="message">Hello! I'm Morpheus. Ready to help you compile and verify your project state. Type a message or use voice.</div>
+                <div class="message">Hello. Connect the backend, set a project root, then run compile or verify from the sidebar.</div>
                 <div class="message-time">just now</div>
               </div>
             </div>
@@ -635,7 +672,19 @@
           <h2>Settings</h2>
           <div class="card">
             <h4>Project Root</h4>
-            <p id="project-root">Select a project folder</p>
+            <div class="form-row">
+              <label for="project-root-input">Absolute path. Leave blank to use backend working directory.</label>
+              <input class="settings-input" id="project-root-input" type="text" placeholder="/path/to/project" />
+            </div>
+            <p id="project-root">Backend working directory</p>
+          </div>
+          <div class="card">
+            <h4>Backend API</h4>
+            <div class="form-row">
+              <label for="api-base-input">FastAPI base URL</label>
+              <input class="settings-input" id="api-base-input" type="text" />
+            </div>
+            <button id="save-settings-btn">Save Settings</button>
           </div>
           <div class="card">
             <h4>Integrations</h4>
@@ -650,7 +699,8 @@
     </div>
     
     <script>
-      // Elements
+      const DEFAULT_API_BASE = 'http://127.0.0.1:8000';
+
       const messagesEl = document.getElementById('messages');
       const inputEl = document.getElementById('message-input');
       const sendBtn = document.getElementById('send-btn');
@@ -662,46 +712,110 @@
       const mascotStatus = document.getElementById('mascot-status');
       const navItems = document.querySelectorAll('.nav-item[data-panel]');
       const panels = document.querySelectorAll('.panel');
-      
+      const backendStatusDot = document.getElementById('backend-status-dot');
+      const backendStatusText = document.getElementById('backend-status-text');
+      const projectRootInput = document.getElementById('project-root-input');
+      const apiBaseInput = document.getElementById('api-base-input');
+      const projectRootLabel = document.getElementById('project-root');
+      const wakeContent = document.getElementById('wake-content');
+
       let isRecording = false;
       let currentPanel = 'chat';
-      
-      // Navigation
-      navItems.forEach(item => {
+
+      apiBaseInput.value = localStorage.getItem('morpheus.apiBase') || DEFAULT_API_BASE;
+      projectRootInput.value = localStorage.getItem('morpheus.projectRoot') || '';
+      syncProjectRootLabel();
+
+      navItems.forEach((item) => {
         item.addEventListener('click', () => {
           const panel = item.dataset.panel;
-          navItems.forEach(n => n.classList.remove('active'));
+          navItems.forEach((navItem) => navItem.classList.remove('active'));
           item.classList.add('active');
-          panels.forEach(p => p.classList.remove('active'));
+          panels.forEach((panelEl) => panelEl.classList.remove('active'));
           document.getElementById(`panel-${panel}`).classList.add('active');
           currentPanel = panel;
+
+          if (panel === 'status') {
+            refreshStatus();
+          }
+          if (panel === 'wake') {
+            refreshWake();
+          }
         });
       });
-      
-      // Time formatter
+
       function formatTime(date) {
         return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       }
-      
-      // Add message
+
+      function selectedProjectRoot() {
+        const value = projectRootInput.value.trim();
+        return value.length > 0 ? value : null;
+      }
+
+      function syncProjectRootLabel() {
+        projectRootLabel.textContent = selectedProjectRoot() || 'Backend working directory';
+      }
+
+      function apiBase() {
+        return apiBaseInput.value.trim().replace(/\/+$/, '') || DEFAULT_API_BASE;
+      }
+
+      function endpoint(path, params = {}) {
+        const url = new URL(`${apiBase()}${path}`);
+        Object.entries(params).forEach(([key, value]) => {
+          if (value !== null && value !== undefined && String(value).trim() !== '') {
+            url.searchParams.set(key, value);
+          }
+        });
+        return url;
+      }
+
+      async function apiRequest(path, { method = 'GET', body = null, params = {} } = {}) {
+        const response = await fetch(endpoint(path, params), {
+          method,
+          headers: body ? { 'Content-Type': 'application/json' } : {},
+          body: body ? JSON.stringify(body) : null,
+        });
+        const text = await response.text();
+        let payload = null;
+        try {
+          payload = text ? JSON.parse(text) : null;
+        } catch (error) {
+          payload = { detail: text || error.message };
+        }
+        if (!response.ok) {
+          const message = payload && payload.detail ? payload.detail : `HTTP ${response.status}`;
+          throw new Error(message);
+        }
+        return payload;
+      }
+
+      function setBackendStatus(state, text) {
+        backendStatusText.textContent = text;
+        backendStatusDot.style.background =
+          state === 'online' ? 'var(--success)' :
+          state === 'error' ? 'var(--error)' :
+          'var(--warning)';
+      }
+
       function addMessage(text, type = 'morpheus') {
         const wrapper = document.createElement('div');
         wrapper.className = `message-wrapper ${type}`;
-        
+
         const avatar = document.createElement('div');
         avatar.className = `message-avatar ${type}`;
         avatar.textContent = type === 'user' ? '👤' : '🤖';
-        
+
         const content = document.createElement('div');
-        
         const msg = document.createElement('div');
         msg.className = 'message';
         msg.textContent = text;
-        
+
         const time = document.createElement('div');
         time.className = 'message-time';
         time.textContent = formatTime(new Date());
-        
+
         content.appendChild(msg);
         content.appendChild(time);
         wrapper.appendChild(avatar);
@@ -709,20 +823,13 @@
         messagesEl.appendChild(wrapper);
         messagesEl.scrollTop = messagesEl.scrollHeight;
       }
-      
-      // Show typing
+
       function showTyping(show = true) {
         typingIndicator.classList.toggle('visible', show);
-        if (show) {
-          mascot.classList.add('thinking');
-          mascotStatus.classList.add('thinking');
-        } else {
-          mascot.classList.remove('thinking');
-          mascotStatus.classList.remove('thinking');
-        }
+        mascot.classList.toggle('thinking', show);
+        mascotStatus.classList.toggle('thinking', show);
       }
-      
-      // Mascot speak animation
+
       function mascotSpeak() {
         mascot.classList.remove('thinking');
         mascot.classList.add('speaking');
@@ -731,80 +838,169 @@
         setTimeout(() => {
           mascot.classList.remove('speaking');
           mascotStatus.classList.remove('speaking');
-        }, 2000);
+        }, 1600);
       }
-      
-      // Send message
+
+      async function refreshStatus({ silent = false } = {}) {
+        try {
+          const status = await apiRequest('/status', {
+            params: { project_root: selectedProjectRoot() },
+          });
+          setBackendStatus('online', 'Backend online');
+
+          if (!status.initialized) {
+            document.getElementById('stat-sources').textContent = '0';
+            document.getElementById('stat-claims').textContent = '0';
+            document.getElementById('stat-evidence').textContent = '0';
+            document.getElementById('last-compile').textContent = 'Not initialized';
+            document.getElementById('receipt-chain').textContent = 'No receipts';
+            if (!silent) {
+              addMessage('Project is not initialized. Run morpheus init in that project first.');
+            }
+            return status;
+          }
+
+          document.getElementById('stat-sources').textContent = String(status.sources || 0);
+          document.getElementById('stat-claims').textContent = String(status.claims || 0);
+          document.getElementById('stat-evidence').textContent = String(status.evidence || 0);
+          document.getElementById('last-compile').textContent = status.compiled_at || 'Unknown';
+          document.getElementById('receipt-chain').textContent = 'Available';
+          return status;
+        } catch (error) {
+          setBackendStatus('error', 'Backend offline');
+          if (!silent) {
+            addMessage(`Backend status failed: ${error.message}`);
+          }
+          throw error;
+        }
+      }
+
+      async function refreshWake({ silent = false } = {}) {
+        try {
+          const payload = await apiRequest('/wake', {
+            params: { project_root: selectedProjectRoot() },
+          });
+          wakeContent.textContent = payload.wake_md || '';
+          setBackendStatus('online', 'Backend online');
+          return payload;
+        } catch (error) {
+          wakeContent.textContent = `WAKE.md unavailable: ${error.message}`;
+          if (!silent) {
+            addMessage(`WAKE.md unavailable: ${error.message}`);
+          }
+          throw error;
+        }
+      }
+
+      async function runCompile() {
+        addMessage('Running morpheus compile...');
+        showTyping(true);
+        try {
+          const projectRoot = selectedProjectRoot();
+          const payload = await apiRequest('/compile', {
+            method: 'POST',
+            body: { project_root: projectRoot },
+          });
+          await refreshStatus({ silent: true });
+          await refreshWake({ silent: true });
+          addMessage(
+            `Compilation complete. ${payload.source_count} sources processed. Receipt: ${payload.receipt_id}`
+          );
+          mascotSpeak();
+        } catch (error) {
+          setBackendStatus('error', 'Backend error');
+          addMessage(`Compile failed: ${error.message}`);
+        } finally {
+          showTyping(false);
+        }
+      }
+
+      async function runVerify() {
+        addMessage('Running morpheus verify --all...');
+        showTyping(true);
+        try {
+          const payload = await apiRequest('/verify', {
+            method: 'POST',
+            params: { project_root: selectedProjectRoot() },
+          });
+          const details = payload.errors && payload.errors.length
+            ? ` Errors: ${payload.errors.join('; ')}`
+            : '';
+          addMessage(
+            `${payload.valid ? 'Receipt chain verified.' : 'Receipt chain invalid.'} Receipt: ${payload.receipt_id}.${details}`
+          );
+          await refreshStatus({ silent: true });
+          mascotSpeak();
+        } catch (error) {
+          setBackendStatus('error', 'Backend error');
+          addMessage(`Verify failed: ${error.message}`);
+        } finally {
+          showTyping(false);
+        }
+      }
+
       function sendMessage() {
         const text = inputEl.value.trim();
         if (!text) return;
-        
+
         addMessage(text, 'user');
         inputEl.value = '';
-        showTyping(true);
-        
-        // Simulate response (replace with Tauri command)
-        setTimeout(() => {
-          showTyping(false);
-          const responses = [
-            "I'm processing that. The current project state shows no active compilation.",
-            "Got it. Run 'morpheus compile' to update the project state.",
-            "I understand. Your project context has been noted.",
-            "Working on it. The provenance chain is being verified..."
-          ];
-          const response = responses[Math.floor(Math.random() * responses.length)];
-          addMessage(response, 'morpheus');
-          mascotSpeak();
-        }, 1500);
+
+        const lower = text.toLowerCase();
+        if (lower.includes('compile')) {
+          runCompile();
+          return;
+        }
+        if (lower.includes('verify')) {
+          runVerify();
+          return;
+        }
+        if (lower.includes('status')) {
+          refreshStatus();
+          return;
+        }
+        if (lower.includes('wake')) {
+          refreshWake();
+          return;
+        }
+
+        addMessage('I can run compile, verify, status, or load WAKE.md from the connected backend.');
+        mascotSpeak();
       }
-      
+
       sendBtn.addEventListener('click', sendMessage);
-      inputEl.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') sendMessage();
+      inputEl.addEventListener('keypress', (event) => {
+        if (event.key === 'Enter') sendMessage();
       });
-      
-      // Voice recording toggle
+
       voiceBtn.addEventListener('click', () => {
         isRecording = !isRecording;
         voiceBtn.classList.toggle('recording', isRecording);
         voiceIndicator.classList.toggle('active', isRecording);
-        
+
         if (isRecording) {
           voiceStatusText.textContent = 'Listening...';
-          // In real implementation, start Whisper here
         } else {
-          voiceStatusText.textContent = 'Processing...';
-          // In real implementation, stop Whisper and transcribe
+          voiceStatusText.textContent = 'Voice capture is not wired yet';
           setTimeout(() => {
             voiceIndicator.classList.remove('active');
             voiceStatusText.textContent = 'Listening...';
-          }, 1000);
+          }, 1400);
         }
       });
-      
-      // Compile button
-      document.getElementById('compile-btn').addEventListener('click', () => {
-        addMessage('Running morpheus compile...', 'morpheus');
-        showTyping(true);
-        setTimeout(() => {
-          showTyping(false);
-          addMessage('Compilation complete. 5 sources, 12 claims extracted. Receipt generated.', 'morpheus');
-          document.getElementById('stat-sources').textContent = '5';
-          document.getElementById('stat-claims').textContent = '12';
-          document.getElementById('last-compile').textContent = formatTime(new Date());
-          mascotSpeak();
-        }, 2000);
+
+      document.getElementById('compile-btn').addEventListener('click', runCompile);
+      document.getElementById('verify-btn').addEventListener('click', runVerify);
+      document.getElementById('save-settings-btn').addEventListener('click', () => {
+        localStorage.setItem('morpheus.apiBase', apiBase());
+        localStorage.setItem('morpheus.projectRoot', projectRootInput.value.trim());
+        syncProjectRootLabel();
+        addMessage('Settings saved. Refreshing backend status...');
+        refreshStatus();
       });
-      
-      // Verify button
-      document.getElementById('verify-btn').addEventListener('click', () => {
-        addMessage('Running morpheus verify...', 'morpheus');
-        showTyping(true);
-        setTimeout(() => {
-          showTyping(false);
-          addMessage('✅ Receipt chain verified. All signatures valid.', 'morpheus');
-          mascotSpeak();
-        }, 1500);
+
+      refreshStatus({ silent: true }).catch(() => {
+        setBackendStatus('error', 'Backend offline');
       });
     </script>
   </body>

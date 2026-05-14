@@ -95,6 +95,30 @@ def _has_symlink_component(path: Path) -> bool:
 def health():
     return {"status": "ok", "version": "0.1.0"}
 
+
+@app.get("/wake")
+def get_project_wake(project_root: Optional[str] = None):
+    """Get WAKE.md for an explicit project root."""
+    root = Path(project_root) if project_root else Path.cwd()
+    morpheus_dir = root / ".morpheus"
+
+    if not _is_real_directory(root) or not _is_real_directory(morpheus_dir):
+        raise HTTPException(status_code=400, detail="Not initialized")
+
+    wake_path = morpheus_dir / "WAKE.md"
+    try:
+        reject_symlink_paths([wake_path], "WAKE.md")
+        reject_symlink_components(wake_path, "WAKE.md")
+        if not wake_path.exists():
+            raise HTTPException(status_code=404, detail="WAKE.md not found")
+        wake_md = wake_path.read_text()
+    except HTTPException:
+        raise
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"WAKE.md unreadable: {exc}") from exc
+
+    return {"project_root": str(root), "wake_md": wake_md}
+
 @app.post("/compile", response_model=CompileResponse)
 def compile(request: CompileRequest):
     """Compile project state"""
