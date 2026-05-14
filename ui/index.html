@@ -700,7 +700,11 @@
     </div>
     
     <script>
-      const DEFAULT_API_BASE = 'http://127.0.0.1:8000';
+      const DEFAULT_API_BASE = (() => {
+        const hostname = window.location.hostname || '127.0.0.1';
+        const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+        return `${protocol}//${hostname}:8000`;
+      })();
 
       const messagesEl = document.getElementById('messages');
       const inputEl = document.getElementById('message-input');
