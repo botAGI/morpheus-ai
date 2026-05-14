@@ -91,6 +91,9 @@ def compile(request: CompileRequest):
     project_root = Path(request.project_root) if request.project_root else Path.cwd()
     morpheus_dir = project_root / ".morpheus"
     
+    if not _is_real_directory(project_root):
+        raise HTTPException(status_code=400, detail="Not initialized. Run 'morpheus init'")
+
     if not _is_real_directory(morpheus_dir):
         raise HTTPException(status_code=400, detail="Not initialized. Run 'morpheus init'")
     
@@ -229,6 +232,9 @@ def verify(
     root = Path(root_value) if root_value else Path.cwd()
     morpheus_dir = root / ".morpheus"
     
+    if not _is_real_directory(root):
+        raise HTTPException(status_code=400, detail="Not initialized")
+
     if not _is_real_directory(morpheus_dir):
         raise HTTPException(status_code=400, detail="Not initialized")
     
@@ -257,6 +263,9 @@ def status(project_root: Optional[str] = None):
     root = Path(project_root) if project_root else Path.cwd()
     morpheus_dir = root / ".morpheus"
     
+    if not _is_real_directory(root):
+        return {"initialized": False}
+
     if morpheus_dir.exists() and not _is_real_directory(morpheus_dir):
         return {"initialized": False}
 
