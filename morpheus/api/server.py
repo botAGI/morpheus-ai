@@ -45,6 +45,9 @@ class CompileRequest(BaseModel):
 class InitRequest(BaseModel):
     project_root: Optional[str] = None
 
+class AgentBootstrapRequest(BaseModel):
+    project_root: Optional[str] = None
+
 class VerifyRequest(BaseModel):
     project_root: Optional[str] = None
 
@@ -63,6 +66,18 @@ class InitResponse(BaseModel):
     initialized: bool
     project_root: str
     created: bool
+
+class AgentBootstrapResponse(BaseModel):
+    project_root: str
+    path: str
+    created: bool
+    updated: bool
+    content: str
+    agent_connect_url: str
+
+
+MORPHEUS_AGENT_BEGIN = "<!-- MORPHEUS:BEGIN -->"
+MORPHEUS_AGENT_END = "<!-- MORPHEUS:END -->"
 
 
 def latest_receipt_or_http_error(receipts_dir: Path) -> Path | None:
@@ -257,6 +272,148 @@ def agent_connect_payload(request: Request, project_root: Path) -> dict:
     }
 
 
+def diagnostic_check(check_id: str, label: str, ok: bool, detail: str) -> dict:
+    return {
+        "id": check_id,
+        "label": label,
+        "ok": ok,
+        "detail": detail,
+    }
+
+
+def diagnostics_payload(request: Request, project_root: Path) -> dict:
+    api_base = api_base_url(request)
+    status_payload = normalize_agent_state(project_status_payload(project_root))
+    morpheus_dir = project_root / ".morpheus"
+    wake_path = morpheus_dir / "WAKE.md"
+    project_root_ok = _is_real_directory(project_root)
+    wake_ok = bool(
+        status_payload["compiled"]
+        and wake_path.exists()
+        and wake_path.is_file()
+        and not wake_path.is_symlink()
+    )
+
+    checks = [
+        diagnostic_check("backend", "Backend API", True, api_base),
+        diagnostic_check(
+            "project_root",
+            "Project root",
+            project_root_ok,
+            str(project_root) if project_root_ok else "Path is missing or unsafe",
+        ),
+        diagnostic_check(
+            "initialized",
+            "Morpheus initialized",
+            status_payload["initialized"],
+            ".morpheus is ready" if status_payload["initialized"] else "Run Initialize",
+        ),
+        diagnostic_check(
+            "compiled",
+            "WAKE compiled",
+            status_payload["compiled"],
+            "WAKE.md is current" if status_payload["compiled"] else "Run Compile",
+        ),
+        diagnostic_check(
+            "wake",
+            "WAKE readable",
+            wake_ok,
+            str(wake_path) if wake_ok else "WAKE.md not available yet",
+        ),
+    ]
+
+    return {
+        "service": "morpheus",
+        "version": "0.1.0",
+        "api_base": api_base,
+        "project_root": str(project_root),
+        "cwd": str(Path.cwd()),
+        "state": status_payload,
+        "checks": checks,
+        "agent_connect_url": endpoint_url(api_base, "/agent/connect", project_root),
+        "commands": {
+            "serve": "morpheus serve --host 0.0.0.0 --port 8000",
+            "initialize": "morpheus init",
+            "compile": "morpheus compile",
+            "read_wake": "morpheus wake",
+            "verify": "morpheus verify --all",
+        },
+    }
+
+
+def morpheus_agent_section(request: Request, project_root: Path) -> str:
+    connect_url = endpoint_url(api_base_url(request), "/agent/connect", project_root)
+    return "\n".join([
+        MORPHEUS_AGENT_BEGIN,
+        "## Morpheus Bootstrap",
+        "",
+        "Fetch the Morpheus manifest before making changes:",
+        "",
+        f"- Connect manifest: `{connect_url}`",
+        "- Read `WAKE.md` before edits.",
+        "- Run compile and verify after meaningful changes.",
+        "- If the API is unavailable, start it with `morpheus serve --host 0.0.0.0 --port 8000`.",
+        "",
+        "Agent sequence:",
+        "",
+        "1. Fetch `/agent/connect` for this project root.",
+        "2. Initialize only when `state.initialized` is false.",
+        "3. Compile, then read WAKE.md.",
+        "4. Make the requested project change.",
+        "5. Compile again and run `morpheus verify --all`.",
+        MORPHEUS_AGENT_END,
+    ])
+
+
+def merge_morpheus_agent_section(existing: str, section: str) -> str:
+    start = existing.find(MORPHEUS_AGENT_BEGIN)
+    end = existing.find(MORPHEUS_AGENT_END, start)
+    if start != -1 and end != -1:
+        end += len(MORPHEUS_AGENT_END)
+        prefix = existing[:start].rstrip()
+        suffix = existing[end:].lstrip()
+        parts = [part for part in [prefix, section, suffix] if part]
+        return "\n\n".join(parts).rstrip() + "\n"
+
+    if existing.strip():
+        return existing.rstrip() + "\n\n" + section + "\n"
+    return "# AGENTS.md\n\n" + section + "\n"
+
+
+def write_agent_bootstrap(request: Request, project_root: Path) -> AgentBootstrapResponse:
+    if not _is_real_directory(project_root):
+        raise HTTPException(
+            status_code=400,
+            detail="Project root must be an existing real directory",
+        )
+
+    agents_path = project_root / "AGENTS.md"
+    try:
+        reject_symlink_paths([agents_path], "AGENTS.md")
+        if agents_path.exists() and not agents_path.is_file():
+            raise ValueError("AGENTS.md path is not a file")
+        created = not agents_path.exists()
+        existing = agents_path.read_text() if agents_path.exists() else ""
+        content = merge_morpheus_agent_section(
+            existing,
+            morpheus_agent_section(request, project_root),
+        )
+        updated = content != existing
+        if updated:
+            agents_path.write_text(content)
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return AgentBootstrapResponse(
+        project_root=str(project_root),
+        path=str(agents_path),
+        created=created,
+        updated=updated,
+        content=content,
+        agent_connect_url=endpoint_url(api_base_url(request), "/agent/connect", project_root),
+    )
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "version": "0.1.0"}
@@ -283,6 +440,24 @@ def agent_connect(request: Request, project_root: Optional[str] = None):
     """Return a machine-readable connection manifest for autonomous agents."""
     root = Path(project_root) if project_root else Path.cwd()
     return agent_connect_payload(request, root)
+
+
+@app.get("/diagnostics")
+def diagnostics(request: Request, project_root: Optional[str] = None):
+    """Return backend and project readiness diagnostics for the UI."""
+    root = Path(project_root) if project_root else Path.cwd()
+    return diagnostics_payload(request, root)
+
+
+@app.post("/agent/bootstrap", response_model=AgentBootstrapResponse)
+def agent_bootstrap(request: Request, bootstrap_request: AgentBootstrapRequest):
+    """Create or refresh the Morpheus-managed AGENTS.md section."""
+    root = (
+        Path(bootstrap_request.project_root)
+        if bootstrap_request.project_root
+        else Path.cwd()
+    )
+    return write_agent_bootstrap(request, root)
 
 
 @app.post("/init", response_model=InitResponse)

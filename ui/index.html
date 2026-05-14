@@ -474,6 +474,10 @@
         outline: none;
       }
 
+      select.settings-input {
+        appearance: none;
+      }
+
       .settings-input:focus {
         border-color: var(--accent);
       }
@@ -759,11 +763,18 @@
                 <label for="start-project-root-input">Project root</label>
                 <input class="settings-input" id="start-project-root-input" type="text" placeholder="/path/to/project" />
               </div>
+              <div class="form-row">
+                <label for="recent-projects-select">Recent projects</label>
+                <select class="settings-input" id="recent-projects-select">
+                  <option value="">No recent projects yet</option>
+                </select>
+              </div>
               <p id="start-project-root">Backend working directory</p>
               <div class="button-row">
                 <button id="start-init-btn">Initialize</button>
                 <button id="start-compile-btn" class="secondary-button">Compile</button>
                 <button id="start-verify-btn" class="secondary-button">Verify</button>
+                <button id="refresh-diagnostics-btn" class="secondary-button">Diagnostics</button>
               </div>
             </div>
 
@@ -815,6 +826,7 @@
               <div class="button-row">
                 <button id="copy-agent-url-btn">Copy URL</button>
                 <button id="refresh-agent-connect-btn" class="secondary-button">Refresh</button>
+                <button id="bootstrap-agent-btn" class="secondary-button">Bootstrap AGENTS.md</button>
               </div>
             </div>
 
@@ -823,6 +835,15 @@
               <pre class="code-box" id="agent-prompt"></pre>
               <div class="button-row" style="margin-top: 12px;">
                 <button id="copy-agent-prompt-btn">Copy Agent Prompt</button>
+              </div>
+            </div>
+
+            <div class="card full-width">
+              <h4>Diagnostics</h4>
+              <p class="muted-line" id="diagnostics-summary">Run diagnostics to inspect backend, project, WAKE, and receipt readiness.</p>
+              <pre class="code-box" id="diagnostics-output"></pre>
+              <div class="button-row" style="margin-top: 12px;">
+                <button id="copy-diagnostics-btn">Copy Diagnostics</button>
               </div>
             </div>
           </div>
@@ -941,6 +962,7 @@
       const backendStatusText = document.getElementById('backend-status-text');
       const projectRootInput = document.getElementById('project-root-input');
       const startProjectRootInput = document.getElementById('start-project-root-input');
+      const recentProjectsSelect = document.getElementById('recent-projects-select');
       const apiBaseInput = document.getElementById('api-base-input');
       const projectRootLabel = document.getElementById('project-root');
       const startProjectRootLabel = document.getElementById('start-project-root');
@@ -955,6 +977,11 @@
       const copyAgentUrlBtn = document.getElementById('copy-agent-url-btn');
       const copyAgentPromptBtn = document.getElementById('copy-agent-prompt-btn');
       const refreshAgentConnectBtn = document.getElementById('refresh-agent-connect-btn');
+      const bootstrapAgentBtn = document.getElementById('bootstrap-agent-btn');
+      const refreshDiagnosticsBtn = document.getElementById('refresh-diagnostics-btn');
+      const copyDiagnosticsBtn = document.getElementById('copy-diagnostics-btn');
+      const diagnosticsSummary = document.getElementById('diagnostics-summary');
+      const diagnosticsOutput = document.getElementById('diagnostics-output');
       const setupSteps = {
         backend: {
           state: document.getElementById('step-backend-state'),
@@ -985,6 +1012,7 @@
       });
       syncProjectRootLabel();
       updateAgentConnectPreview();
+      renderRecentProjects();
 
       navItems.forEach((item) => {
         item.addEventListener('click', () => {
@@ -1006,6 +1034,13 @@
 
       projectRootInputs.forEach((input) => {
         input.addEventListener('input', () => syncProjectRootInputs(input));
+      });
+      recentProjectsSelect.addEventListener('change', () => {
+        if (!recentProjectsSelect.value) return;
+        startProjectRootInput.value = recentProjectsSelect.value;
+        syncProjectRootInputs(startProjectRootInput);
+        refreshStatus().catch(() => {});
+        runDiagnostics({ silent: true }).catch(() => {});
       });
 
       function formatTime(date) {
@@ -1031,6 +1066,40 @@
         });
         syncProjectRootLabel();
         updateAgentConnectPreview();
+      }
+
+      function recentProjects() {
+        try {
+          const parsed = JSON.parse(localStorage.getItem('morpheus.recentProjects') || '[]');
+          return Array.isArray(parsed)
+            ? parsed.filter((value) => typeof value === 'string' && value.trim())
+            : [];
+        } catch (error) {
+          return [];
+        }
+      }
+
+      function renderRecentProjects() {
+        const roots = recentProjects();
+        recentProjectsSelect.innerHTML = '';
+        const emptyOption = document.createElement('option');
+        emptyOption.value = '';
+        emptyOption.textContent = roots.length ? 'Select a recent project' : 'No recent projects yet';
+        recentProjectsSelect.appendChild(emptyOption);
+        roots.forEach((root) => {
+          const option = document.createElement('option');
+          option.value = root;
+          option.textContent = root;
+          recentProjectsSelect.appendChild(option);
+        });
+      }
+
+      function rememberProjectRoot(root = selectedProjectRoot()) {
+        if (!root) return;
+        const roots = [root, ...recentProjects().filter((value) => value !== root)].slice(0, 8);
+        localStorage.setItem('morpheus.recentProjects', JSON.stringify(roots));
+        localStorage.setItem('morpheus.projectRoot', root);
+        renderRecentProjects();
       }
 
       function apiBase() {
@@ -1121,6 +1190,52 @@
           agentStateSummary.textContent = `Agent connect unavailable: ${error.message}`;
           if (!silent) addMessage(`Agent connect unavailable: ${error.message}`);
           throw error;
+        }
+      }
+
+      async function runDiagnostics({ silent = false } = {}) {
+        diagnosticsSummary.textContent = 'Running diagnostics...';
+        try {
+          const payload = await apiRequest('/diagnostics', {
+            params: { project_root: selectedProjectRoot() },
+          });
+          diagnosticsOutput.textContent = JSON.stringify(payload, null, 2);
+          const passed = (payload.checks || []).filter((check) => check.ok).length;
+          diagnosticsSummary.textContent = `${passed}/${(payload.checks || []).length} checks passing`;
+          updateProjectSteps(payload.state);
+          updateAgentConnectPreview({ agent_prompt: agentPrompt.textContent, state: payload.state });
+          rememberProjectRoot();
+          return payload;
+        } catch (error) {
+          diagnosticsSummary.textContent = `Diagnostics failed: ${error.message}`;
+          diagnosticsOutput.textContent = '';
+          if (!silent) addMessage(`Diagnostics failed: ${error.message}`);
+          throw error;
+        }
+      }
+
+      async function runAgentBootstrap() {
+        addMessage('Writing Morpheus bootstrap to AGENTS.md...');
+        bootstrapAgentBtn.disabled = true;
+        try {
+          const payload = await apiRequest('/agent/bootstrap', {
+            method: 'POST',
+            body: { project_root: selectedProjectRoot() },
+          });
+          rememberProjectRoot(payload.project_root);
+          await runDiagnostics({ silent: true });
+          const action = payload.created
+            ? 'Created AGENTS.md'
+            : payload.updated
+              ? 'Updated AGENTS.md'
+              : 'AGENTS.md already current';
+          addMessage(`${action}: ${payload.path}`);
+          mascotSpeak();
+        } catch (error) {
+          setBackendStatus('error', 'Backend error');
+          addMessage(`Bootstrap failed: ${error.message}`);
+        } finally {
+          bootstrapAgentBtn.disabled = false;
         }
       }
 
@@ -1277,6 +1392,7 @@
             method: 'POST',
             body: { project_root: projectRoot },
           });
+          if (projectRoot) rememberProjectRoot(projectRoot);
           await refreshStatus({ silent: true });
           await refreshWake({ silent: true });
           addMessage(
@@ -1303,7 +1419,9 @@
             body: { project_root: selectedProjectRoot() },
           });
           syncProjectRootLabel();
+          rememberProjectRoot(payload.project_root);
           await refreshStatus({ silent: true });
+          await runDiagnostics({ silent: true });
           const action = payload.created ? 'initialized' : 'already initialized';
           addMessage(`Project ${action}: ${payload.project_root}`);
           mascotSpeak();
@@ -1338,6 +1456,7 @@
             setStep('verify', 'error', 'Invalid', payload.errors.join('; ') || 'Receipt invalid');
           }
           await refreshStatus({ silent: true });
+          await runDiagnostics({ silent: true });
           mascotSpeak();
         } catch (error) {
           setBackendStatus('error', 'Backend error');
@@ -1415,6 +1534,13 @@
       refreshAgentConnectBtn.addEventListener('click', () => {
         refreshAgentConnect({ silent: false });
       });
+      bootstrapAgentBtn.addEventListener('click', runAgentBootstrap);
+      refreshDiagnosticsBtn.addEventListener('click', () => {
+        runDiagnostics({ silent: false });
+      });
+      copyDiagnosticsBtn.addEventListener('click', () => {
+        copyText(diagnosticsOutput.textContent || diagnosticsSummary.textContent, 'Diagnostics');
+      });
       document.getElementById('compile-btn').addEventListener('click', runCompile);
       document.getElementById('verify-btn').addEventListener('click', runVerify);
       document.getElementById('save-settings-btn').addEventListener('click', () => {
@@ -1429,6 +1555,7 @@
       refreshStatus({ silent: true }).catch(() => {
         setBackendStatus('error', 'Backend offline');
       });
+      runDiagnostics({ silent: true }).catch(() => {});
     </script>
   </body>
 </html>
