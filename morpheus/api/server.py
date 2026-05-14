@@ -19,7 +19,7 @@ from morpheus.core.provenance import (
     new_receipt_id,
     receipt_file_name,
 )
-from morpheus.core.safe_io import reject_symlink_paths
+from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
 
 app = FastAPI(
     title="Morpheus API",
@@ -78,7 +78,13 @@ def _list_count(value) -> int:
 
 
 def _is_real_directory(path: Path) -> bool:
-    return path.is_dir() and not path.is_symlink()
+    if not path.is_dir() or path.is_symlink():
+        return False
+    try:
+        reject_symlink_components(path, "Directory path")
+    except ValueError:
+        return False
+    return True
 
 
 def _has_symlink_component(path: Path) -> bool:

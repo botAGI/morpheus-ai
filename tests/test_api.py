@@ -601,6 +601,34 @@ def test_status_treats_symlinked_project_root_as_uninitialized(tmp_path):
     assert response.json() == {"initialized": False}
 
 
+def test_status_treats_symlinked_project_root_parent_as_uninitialized(tmp_path):
+    outside_parent = tmp_path / "outside-parent"
+    target = outside_parent / "target"
+    morpheus_dir = target / ".morpheus"
+    morpheus_dir.mkdir(parents=True)
+    (morpheus_dir / "state.json").write_text(
+        json.dumps(
+            {
+                "sources": [],
+                "claims": [],
+                "evidence": [],
+                "compiled_at": "2026-05-13T00:00:00Z",
+            }
+        )
+    )
+    linked_parent = tmp_path / "linked-parent"
+    try:
+        linked_parent.symlink_to(outside_parent, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.get("/status", params={"project_root": str(linked_parent / "target")})
+
+    assert response.status_code == 200
+    assert response.json() == {"initialized": False}
+
+
 def test_status_counts_only_list_state_collections(tmp_path):
     morpheus_dir = tmp_path / ".morpheus"
     morpheus_dir.mkdir()
