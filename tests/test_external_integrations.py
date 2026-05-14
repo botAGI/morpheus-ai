@@ -117,6 +117,21 @@ def test_github_authenticate_rejects_token_symlink(tmp_path):
     assert integration._get_token() is None
 
 
+def test_github_authenticate_rejects_token_parent_symlink(tmp_path):
+    external_token_dir = tmp_path / "external-token-dir"
+    external_token_dir.mkdir()
+    (external_token_dir / "github_token.txt").write_text("secret")
+    linked_token_dir = tmp_path / "linked-token-dir"
+    try:
+        linked_token_dir.symlink_to(external_token_dir, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+    integration = GitHubIntegration(token_path=linked_token_dir / "github_token.txt")
+
+    assert not integration.authenticate()
+    assert integration._get_token() is None
+
+
 def test_gmail_cache_loads_timezone_dates_and_skips_invalid_rows(tmp_path):
     now = datetime.now(timezone.utc)
     cache_path = tmp_path / "gmail_cache.json"
@@ -247,6 +262,24 @@ def test_gmail_authenticate_rejects_token_symlink(tmp_path):
         assert "Gmail not authenticated" in str(exc)
     else:
         raise AssertionError("authenticate should reject token symlinks")
+
+
+def test_gmail_authenticate_rejects_token_parent_symlink(tmp_path):
+    external_token_dir = tmp_path / "external-token-dir"
+    external_token_dir.mkdir()
+    (external_token_dir / "gmail_token.json").write_text("{}")
+    linked_token_dir = tmp_path / "linked-token-dir"
+    try:
+        linked_token_dir.symlink_to(external_token_dir, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+
+    try:
+        GmailIntegration(token_path=linked_token_dir / "gmail_token.json").authenticate()
+    except RuntimeError as exc:
+        assert "Gmail not authenticated" in str(exc)
+    else:
+        raise AssertionError("authenticate should reject token parent symlinks")
 
 
 def test_gmail_cache_rejects_symlinked_cache(tmp_path):
@@ -443,6 +476,24 @@ def test_calendar_authenticate_rejects_token_symlink(tmp_path):
         assert "Calendar not authenticated" in str(exc)
     else:
         raise AssertionError("authenticate should reject token symlinks")
+
+
+def test_calendar_authenticate_rejects_token_parent_symlink(tmp_path):
+    external_token_dir = tmp_path / "external-token-dir"
+    external_token_dir.mkdir()
+    (external_token_dir / "calendar_token.json").write_text("{}")
+    linked_token_dir = tmp_path / "linked-token-dir"
+    try:
+        linked_token_dir.symlink_to(external_token_dir, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+
+    try:
+        CalendarIntegration(token_path=linked_token_dir / "calendar_token.json").authenticate()
+    except RuntimeError as exc:
+        assert "Calendar not authenticated" in str(exc)
+    else:
+        raise AssertionError("authenticate should reject token parent symlinks")
 
 
 def test_calendar_cache_rejects_symlinked_cache(tmp_path):
