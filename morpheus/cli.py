@@ -543,6 +543,32 @@ def handoff_command(
     console.out(payload["markdown"])
 
 
+@app.command("prepare-agent")
+def prepare_agent_command(
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON"),
+    api_base: str = typer.Option(
+        "http://127.0.0.1:8000",
+        "--api-base",
+        help="API base URL to embed in HTTP agent links",
+    ),
+):
+    """Initialize, compile, bootstrap AGENTS.md, verify, and print handoff."""
+    from fastapi import HTTPException
+    from morpheus.api.server import agent_prepare_payload
+
+    try:
+        payload = agent_prepare_payload(request_context(api_base), Path.cwd())
+    except HTTPException as exc:
+        console.print(f"[red]Prepare failed:[/red] {exc.detail}")
+        raise typer.Exit(1) from exc
+
+    if json_output:
+        console.out(json.dumps(payload, indent=2))
+        return
+
+    console.out(payload["handoff"]["markdown"])
+
+
 @app.command("bootstrap-agent")
 def bootstrap_agent(
     api_base: str = typer.Option(

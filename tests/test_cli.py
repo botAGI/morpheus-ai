@@ -331,6 +331,53 @@ def test_handoff_markdown_output_is_copyable_for_agents(tmp_path):
         assert "morpheus bootstrap-agent --dry-run" in result.output
 
 
+def test_prepare_agent_json_initializes_compiles_bootstraps_and_verifies(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        Path("README.md").write_text("TODO: prepare CLI flow\n")
+
+        result = runner.invoke(
+            app,
+            [
+                "prepare-agent",
+                "--json",
+                "--api-base",
+                "http://morpheus.local:8000",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert [step["id"] for step in payload["steps"]] == [
+            "initialize",
+            "compile",
+            "bootstrap_agent",
+            "verify",
+            "handoff",
+        ]
+        assert all(step["ok"] for step in payload["steps"])
+        assert payload["verified"]["valid"] is True
+        assert "TODO: prepare CLI flow" in payload["handoff"]["wake_md"]
+        assert Path(".morpheus/WAKE.md").exists()
+        assert "morpheus handoff" in Path("AGENTS.md").read_text()
+
+
+def test_prepare_agent_human_output_prints_handoff_markdown(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        Path("README.md").write_text("TODO: prepare human output\n")
+
+        result = runner.invoke(app, ["prepare-agent"])
+
+        assert result.exit_code == 0, result.output
+        assert "# Morpheus Agent Handoff" in result.output
+        assert "TODO: prepare human output" in result.output
+        assert Path(".morpheus/WAKE.md").exists()
+        assert Path("AGENTS.md").exists()
+
+
 def test_bootstrap_agent_creates_agents_md_from_cli(tmp_path):
     runner = CliRunner()
 
@@ -348,6 +395,7 @@ def test_bootstrap_agent_creates_agents_md_from_cli(tmp_path):
         assert "<!-- MORPHEUS:BEGIN -->" in content
         assert "Fetch the Morpheus manifest before making changes" in content
         assert "morpheus handoff" in content
+        assert "morpheus prepare-agent" in content
         assert "morpheus agent-connect --json" in content
         assert "http://morpheus.local:8000/agent/connect" in content
 
@@ -369,6 +417,7 @@ def test_bootstrap_agent_dry_run_prints_preview_without_writing(tmp_path):
         assert result.exit_code == 0, result.output
         assert "<!-- MORPHEUS:BEGIN -->" in result.output
         assert "morpheus handoff" in result.output
+        assert "morpheus prepare-agent" in result.output
         assert "morpheus agent-connect --json" in result.output
         assert "http://morpheus.local:8000/agent/connect" in result.output
         assert not Path("AGENTS.md").exists()

@@ -188,10 +188,13 @@ def test_agent_handoff_returns_bundle_for_uninitialized_project(tmp_path):
     assert payload["diagnostics"]["project_root"] == str(tmp_path)
     assert payload["agent_bootstrap_preview"]["path"] == str(tmp_path / "AGENTS.md")
     assert "morpheus handoff" in payload["agent_bootstrap_preview"]["content"]
+    assert "morpheus prepare-agent" in payload["agent_bootstrap_preview"]["content"]
     assert "morpheus agent-connect --json" in payload["agent_bootstrap_preview"]["content"]
     assert payload["wake_md"] is None
     assert payload["commands"]["handoff"] == "morpheus handoff"
+    assert payload["commands"]["prepare_agent"] == "morpheus prepare-agent"
     assert "# Morpheus Agent Handoff" in payload["markdown"]
+    assert "morpheus prepare-agent" in payload["markdown"]
     assert "morpheus bootstrap-agent --dry-run" in payload["markdown"]
     assert not (tmp_path / "AGENTS.md").exists()
 
@@ -225,6 +228,52 @@ def test_agent_handoff_includes_wake_when_project_is_compiled(tmp_path):
     assert "## WAKE.md" in payload["markdown"]
 
 
+def test_agent_prepare_initializes_compiles_bootstraps_verifies_and_returns_handoff(tmp_path):
+    (tmp_path / "README.md").write_text("TODO: prepare one click handoff\n")
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post("/agent/prepare", json={"project_root": str(tmp_path)})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["service"] == "morpheus"
+    assert payload["project_root"] == str(tmp_path)
+    assert [step["id"] for step in payload["steps"]] == [
+        "initialize",
+        "compile",
+        "bootstrap_agent",
+        "verify",
+        "handoff",
+    ]
+    assert all(step["ok"] for step in payload["steps"])
+    assert payload["initialized"]["initialized"] is True
+    assert payload["compiled"]["source_count"] == 1
+    assert payload["verified"]["valid"] is True
+    assert "morpheus handoff" in payload["bootstrapped"]["content"]
+    assert "morpheus prepare-agent" in payload["bootstrapped"]["content"]
+    assert payload["handoff"]["wake_md"] is not None
+    assert "TODO: prepare one click handoff" in payload["handoff"]["wake_md"]
+    assert (tmp_path / ".morpheus" / "WAKE.md").exists()
+    assert (tmp_path / "AGENTS.md").exists()
+
+
+def test_agent_prepare_rejects_symlinked_agents_file_without_writing_target(tmp_path):
+    (tmp_path / "README.md").write_text("TODO: prepare rejects symlink\n")
+    outside = tmp_path / "outside.md"
+    outside.write_text("do not overwrite\n")
+    try:
+        (tmp_path / "AGENTS.md").symlink_to(outside)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post("/agent/prepare", json={"project_root": str(tmp_path)})
+
+    assert response.status_code == 400
+    assert "AGENTS.md must not be a symlink" in response.json()["detail"]
+    assert outside.read_text() == "do not overwrite\n"
+
+
 def test_diagnostics_agent_bootstrap_is_not_tied_to_request_host(tmp_path):
     agents_path = tmp_path / "AGENTS.md"
     agents_path.write_text(
@@ -233,6 +282,7 @@ def test_diagnostics_agent_bootstrap_is_not_tied_to_request_host(tmp_path):
         "## Morpheus Bootstrap\n\n"
         "Fetch the Morpheus manifest before making changes:\n\n"
         "- Connect manifest: `http://127.0.0.1:8000/agent/connect?project_root=x`\n"
+        "- One-command prepare: `morpheus prepare-agent`.\n"
         "- Local handoff bundle: `morpheus handoff`.\n"
         "- Local CLI manifest: `morpheus agent-connect --json`.\n"
         "- Local diagnostics: `morpheus diagnostics --json`.\n"
