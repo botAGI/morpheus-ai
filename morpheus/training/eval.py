@@ -43,6 +43,10 @@ def query_model(
     max_tokens: int = 500
 ) -> str:
     """Query the model with optional LoRA adapter."""
+    base_model = base_model.strip()
+    if not base_model:
+        return "Error: base_model must not be blank"
+
     # Ollama command
     cmd = ["ollama", "run", base_model, prompt]
     

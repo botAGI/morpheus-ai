@@ -163,6 +163,17 @@ def test_query_model_reports_timeout(monkeypatch):
     assert result == "Error: model query timed out after 60s"
 
 
+def test_query_model_rejects_blank_base_model_without_subprocess(monkeypatch):
+    def fail_run(*args, **kwargs):
+        raise AssertionError("blank base_model should not invoke ollama")
+
+    monkeypatch.setattr(eval_module.subprocess, "run", fail_run)
+
+    result = eval_module.query_model("prompt", base_model="   ")
+
+    assert result == "Error: base_model must not be blank"
+
+
 def test_query_model_uses_ollama_run(monkeypatch):
     calls = []
 
