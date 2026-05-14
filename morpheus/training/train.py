@@ -178,6 +178,10 @@ def train(
         console.print("[yellow]Run 'morpheus consolidate' first[/yellow]")
         raise typer.Exit(1)
 
+    if output_dir.is_symlink():
+        console.print(f"[red]Output directory must not be a symlink: {output_dir}[/red]")
+        raise typer.Exit(1)
+
     if not dry_run:
         ok, missing = check_dependencies()
         if not ok:

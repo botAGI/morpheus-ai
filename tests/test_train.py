@@ -161,6 +161,32 @@ def test_train_rejects_symlinked_dataset(monkeypatch, tmp_path):
     assert not (tmp_path / "morpheus_train.sh").exists()
 
 
+def test_train_rejects_symlinked_output_dir(monkeypatch, tmp_path):
+    dataset = tmp_path / "dataset.jsonl"
+    dataset.write_text('{"instruction":"Q","output":"A"}\n')
+    external_adapter_dir = tmp_path / "external-adapter"
+    external_adapter_dir.mkdir()
+    output_dir = tmp_path / "adapter"
+    try:
+        output_dir.symlink_to(external_adapter_dir, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(click.exceptions.Exit):
+        train_module.train(
+            base_model="qwen2.5:7b",
+            dataset=dataset,
+            output_dir=output_dir,
+            lora_rank=64,
+            lora_alpha=128,
+            epochs=3,
+            dry_run=True,
+        )
+
+    assert not (tmp_path / "morpheus_train.sh").exists()
+
+
 @pytest.mark.parametrize(
     ("option", "value"),
     [
