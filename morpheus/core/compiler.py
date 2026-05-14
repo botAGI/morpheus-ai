@@ -12,7 +12,7 @@ from morpheus.core.models import Source, Claim, Evidence, ProjectState
 from morpheus.core.safe_io import reject_symlink_paths
 
 
-EVIDENCE_MARKERS = ["TODO:", "DECISION:", "FIXME:", "NOTE:", "HACK:"]
+EVIDENCE_MARKERS = ["TODO:", "DECISION:", "FIXME:", "NOTE:", "HACK:", "XXX:"]
 DEFAULT_EXCLUDE_PATTERNS = {
     ".git",
     "node_modules",
@@ -64,6 +64,7 @@ MARKER_CATEGORIES = {
     "FIXME:": "fixme",
     "NOTE:": "note",
     "HACK:": "hack",
+    "XXX:": "xxx",
 }
 
 

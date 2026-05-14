@@ -295,6 +295,22 @@ NOTE: remember to document
             assert ev.claim_id in claim_ids
 
 
+def test_compile_project_extracts_xxx_markers_by_default():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        (tmppath / "notes.md").write_text("intro\nXXX: investigate edge case\n")
+
+        state = compile_project(tmppath)
+
+        assert [claim.excerpt for claim in state.claims] == [
+            "XXX: investigate edge case"
+        ]
+        assert state.claims[0].category == "xxx"
+        assert [evidence.excerpt for evidence in state.evidence] == [
+            "XXX: investigate edge case"
+        ]
+
+
 def test_compile_project_empty():
     with tempfile.TemporaryDirectory() as tmpdir:
         tmppath = Path(tmpdir)
@@ -310,6 +326,7 @@ def test_evidence_markers():
     assert "TODO:" in EVIDENCE_MARKERS
     assert "DECISION:" in EVIDENCE_MARKERS
     assert "FIXME:" in EVIDENCE_MARKERS
+    assert "XXX:" in EVIDENCE_MARKERS
 
 
 def test_compile_project_generates_stable_unique_claim_and_evidence_ids():
