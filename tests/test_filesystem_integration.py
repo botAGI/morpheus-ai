@@ -170,6 +170,23 @@ def test_scan_rejects_symlinked_root_without_writing_target(tmp_path):
     assert not (outside / ".morpheus" / "fs_cache.json").exists()
 
 
+def test_scan_rejects_symlinked_root_parent_without_writing_target(tmp_path):
+    outside_parent = tmp_path / "outside-parent"
+    watched_target = outside_parent / "watched"
+    watched_target.mkdir(parents=True)
+    (watched_target / "secret.txt").write_text("TODO: do not scan symlinked parents\n")
+    linked_parent = tmp_path / "linked-parent"
+    try:
+        linked_parent.symlink_to(outside_parent, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+
+    changes = FileSystemWatcher(linked_parent / "watched").scan()
+
+    assert changes == []
+    assert not (watched_target / ".morpheus" / "fs_cache.json").exists()
+
+
 def test_extract_claims_rejects_symlinked_root(tmp_path):
     outside = tmp_path / "outside"
     outside.mkdir()
@@ -181,6 +198,22 @@ def test_extract_claims_rejects_symlinked_root(tmp_path):
         pytest.skip(f"symlink creation unsupported: {exc}")
 
     claims = FileSystemWatcher(watched).extract_claims("secret.txt")
+
+    assert claims == []
+
+
+def test_extract_claims_rejects_symlinked_root_parent(tmp_path):
+    outside_parent = tmp_path / "outside-parent"
+    watched_target = outside_parent / "watched"
+    watched_target.mkdir(parents=True)
+    (watched_target / "secret.txt").write_text("TODO: do not read through parent\n")
+    linked_parent = tmp_path / "linked-parent"
+    try:
+        linked_parent.symlink_to(outside_parent, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+
+    claims = FileSystemWatcher(linked_parent / "watched").extract_claims("secret.txt")
 
     assert claims == []
 
