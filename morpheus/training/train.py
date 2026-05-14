@@ -103,6 +103,8 @@ def generate_training_script(config: dict, output_path: Path):
         eval_steps=quote(config.get("eval_steps", 500)),
     )
     
+    if output_path.parent.is_symlink():
+        raise ValueError(f"Training script directory must not be a symlink: {output_path.parent}")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     reject_symlink_paths([output_path], "Training script path")
     output_path.write_text(script_content)

@@ -75,6 +75,21 @@ def test_generate_training_script_creates_parent_directory(tmp_path):
     assert script_path.exists()
 
 
+def test_generate_training_script_rejects_symlinked_parent_directory(tmp_path):
+    external_dir = tmp_path / "external-scripts"
+    external_dir.mkdir()
+    scripts_dir = tmp_path / "scripts"
+    try:
+        scripts_dir.symlink_to(external_dir, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+
+    with pytest.raises(ValueError, match="Training script directory must not be a symlink"):
+        generate_training_script({}, scripts_dir / "morpheus_train.sh")
+
+    assert not (external_dir / "morpheus_train.sh").exists()
+
+
 def test_train_dry_run_generates_script_without_dependency_check(monkeypatch, tmp_path):
     dataset = tmp_path / "dataset.jsonl"
     dataset.write_text('{"instruction":"Q","output":"A"}\n')
