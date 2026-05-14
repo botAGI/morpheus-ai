@@ -21,6 +21,21 @@ def test_init_default_rejects_morpheus_symlink_without_writing_target(tmp_path):
     assert not (outside / "keys").exists()
 
 
+def test_init_default_rejects_symlinked_project_root_without_writing_target(tmp_path):
+    outside = tmp_path / "outside-project"
+    outside.mkdir()
+    project_root = tmp_path / "linked-project"
+    try:
+        project_root.symlink_to(outside, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+
+    with pytest.raises(ValueError, match="Project root must not be a symlink"):
+        MorpheusConfig(project_root=project_root).init_default()
+
+    assert not (outside / ".morpheus").exists()
+
+
 def test_init_default_rejects_morpheus_state_file(tmp_path):
     (tmp_path / ".morpheus").write_text("not a directory")
 
@@ -118,6 +133,21 @@ def test_load_rejects_morpheus_symlink(tmp_path):
 
     with pytest.raises(ValueError, match=".morpheus path must not be a symlink"):
         MorpheusConfig(project_root=tmp_path).load()
+
+
+def test_load_rejects_symlinked_project_root_without_reading_target(tmp_path):
+    outside = tmp_path / "outside-project"
+    outside_morpheus = outside / ".morpheus"
+    outside_morpheus.mkdir(parents=True)
+    (outside_morpheus / "morpheus.toml").write_text("watch_dirs = ['outside']\n")
+    project_root = tmp_path / "linked-project"
+    try:
+        project_root.symlink_to(outside, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+
+    with pytest.raises(ValueError, match="Project root must not be a symlink"):
+        MorpheusConfig(project_root=project_root).load()
 
 
 def test_load_rejects_morpheus_state_file(tmp_path):
