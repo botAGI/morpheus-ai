@@ -241,6 +241,13 @@ def parse_session_file(session_path: Path, stats: ConsolidationStats | None = No
     """
     messages = []
 
+    try:
+        reject_symlink_components(session_path, "Session file path")
+    except ValueError:
+        if stats:
+            stats.files_unreadable += 1
+        return messages
+
     if session_path.is_symlink():
         if stats:
             stats.files_unreadable += 1
@@ -453,6 +460,11 @@ def consolidate_sessions(
     if sessions_dir.is_symlink():
         console.print(f"[red]Sessions path must not be a symlink: {sessions_dir}[/red]")
         raise typer.Exit(1)
+    try:
+        reject_symlink_components(sessions_dir, "Sessions path")
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
     if not sessions_dir.is_dir():
         console.print(f"[red]Sessions path is not a directory: {sessions_dir}[/red]")
         raise typer.Exit(1)
