@@ -23,6 +23,7 @@ morpheus verify --all
 morpheus status
 
 # Inspect readiness and generate agent instructions
+morpheus agent-connect --json
 morpheus diagnostics --json
 morpheus bootstrap-agent
 
@@ -80,6 +81,7 @@ CLI equivalents, curl commands, and a ready-to-copy agent prompt. A new agent sh
 Agents running locally can use the CLI equivalent without starting the HTTP API:
 
 ```bash
+morpheus agent-connect --json
 morpheus diagnostics --json
 morpheus bootstrap-agent --api-base http://127.0.0.1:8000
 ```
@@ -94,6 +96,7 @@ morpheus bootstrap-agent --api-base http://127.0.0.1:8000
 | `morpheus verify --all` | Full chain + signature verification |
 | `morpheus status` | Show sources/claims/evidence counts |
 | `morpheus wake` | Print WAKE.md to stdout |
+| `morpheus agent-connect --json` | Print full self-connect manifest for agents |
 | `morpheus diagnostics --json` | Print readiness checks for agents/tools |
 | `morpheus bootstrap-agent` | Create/update Morpheus instructions in AGENTS.md |
 | `morpheus integrate --list` | Show available integrations |

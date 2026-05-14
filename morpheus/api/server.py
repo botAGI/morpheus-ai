@@ -243,6 +243,8 @@ def agent_connect_payload(request: Request, project_root: Path) -> dict:
         ],
         "endpoints": endpoints,
         "cli": {
+            "agent_connect": "morpheus agent-connect --json",
+            "diagnostics": "morpheus diagnostics --json",
             "initialize": "morpheus init",
             "compile": "morpheus compile",
             "read_wake": "morpheus wake",
@@ -333,6 +335,8 @@ def diagnostics_payload(request: Request, project_root: Path) -> dict:
         "checks": checks,
         "agent_connect_url": endpoint_url(api_base, "/agent/connect", project_root),
         "commands": {
+            "agent_connect": "morpheus agent-connect --json",
+            "diagnostics": "morpheus diagnostics --json",
             "serve": "morpheus serve --host 0.0.0.0 --port 8000",
             "initialize": "morpheus init",
             "compile": "morpheus compile",
@@ -352,6 +356,8 @@ def morpheus_agent_section(request: Request, project_root: Path) -> str:
         "Fetch the Morpheus manifest before making changes:",
         "",
         f"- Connect manifest: `{connect_url}`",
+        "- Local CLI manifest: `morpheus agent-connect --json`.",
+        "- Local diagnostics: `morpheus diagnostics --json`.",
         "- Read `WAKE.md` before edits.",
         "- Run compile and verify after meaningful changes.",
         "- If the API/UI are unavailable, start them with "

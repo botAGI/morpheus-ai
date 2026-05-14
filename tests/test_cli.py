@@ -252,6 +252,53 @@ def test_diagnostics_json_reports_current_project_without_server(tmp_path):
         assert checks["initialized"]["ok"] is False
 
 
+def test_agent_connect_json_reports_manifest_without_server(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        result = runner.invoke(
+            app,
+            [
+                "agent-connect",
+                "--json",
+                "--api-base",
+                "http://morpheus.local:8000",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["service"] == "morpheus"
+        assert payload["api_base"] == "http://morpheus.local:8000"
+        assert payload["project_root"] == str(Path.cwd())
+        assert payload["state"]["initialized"] is False
+        assert [step["id"] for step in payload["sequence"]] == [
+            "status",
+            "initialize_if_needed",
+            "compile",
+            "read_wake",
+            "verify",
+        ]
+        assert payload["cli"]["agent_connect"] == "morpheus agent-connect --json"
+        assert (
+            payload["cli"]["serve_ui"]
+            == "morpheus serve --ui --host 0.0.0.0 --port 8000 --ui-port 5173"
+        )
+        assert "http://morpheus.local:8000/agent/connect" in payload["agent_prompt"]
+
+
+def test_agent_connect_human_output_includes_next_action(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        result = runner.invoke(app, ["agent-connect"])
+
+        assert result.exit_code == 0, result.output
+        assert "Morpheus Agent Connect" in result.output
+        assert "Project:" in result.output
+        assert "morpheus agent-connect --json" in result.output
+
+
 def test_bootstrap_agent_creates_agents_md_from_cli(tmp_path):
     runner = CliRunner()
 
@@ -268,6 +315,7 @@ def test_bootstrap_agent_creates_agents_md_from_cli(tmp_path):
         content = agents_path.read_text()
         assert "<!-- MORPHEUS:BEGIN -->" in content
         assert "Fetch the Morpheus manifest before making changes" in content
+        assert "morpheus agent-connect --json" in content
         assert "http://morpheus.local:8000/agent/connect" in content
 
 

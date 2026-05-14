@@ -104,6 +104,7 @@ def test_agent_connect_guides_uninitialized_project(tmp_path):
     assert parse_qs(status_url.query) == {"project_root": [str(tmp_path)]}
     assert payload["sequence"][0]["id"] == "status"
     assert payload["sequence"][1]["id"] == "initialize_if_needed"
+    assert payload["cli"]["agent_connect"] == "morpheus agent-connect --json"
     assert (
         payload["cli"]["serve_ui"]
         == "morpheus serve --ui --host 0.0.0.0 --port 8000 --ui-port 5173"
@@ -149,6 +150,7 @@ def test_diagnostics_reports_project_setup_steps(tmp_path):
     assert checks["compiled"]["ok"] is False
     assert checks["wake"]["ok"] is False
     assert payload["agent_connect_url"].endswith("/agent/connect?project_root=" + str(tmp_path).replace("/", "%2F"))
+    assert payload["commands"]["agent_connect"] == "morpheus agent-connect --json"
     assert payload["commands"]["serve"] == "morpheus serve --host 0.0.0.0 --port 8000"
     assert (
         payload["commands"]["serve_ui"]
