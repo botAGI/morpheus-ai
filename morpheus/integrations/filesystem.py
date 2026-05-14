@@ -116,6 +116,7 @@ class FileSystemWatcher:
         try:
             self.cache_file.parent.mkdir(parents=True, exist_ok=True)
             reject_symlink_paths([self.cache_file], "Filesystem cache path")
+            reject_symlink_components(self.cache_file, "Filesystem cache path")
             self.cache_file.write_text(json.dumps(current_hashes, indent=2))
         except (OSError, ValueError):
             pass
@@ -166,6 +167,7 @@ class FileSystemWatcher:
 
         try:
             reject_symlink_paths([self.cache_file], "Filesystem cache path")
+            reject_symlink_components(self.cache_file, "Filesystem cache path")
             data = json.loads(self.cache_file.read_text())
         except (OSError, ValueError, json.JSONDecodeError):
             return {}
