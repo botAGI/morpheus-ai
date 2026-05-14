@@ -858,6 +858,16 @@
             </div>
 
             <div class="card full-width">
+              <h4>Agent Handoff</h4>
+              <p class="muted-line" id="agent-handoff-summary">Build a complete copyable bundle for another agent.</p>
+              <pre class="code-box tall" id="agent-handoff-output"></pre>
+              <div class="button-row" style="margin-top: 12px;">
+                <button id="build-agent-handoff-btn">Build Handoff</button>
+                <button id="copy-agent-handoff-btn" class="secondary-button">Copy Handoff</button>
+              </div>
+            </div>
+
+            <div class="card full-width">
               <h4>AGENTS.md Preview</h4>
               <p class="muted-line" id="agent-bootstrap-preview-summary">Preview not loaded</p>
               <pre class="code-box tall" id="agent-bootstrap-preview"></pre>
@@ -1009,6 +1019,10 @@
       const copyAgentPromptBtn = document.getElementById('copy-agent-prompt-btn');
       const refreshAgentConnectBtn = document.getElementById('refresh-agent-connect-btn');
       const bootstrapAgentBtn = document.getElementById('bootstrap-agent-btn');
+      const buildAgentHandoffBtn = document.getElementById('build-agent-handoff-btn');
+      const copyAgentHandoffBtn = document.getElementById('copy-agent-handoff-btn');
+      const agentHandoffSummary = document.getElementById('agent-handoff-summary');
+      const agentHandoffOutput = document.getElementById('agent-handoff-output');
       const previewAgentBootstrapBtn = document.getElementById('preview-agent-bootstrap-btn');
       const copyBootstrapPreviewBtn = document.getElementById('copy-bootstrap-preview-btn');
       const agentBootstrapPreviewSummary = document.getElementById('agent-bootstrap-preview-summary');
@@ -1306,6 +1320,29 @@
           throw error;
         } finally {
           previewAgentBootstrapBtn.disabled = false;
+        }
+      }
+
+      async function buildAgentHandoff({ silent = false } = {}) {
+        agentHandoffSummary.textContent = 'Building handoff...';
+        buildAgentHandoffBtn.disabled = true;
+        try {
+          const payload = await apiRequest('/agent/handoff', {
+            params: { project_root: selectedProjectRoot() },
+          });
+          agentHandoffOutput.textContent = payload.markdown || JSON.stringify(payload, null, 2);
+          agentHandoffSummary.textContent = `Handoff ready for ${payload.project_root}`;
+          updateAgentConnectPreview(payload.manifest);
+          diagnosticsOutput.textContent = JSON.stringify(payload.diagnostics, null, 2);
+          updateProjectSteps(payload.diagnostics.state, payload.diagnostics.checks || []);
+          return payload;
+        } catch (error) {
+          agentHandoffOutput.textContent = '';
+          agentHandoffSummary.textContent = `Handoff failed: ${error.message}`;
+          if (!silent) addMessage(`Agent handoff failed: ${error.message}`);
+          throw error;
+        } finally {
+          buildAgentHandoffBtn.disabled = false;
         }
       }
 
@@ -1635,6 +1672,12 @@
         refreshAgentConnect({ silent: false });
       });
       bootstrapAgentBtn.addEventListener('click', runAgentBootstrap);
+      buildAgentHandoffBtn.addEventListener('click', () => {
+        buildAgentHandoff({ silent: false });
+      });
+      copyAgentHandoffBtn.addEventListener('click', () => {
+        copyText(agentHandoffOutput.textContent || agentHandoffSummary.textContent, 'Agent handoff');
+      });
       previewAgentBootstrapBtn.addEventListener('click', () => {
         previewAgentBootstrap({ silent: false });
       });

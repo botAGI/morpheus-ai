@@ -77,6 +77,7 @@ def test_well_known_morpheus_manifest_exposes_agent_connect_url():
     assert payload["service"] == "morpheus"
     assert payload["version"] == "0.1.0"
     assert payload["connect_url"] == "http://testserver/agent/connect"
+    assert payload["handoff_url"] == "http://testserver/agent/handoff"
     assert payload["docs"]["human_quickstart"] == "README.md"
 
 
@@ -173,6 +174,43 @@ def test_diagnostics_reports_current_agent_bootstrap(tmp_path):
     assert checks["agent_bootstrap"]["detail"] == "AGENTS.md is current"
 
 
+def test_agent_handoff_returns_bundle_for_uninitialized_project(tmp_path):
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.get("/agent/handoff", params={"project_root": str(tmp_path)})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["service"] == "morpheus"
+    assert payload["project_root"] == str(tmp_path)
+    assert payload["manifest"]["service"] == "morpheus"
+    assert payload["diagnostics"]["project_root"] == str(tmp_path)
+    assert payload["agent_bootstrap_preview"]["path"] == str(tmp_path / "AGENTS.md")
+    assert "morpheus handoff" in payload["agent_bootstrap_preview"]["content"]
+    assert "morpheus agent-connect --json" in payload["agent_bootstrap_preview"]["content"]
+    assert payload["wake_md"] is None
+    assert payload["commands"]["handoff"] == "morpheus handoff"
+    assert "# Morpheus Agent Handoff" in payload["markdown"]
+    assert "morpheus bootstrap-agent --dry-run" in payload["markdown"]
+    assert not (tmp_path / "AGENTS.md").exists()
+
+
+def test_agent_handoff_includes_wake_when_project_is_compiled(tmp_path):
+    MorpheusConfig(project_root=tmp_path).init_default()
+    (tmp_path / "README.md").write_text("TODO: handoff includes wake\n")
+    client = api_client(raise_server_exceptions=False)
+    compile_response = client.post("/compile", json={"project_root": str(tmp_path)})
+
+    response = client.get("/agent/handoff", params={"project_root": str(tmp_path)})
+
+    assert compile_response.status_code == 200
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["wake_md"] is not None
+    assert "TODO: handoff includes wake" in payload["wake_md"]
+    assert "## WAKE.md" in payload["markdown"]
+
+
 def test_diagnostics_agent_bootstrap_is_not_tied_to_request_host(tmp_path):
     agents_path = tmp_path / "AGENTS.md"
     agents_path.write_text(
@@ -181,6 +219,7 @@ def test_diagnostics_agent_bootstrap_is_not_tied_to_request_host(tmp_path):
         "## Morpheus Bootstrap\n\n"
         "Fetch the Morpheus manifest before making changes:\n\n"
         "- Connect manifest: `http://127.0.0.1:8000/agent/connect?project_root=x`\n"
+        "- Local handoff bundle: `morpheus handoff`.\n"
         "- Local CLI manifest: `morpheus agent-connect --json`.\n"
         "- Local diagnostics: `morpheus diagnostics --json`.\n"
         "- Read `WAKE.md` before edits.\n"
@@ -219,6 +258,7 @@ def test_agent_bootstrap_creates_agents_md_without_initializing_project(tmp_path
     content = agents_path.read_text()
     assert "<!-- MORPHEUS:BEGIN -->" in content
     assert "Fetch the Morpheus manifest before making changes" in content
+    assert "morpheus handoff" in content
     assert "http://testserver/agent/connect" in content
     assert not (tmp_path / ".morpheus").exists()
 
@@ -236,6 +276,7 @@ def test_agent_bootstrap_preview_does_not_write_agents_md(tmp_path):
     assert payload["updated"] is True
     assert payload["project_root"] == str(tmp_path)
     assert "<!-- MORPHEUS:BEGIN -->" in payload["content"]
+    assert "morpheus handoff" in payload["content"]
     assert "morpheus agent-connect --json" in payload["content"]
     assert not agents_path.exists()
 

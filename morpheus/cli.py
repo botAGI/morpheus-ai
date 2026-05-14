@@ -517,6 +517,32 @@ def agent_connect_command(
     ))
 
 
+@app.command("handoff")
+def handoff_command(
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON"),
+    api_base: str = typer.Option(
+        "http://127.0.0.1:8000",
+        "--api-base",
+        help="API base URL to embed in HTTP agent links",
+    ),
+):
+    """Print a complete copyable bundle for handing the project to another agent."""
+    from fastapi import HTTPException
+    from morpheus.api.server import agent_handoff_payload
+
+    try:
+        payload = agent_handoff_payload(request_context(api_base), Path.cwd())
+    except HTTPException as exc:
+        console.print(f"[red]Handoff failed:[/red] {exc.detail}")
+        raise typer.Exit(1) from exc
+
+    if json_output:
+        console.out(json.dumps(payload, indent=2))
+        return
+
+    console.out(payload["markdown"])
+
+
 @app.command("bootstrap-agent")
 def bootstrap_agent(
     api_base: str = typer.Option(
