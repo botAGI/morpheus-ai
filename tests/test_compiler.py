@@ -448,6 +448,57 @@ integrations = {}
         assert [evidence.excerpt for evidence in state.evidence] == ["TODO: keep marker"]
 
 
+def test_compile_project_deduplicates_configured_evidence_markers():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        morpheus_dir = tmppath / ".morpheus"
+        morpheus_dir.mkdir()
+        (morpheus_dir / "morpheus.toml").write_text(
+            """
+watch_dirs = ["."]
+exclude_patterns = [".git", "node_modules", "__pycache__", ".morpheus"]
+evidence_markers = ["TODO:", "TODO:", "FIXME:", "TODO:"]
+integrations = {}
+"""
+        )
+        (tmppath / "notes.md").write_text("TODO: keep one claim per marker\n")
+
+        state = compile_project(tmppath)
+
+        assert [claim.excerpt for claim in state.claims] == [
+            "TODO: keep one claim per marker"
+        ]
+        assert [evidence.excerpt for evidence in state.evidence] == [
+            "TODO: keep one claim per marker"
+        ]
+
+
+def test_compile_project_strips_configured_evidence_markers_before_matching():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        morpheus_dir = tmppath / ".morpheus"
+        morpheus_dir.mkdir()
+        (morpheus_dir / "morpheus.toml").write_text(
+            """
+watch_dirs = ["."]
+exclude_patterns = [".git", "node_modules", "__pycache__", ".morpheus"]
+evidence_markers = [" TODO: ", " TODO: "]
+integrations = {}
+"""
+        )
+        (tmppath / "notes.md").write_text("TODO: marker from padded config\n")
+
+        state = compile_project(tmppath)
+
+        assert [claim.excerpt for claim in state.claims] == [
+            "TODO: marker from padded config"
+        ]
+        assert [claim.category for claim in state.claims] == ["task"]
+        assert [evidence.excerpt for evidence in state.evidence] == [
+            "TODO: marker from padded config"
+        ]
+
+
 def test_compile_project_respects_configured_watch_dirs():
     with tempfile.TemporaryDirectory() as tmpdir:
         tmppath = Path(tmpdir)
