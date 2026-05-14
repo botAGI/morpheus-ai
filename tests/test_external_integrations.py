@@ -216,6 +216,12 @@ def test_gmail_get_emails_returns_empty_list_for_non_positive_max_results(tmp_pa
     assert emails == []
 
 
+def test_gmail_get_emails_returns_empty_list_for_negative_days_without_auth(tmp_path):
+    emails = GmailIntegration(token_path=tmp_path / "missing-token.json").get_emails(days=-1)
+
+    assert emails == []
+
+
 def test_gmail_authenticate_rejects_token_directory(tmp_path):
     token_path = tmp_path / "gmail_token.json"
     token_path.mkdir()
@@ -363,6 +369,12 @@ def test_calendar_get_events_returns_empty_list_for_non_positive_max_results(tmp
     )
 
     events = CalendarIntegration(token_path=token_path).get_events(days=30, max_results=-1)
+
+    assert events == []
+
+
+def test_calendar_get_events_returns_empty_list_for_negative_days_without_auth(tmp_path):
+    events = CalendarIntegration(token_path=tmp_path / "missing-token.json").get_events(days=-1)
 
     assert events == []
 
@@ -614,6 +626,24 @@ def test_github_get_issues_returns_empty_list_for_non_positive_max_results(
         "owner",
         "repo",
         max_results=0,
+    )
+
+    assert issues == []
+
+
+def test_github_get_issues_returns_empty_list_for_negative_days_without_request(
+    monkeypatch,
+    tmp_path,
+):
+    def fail_request(*args, **kwargs):
+        raise AssertionError("GitHub issues should not be fetched")
+
+    monkeypatch.setattr("httpx.get", fail_request)
+
+    issues = GitHubIntegration(token_path=tmp_path / "missing-token").get_issues(
+        "owner",
+        "repo",
+        days=-1,
     )
 
     assert issues == []
@@ -905,6 +935,24 @@ def test_github_get_commits_returns_empty_list_for_non_positive_max_results(
         "owner",
         "repo",
         max_results=0,
+    )
+
+    assert commits == []
+
+
+def test_github_get_commits_returns_empty_list_for_negative_days_without_request(
+    monkeypatch,
+    tmp_path,
+):
+    def fail_request(*args, **kwargs):
+        raise AssertionError("GitHub commits should not be fetched")
+
+    monkeypatch.setattr("httpx.get", fail_request)
+
+    commits = GitHubIntegration(token_path=tmp_path / "missing-token").get_commits(
+        "owner",
+        "repo",
+        days=-1,
     )
 
     assert commits == []

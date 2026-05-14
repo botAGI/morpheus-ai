@@ -24,7 +24,7 @@ class GmailIntegration:
     
     def get_emails(self, days: int = 30, max_results: int = 50) -> list[dict]:
         """Fetch recent emails"""
-        if max_results <= 0:
+        if days < 0 or max_results <= 0:
             return []
         if not self.authenticate():
             return []

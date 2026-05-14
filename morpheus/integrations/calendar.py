@@ -22,7 +22,7 @@ class CalendarIntegration:
     
     def get_events(self, days: int = 30, max_results: int = 100) -> list[dict]:
         """Fetch upcoming/recent events"""
-        if max_results <= 0:
+        if days < 0 or max_results <= 0:
             return []
         if not self.authenticate():
             return []

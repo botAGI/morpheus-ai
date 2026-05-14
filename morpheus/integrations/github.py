@@ -43,7 +43,7 @@ class GitHubIntegration:
         max_results: int = 100,
     ) -> list[dict]:
         """Get issues"""
-        if max_results <= 0:
+        if days < 0 or max_results <= 0:
             return []
         token = self._get_token()
         headers = {"Authorization": f"token {token}"} if token else {}
@@ -106,7 +106,7 @@ class GitHubIntegration:
         max_results: int = 100,
     ) -> list[dict]:
         """Get recent commits"""
-        if max_results <= 0:
+        if days < 0 or max_results <= 0:
             return []
         token = self._get_token()
         headers = {"Authorization": f"token {token}"} if token else {}
