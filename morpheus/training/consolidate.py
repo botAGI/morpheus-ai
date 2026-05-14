@@ -240,6 +240,11 @@ def parse_session_file(session_path: Path, stats: ConsolidationStats | None = No
     - message.content: list of content blocks [{type: "text", text: "..."}]
     """
     messages = []
+
+    if session_path.is_symlink():
+        if stats:
+            stats.files_unreadable += 1
+        return messages
     
     try:
         session_file = session_path.open(encoding="utf-8", errors="replace")
