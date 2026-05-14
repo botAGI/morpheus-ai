@@ -488,6 +488,35 @@ def diagnostics_command(
     console.print(f"Agent connect: {payload['agent_connect_url']}")
 
 
+@app.command("agent-connect")
+def agent_connect_command(
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON"),
+    api_base: str = typer.Option(
+        "http://127.0.0.1:8000",
+        "--api-base",
+        help="API base URL to embed in HTTP agent links",
+    ),
+):
+    """Print the full self-connect manifest for agents without starting a server."""
+    from morpheus.api.server import agent_connect_payload
+
+    payload = agent_connect_payload(request_context(api_base), Path.cwd())
+    if json_output:
+        console.out(json.dumps(payload, indent=2))
+        return
+
+    state = payload["state"]
+    console.print(Panel.fit(
+        f"Project: [bold]{payload['project_root']}[/bold]\n"
+        f"Initialized: [bold]{state['initialized']}[/bold]\n"
+        f"Compiled: [bold]{state['compiled']}[/bold]\n"
+        "Machine JSON: [bold]morpheus agent-connect --json[/bold]\n"
+        f"Prompt: {payload['agent_prompt']}",
+        title="Morpheus Agent Connect",
+        border_style="green",
+    ))
+
+
 @app.command("bootstrap-agent")
 def bootstrap_agent(
     api_base: str = typer.Option(
