@@ -68,6 +68,9 @@ class FileSystemWatcher:
     
     def scan(self) -> list[dict]:
         """Scan files and return new, modified, and deleted paths since the last scan."""
+        if not self._has_valid_root():
+            return []
+
         changed = []
 
         self.file_hashes = self._load_cache()
@@ -122,6 +125,9 @@ class FileSystemWatcher:
     
     def extract_claims(self, path: str) -> list[dict]:
         """Extract claims from a file"""
+        if not self._has_valid_root():
+            return []
+
         full_path = self.root / path
         try:
             full_path.resolve().relative_to(self.root.resolve())
@@ -152,6 +158,9 @@ class FileSystemWatcher:
         return claims
 
     def _load_cache(self) -> dict[str, str]:
+        if not self._has_valid_root():
+            return {}
+
         if not self.cache_file.exists():
             return {}
 
@@ -192,6 +201,9 @@ class FileSystemWatcher:
             for chunk in iter(lambda: file.read(1024 * 1024), b""):
                 digest.update(chunk)
         return digest.hexdigest()
+
+    def _has_valid_root(self) -> bool:
+        return self.root.is_dir() and not self.root.is_symlink()
 
 
 def _is_sha256_hex(value) -> bool:
