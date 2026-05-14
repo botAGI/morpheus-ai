@@ -173,6 +173,36 @@ def test_diagnostics_reports_current_agent_bootstrap(tmp_path):
     assert checks["agent_bootstrap"]["detail"] == "AGENTS.md is current"
 
 
+def test_diagnostics_agent_bootstrap_is_not_tied_to_request_host(tmp_path):
+    agents_path = tmp_path / "AGENTS.md"
+    agents_path.write_text(
+        "# AGENTS.md\n\n"
+        "<!-- MORPHEUS:BEGIN -->\n"
+        "## Morpheus Bootstrap\n\n"
+        "Fetch the Morpheus manifest before making changes:\n\n"
+        "- Connect manifest: `http://127.0.0.1:8000/agent/connect?project_root=x`\n"
+        "- Local CLI manifest: `morpheus agent-connect --json`.\n"
+        "- Local diagnostics: `morpheus diagnostics --json`.\n"
+        "- Read `WAKE.md` before edits.\n"
+        "- Run compile and verify after meaningful changes.\n"
+        "- If the API/UI are unavailable, start them with "
+        "`morpheus serve --ui --host 0.0.0.0 --port 8000 --ui-port 5173`.\n"
+        "<!-- MORPHEUS:END -->\n"
+    )
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.get(
+        "/diagnostics",
+        params={"project_root": str(tmp_path)},
+        headers={"host": "192.168.1.54:8000"},
+    )
+
+    assert response.status_code == 200
+    checks = {check["id"]: check for check in response.json()["checks"]}
+    assert checks["agent_bootstrap"]["ok"] is True
+    assert checks["agent_bootstrap"]["detail"] == "AGENTS.md is current"
+
+
 def test_agent_bootstrap_creates_agents_md_without_initializing_project(tmp_path):
     client = api_client(raise_server_exceptions=False)
 
