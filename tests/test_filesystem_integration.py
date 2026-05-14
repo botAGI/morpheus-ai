@@ -326,7 +326,10 @@ def test_extract_claims_returns_empty_for_unreadable_files(tmp_path, monkeypatch
 
 def test_extract_claims_returns_marker_locations(tmp_path):
     source = tmp_path / "notes.md"
-    source.write_text("intro\nDECISION: use receipts\nplain\nXXX: investigate edge case\n")
+    source.write_text(
+        "intro\nDECISION: use receipts\nplain\nHACK: preserve odd API shape\n"
+        "XXX: investigate edge case\n"
+    )
 
     claims = FileSystemWatcher(tmp_path).extract_claims("notes.md")
 
@@ -340,6 +343,12 @@ def test_extract_claims_returns_marker_locations(tmp_path):
         {
             "path": "notes.md",
             "line": 4,
+            "marker": "HACK:",
+            "excerpt": "HACK: preserve odd API shape",
+        },
+        {
+            "path": "notes.md",
+            "line": 5,
             "marker": "XXX:",
             "excerpt": "XXX: investigate edge case",
         },

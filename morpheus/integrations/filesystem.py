@@ -146,7 +146,7 @@ class FileSystemWatcher:
         claims = []
         
         for i, line in enumerate(lines, 1):
-            for marker in ["TODO:", "FIXME:", "DECISION:", "NOTE:", "XXX:"]:
+            for marker in ["TODO:", "FIXME:", "DECISION:", "NOTE:", "HACK:", "XXX:"]:
                 if marker in line:
                     claims.append({
                         "path": path,

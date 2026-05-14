@@ -137,8 +137,8 @@ def compile(
 ):
     """Compile sources → state.json + WAKE.md + signed receipt.
     
-    Extracts claims (TODO:, DECISION:, FIXME:, NOTE:) from project files,
-    builds evidence chain, and generates cryptographic receipt.
+    Extracts claims (TODO:, DECISION:, FIXME:, NOTE:, HACK:, XXX:) from
+    project files, builds evidence chain, and generates cryptographic receipt.
     """
     morpheus_dir = ensure_initialized()
     project_root = Path.cwd()

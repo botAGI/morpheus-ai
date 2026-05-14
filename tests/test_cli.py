@@ -71,6 +71,20 @@ def test_init_creates_morpheus_state(tmp_path):
         assert (project_root / ".morpheus" / "keys" / "local.pub").exists()
 
 
+def test_compile_help_lists_default_claim_markers():
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["compile", "--help"])
+
+    assert result.exit_code == 0, result.output
+    assert "TODO:" in result.output
+    assert "DECISION:" in result.output
+    assert "FIXME:" in result.output
+    assert "NOTE:" in result.output
+    assert "HACK:" in result.output
+    assert "XXX:" in result.output
+
+
 def test_init_rejects_morpheus_state_file_without_force_hint(tmp_path):
     runner = CliRunner()
 
