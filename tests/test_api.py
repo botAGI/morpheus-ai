@@ -3,6 +3,7 @@ Tests for morpheus.api.server.
 """
 import json
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 
@@ -64,6 +65,67 @@ def test_cors_preflight_does_not_allow_credentials_for_wildcard_origins():
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == "*"
     assert "access-control-allow-credentials" not in response.headers
+
+
+def test_well_known_morpheus_manifest_exposes_agent_connect_url():
+    client = api_client()
+
+    response = client.get("/.well-known/morpheus.json")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["service"] == "morpheus"
+    assert payload["version"] == "0.1.0"
+    assert payload["connect_url"] == "http://testserver/agent/connect"
+    assert payload["docs"]["human_quickstart"] == "README.md"
+
+
+def test_agent_connect_guides_uninitialized_project(tmp_path):
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.get("/agent/connect", params={"project_root": str(tmp_path)})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["api_base"] == "http://testserver"
+    assert payload["project_root"] == str(tmp_path)
+    assert payload["state"] == {
+        "initialized": False,
+        "compiled": False,
+        "sources": 0,
+        "claims": 0,
+        "evidence": 0,
+        "compiled_at": None,
+    }
+    assert payload["endpoints"]["initialize"]["method"] == "POST"
+    assert payload["endpoints"]["initialize"]["json"] == {"project_root": str(tmp_path)}
+    status_url = urlparse(payload["endpoints"]["status"]["url"])
+    assert status_url.path == "/status"
+    assert parse_qs(status_url.query) == {"project_root": [str(tmp_path)]}
+    assert payload["sequence"][0]["id"] == "status"
+    assert payload["sequence"][1]["id"] == "initialize_if_needed"
+    assert "Fetch the connect manifest" in payload["agent_prompt"]
+
+
+def test_agent_connect_reports_compiled_project(tmp_path):
+    MorpheusConfig(project_root=tmp_path).init_default()
+    (tmp_path / "README.md").write_text("TODO: agent self-connect smoke\n")
+    client = api_client(raise_server_exceptions=False)
+    compile_response = client.post("/compile", json={"project_root": str(tmp_path)})
+
+    response = client.get("/agent/connect", params={"project_root": str(tmp_path)})
+
+    assert compile_response.status_code == 200
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["state"]["initialized"] is True
+    assert payload["state"]["compiled"] is True
+    assert payload["state"]["sources"] == 1
+    assert payload["state"]["claims"] == 1
+    wake_url = urlparse(payload["endpoints"]["wake"]["url"])
+    assert wake_url.path == "/wake"
+    assert parse_qs(wake_url.query) == {"project_root": [str(tmp_path)]}
+    assert "morpheus wake" in payload["cli"]["read_wake"]
 
 
 def test_init_creates_project_state_for_ui(tmp_path):
