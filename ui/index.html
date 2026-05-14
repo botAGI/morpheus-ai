@@ -777,6 +777,7 @@
               </div>
               <p id="start-project-root">Backend working directory</p>
               <div class="button-row">
+                <button id="start-prepare-btn">Prepare Agent</button>
                 <button id="start-init-btn">Initialize</button>
                 <button id="start-compile-btn" class="secondary-button">Compile</button>
                 <button id="start-verify-btn" class="secondary-button">Verify</button>
@@ -1007,6 +1008,7 @@
       const startProjectRootLabel = document.getElementById('start-project-root');
       const wakeContent = document.getElementById('wake-content');
       const initProjectBtn = document.getElementById('init-project-btn');
+      const startPrepareBtn = document.getElementById('start-prepare-btn');
       const startInitBtn = document.getElementById('start-init-btn');
       const startCompileBtn = document.getElementById('start-compile-btn');
       const startVerifyBtn = document.getElementById('start-verify-btn');
@@ -1346,6 +1348,44 @@
         }
       }
 
+      async function prepareAgent() {
+        addMessage('Preparing project for agent handoff...');
+        showTyping(true);
+        startPrepareBtn.disabled = true;
+        try {
+          const payload = await apiRequest('/agent/prepare', {
+            method: 'POST',
+            body: { project_root: selectedProjectRoot() },
+          });
+          rememberProjectRoot(payload.project_root);
+          syncProjectRootLabel();
+          diagnosticsOutput.textContent = JSON.stringify(payload.handoff.diagnostics, null, 2);
+          agentBootstrapPreview.textContent = payload.bootstrapped.content;
+          agentBootstrapPreviewSummary.textContent = `AGENTS.md ready: ${payload.bootstrapped.path}`;
+          agentHandoffOutput.textContent = payload.handoff.markdown;
+          agentHandoffSummary.textContent = `Handoff ready for ${payload.project_root}`;
+          wakeContent.textContent = payload.handoff.wake_md || '';
+          updateAgentConnectPreview(payload.handoff.manifest);
+          updateProjectSteps(
+            payload.handoff.diagnostics.state,
+            payload.handoff.diagnostics.checks || []
+          );
+          const receiptId = payload.verified && payload.verified.receipt_id
+            ? payload.verified.receipt_id
+            : 'unknown';
+          addMessage(`Agent handoff prepared. Receipt: ${receiptId}.`);
+          mascotSpeak();
+          return payload;
+        } catch (error) {
+          setBackendStatus('error', 'Backend error');
+          addMessage(`Prepare agent failed: ${error.message}`);
+          throw error;
+        } finally {
+          startPrepareBtn.disabled = false;
+          showTyping(false);
+        }
+      }
+
       async function runAgentBootstrap() {
         addMessage('Writing Morpheus bootstrap to AGENTS.md...');
         bootstrapAgentBtn.disabled = true;
@@ -1655,6 +1695,7 @@
         }
       });
 
+      startPrepareBtn.addEventListener('click', prepareAgent);
       initProjectBtn.addEventListener('click', runInit);
       startInitBtn.addEventListener('click', runInit);
       startCompileBtn.addEventListener('click', runCompile);

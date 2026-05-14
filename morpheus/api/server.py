@@ -49,6 +49,9 @@ class InitRequest(BaseModel):
 class AgentBootstrapRequest(BaseModel):
     project_root: Optional[str] = None
 
+class AgentPrepareRequest(BaseModel):
+    project_root: Optional[str] = None
+
 class VerifyRequest(BaseModel):
     project_root: Optional[str] = None
 
@@ -289,6 +292,7 @@ def morpheus_agent_section_current(existing: str) -> bool:
     required = [
         MORPHEUS_AGENT_BEGIN,
         MORPHEUS_AGENT_END,
+        "morpheus prepare-agent",
         "morpheus handoff",
         "morpheus agent-connect --json",
         "morpheus diagnostics --json",
@@ -468,6 +472,8 @@ def agent_handoff_markdown(payload: dict) -> str:
 def agent_handoff_payload(request: Request, project_root: Path) -> dict:
     api_base = api_base_url(request)
     commands = {
+        "prepare_agent": "morpheus prepare-agent",
+        "prepare_agent_json": "morpheus prepare-agent --json",
         "handoff": "morpheus handoff",
         "handoff_json": "morpheus handoff --json",
         "agent_connect": "morpheus agent-connect --json",
@@ -494,6 +500,79 @@ def agent_handoff_payload(request: Request, project_root: Path) -> dict:
     return payload
 
 
+def prepare_step(step_id: str, label: str, ok: bool, detail: str) -> dict:
+    return {
+        "id": step_id,
+        "label": label,
+        "ok": ok,
+        "detail": detail,
+    }
+
+
+def agent_prepare_payload(request: Request, project_root: Path) -> dict:
+    project_root_text = str(project_root)
+    steps = []
+
+    initialized = init_project(InitRequest(project_root=project_root_text))
+    steps.append(prepare_step(
+        "initialize",
+        "Initialize",
+        True,
+        "Created .morpheus" if initialized.created else ".morpheus already exists",
+    ))
+
+    compiled = compile(CompileRequest(project_root=project_root_text))
+    steps.append(prepare_step(
+        "compile",
+        "Compile",
+        True,
+        f"{compiled.source_count} sources, receipt {compiled.receipt_id}",
+    ))
+
+    bootstrapped = write_agent_bootstrap(request, project_root)
+    if bootstrapped.created:
+        bootstrap_detail = "Created AGENTS.md"
+    elif bootstrapped.updated:
+        bootstrap_detail = "Updated AGENTS.md"
+    else:
+        bootstrap_detail = "AGENTS.md already current"
+    steps.append(prepare_step(
+        "bootstrap_agent",
+        "Bootstrap AGENTS.md",
+        True,
+        bootstrap_detail,
+    ))
+
+    verified = verify(VerifyRequest(project_root=project_root_text))
+    steps.append(prepare_step(
+        "verify",
+        "Verify",
+        verified.valid,
+        f"Receipt {verified.receipt_id}" if verified.valid else "; ".join(verified.errors),
+    ))
+
+    handoff = agent_handoff_payload(request, project_root)
+    steps.append(prepare_step(
+        "handoff",
+        "Handoff",
+        True,
+        "Handoff bundle ready",
+    ))
+
+    return {
+        "service": "morpheus",
+        "version": "0.1.0",
+        "api_base": api_base_url(request),
+        "project_root": project_root_text,
+        "steps": steps,
+        "initialized": initialized.model_dump(),
+        "compiled": compiled.model_dump(),
+        "bootstrapped": bootstrapped.model_dump(),
+        "verified": verified.model_dump(),
+        "handoff": handoff,
+    }
+
+
 def morpheus_agent_section(request: Request, project_root: Path) -> str:
     connect_url = endpoint_url(api_base_url(request), "/agent/connect", project_root)
     return "\n".join([
@@ -503,6 +582,7 @@ def morpheus_agent_section(request: Request, project_root: Path) -> str:
         "Fetch the Morpheus manifest before making changes:",
         "",
         f"- Connect manifest: `{connect_url}`",
+        "- One-command prepare: `morpheus prepare-agent`.",
         "- Local handoff bundle: `morpheus handoff`.",
         "- Local CLI manifest: `morpheus agent-connect --json`.",
         "- Local diagnostics: `morpheus diagnostics --json`.",
@@ -629,6 +709,17 @@ def agent_handoff_markdown_route(request: Request, project_root: Optional[str] =
         agent_handoff_payload(request, root)["markdown"],
         media_type="text/markdown",
     )
+
+
+@app.post("/agent/prepare")
+def agent_prepare(request: Request, prepare_request: AgentPrepareRequest):
+    """Initialize, compile, bootstrap AGENTS.md, verify, and return handoff."""
+    root = (
+        Path(prepare_request.project_root)
+        if prepare_request.project_root
+        else Path.cwd()
+    )
+    return agent_prepare_payload(request, root)
 
 
 @app.get("/diagnostics")

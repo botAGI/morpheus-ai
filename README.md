@@ -23,6 +23,8 @@ morpheus verify --all
 morpheus status
 
 # Inspect readiness and generate agent instructions
+morpheus prepare-agent
+morpheus prepare-agent --json
 morpheus handoff
 morpheus handoff --json
 morpheus agent-connect --json
@@ -63,6 +65,9 @@ Agents can discover Morpheus over HTTP without reading this README first:
 
 ```bash
 curl -s http://127.0.0.1:8000/.well-known/morpheus.json
+curl -s -X POST http://127.0.0.1:8000/agent/prepare \
+  -H 'Content-Type: application/json' \
+  -d "{\"project_root\":\"$PWD\"}"
 curl -s "http://127.0.0.1:8000/agent/handoff.md?project_root=$PWD"
 curl -s "http://127.0.0.1:8000/agent/handoff?project_root=$PWD"
 curl -s "http://127.0.0.1:8000/agent/connect?project_root=$PWD"
@@ -89,6 +94,8 @@ CLI equivalents, curl commands, and a ready-to-copy agent prompt. A new agent sh
 Agents running locally can use the CLI equivalent without starting the HTTP API:
 
 ```bash
+morpheus prepare-agent
+morpheus prepare-agent --json
 morpheus handoff
 morpheus handoff --json
 morpheus agent-connect --json
@@ -107,6 +114,8 @@ morpheus bootstrap-agent --api-base http://127.0.0.1:8000
 | `morpheus verify --all` | Full chain + signature verification |
 | `morpheus status` | Show sources/claims/evidence counts |
 | `morpheus wake` | Print WAKE.md to stdout |
+| `morpheus prepare-agent` | Initialize, compile, bootstrap AGENTS.md, verify, and print handoff |
+| `morpheus prepare-agent --json` | Run the full prepare flow and print machine-readable results |
 | `morpheus handoff` | Print a copyable markdown bundle for another agent |
 | `morpheus handoff --json` | Print full handoff bundle as machine-readable JSON |
 | `morpheus agent-connect --json` | Print full self-connect manifest for agents |
