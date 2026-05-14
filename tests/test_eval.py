@@ -101,6 +101,35 @@ def test_run_eval_exits_when_question_file_unreadable(tmp_path):
     assert not output.exists()
 
 
+def test_run_eval_exits_when_question_file_is_symlink(monkeypatch, tmp_path):
+    adapter_dir = tmp_path / "adapter"
+    adapter_dir.mkdir()
+    (adapter_dir / "adapter.safetensors").write_text("stub")
+    external_questions = tmp_path / "external-questions.jsonl"
+    external_questions.write_text('{"question":"What changed?","expected_keywords":["receipt"]}\n')
+    test_file = tmp_path / "eval_questions.jsonl"
+    try:
+        test_file.symlink_to(external_questions)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+    output = tmp_path / "eval_results.jsonl"
+
+    def fail_query(*args, **kwargs):
+        raise AssertionError("symlinked question file should not be evaluated")
+
+    monkeypatch.setattr(eval_module, "query_model", fail_query)
+
+    with pytest.raises(click.exceptions.Exit):
+        eval_module.run_eval(
+            adapter_path=adapter_dir,
+            base_model="qwen2.5:7b",
+            test_file=test_file,
+            output=output,
+        )
+
+    assert not output.exists()
+
+
 def test_run_eval_exits_when_model_query_errors(monkeypatch, tmp_path):
     adapter_dir = tmp_path / "adapter"
     adapter_dir.mkdir()
