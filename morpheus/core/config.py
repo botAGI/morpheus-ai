@@ -10,7 +10,7 @@ class MorpheusConfig(BaseModel):
     project_root: Path
     watch_dirs: list[str] = ["."]
     exclude_patterns: list[str] = [".git", "node_modules", "__pycache__", ".morpheus"]
-    evidence_markers: list[str] = ["TODO:", "DECISION:", "FIXME:", "NOTE:", "HACK:"]
+    evidence_markers: list[str] = ["TODO:", "DECISION:", "FIXME:", "NOTE:", "HACK:", "XXX:"]
     integrations: dict = {}
 
     def init_default(self) -> None:
