@@ -4,6 +4,7 @@ GitHub integration - reads issues, PRs, commits.
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
 MAX_GITHUB_PAGES = 10
 GITHUB_EVIDENCE_KEYWORDS = (
@@ -179,6 +180,7 @@ def _github_get_json_list(
     stop_when=None,
 ):
     items = []
+    origin_url = url
     next_url = url
     next_params = params
 
@@ -196,6 +198,8 @@ def _github_get_json_list(
             break
         next_url = _github_next_url(response)
         if not next_url:
+            break
+        if not _github_same_origin(origin_url, next_url):
             break
         next_params = None
 
@@ -249,6 +253,16 @@ def _safe_response_json(response):
 
 def _github_per_page(max_results: int) -> int:
     return min(max_results, 100)
+
+
+def _github_same_origin(origin_url: str, next_url: str) -> bool:
+    origin = urlparse(origin_url)
+    candidate = urlparse(next_url)
+    return (
+        candidate.scheme in {"http", "https"}
+        and candidate.scheme == origin.scheme
+        and candidate.netloc == origin.netloc
+    )
 
 
 def _github_item_text(item: dict, item_type: str) -> str:

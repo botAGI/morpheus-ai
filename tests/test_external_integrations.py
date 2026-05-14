@@ -516,6 +516,36 @@ def test_github_get_issues_follows_next_page_links(monkeypatch, tmp_path):
     ]
 
 
+def test_github_get_issues_ignores_cross_origin_next_page_links(monkeypatch, tmp_path):
+    now = datetime.now(timezone.utc)
+    calls = []
+
+    def fake_get(url, *, headers, params=None, timeout):
+        calls.append((url, params))
+        if url != "https://api.github.com/repos/owner/repo/issues":
+            raise AssertionError("GitHub pagination should not follow cross-origin links")
+        return github_json_response(
+            [{"number": 1, "updated_at": now.isoformat()}],
+            link='<https://evil.example/repos/owner/repo/issues?page=2>; rel="next"',
+        )
+
+    monkeypatch.setattr("httpx.get", fake_get)
+
+    issues = GitHubIntegration(token_path=tmp_path / "missing-token").get_issues(
+        "owner",
+        "repo",
+        days=30,
+    )
+
+    assert [issue["number"] for issue in issues] == [1]
+    assert calls == [
+        (
+            "https://api.github.com/repos/owner/repo/issues",
+            {"state": "all", "per_page": 100},
+        )
+    ]
+
+
 def test_github_get_issues_respects_max_results(monkeypatch, tmp_path):
     now = datetime.now(timezone.utc)
 
