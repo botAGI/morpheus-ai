@@ -935,6 +935,25 @@ def test_integrate_list_reports_configured_github_token(monkeypatch, tmp_path):
     )
 
 
+def test_integrate_list_reports_invalid_symlinked_morpheus_dir(monkeypatch, tmp_path):
+    runner = CliRunner()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "github_token.txt").write_text("secret")
+    morpheus_dir = tmp_path / ".morpheus"
+    try:
+        morpheus_dir.symlink_to(outside, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    result = runner.invoke(app, ["integrate", "--list"])
+
+    assert result.exit_code == 0, result.output
+    github_lines = [line for line in result.output.splitlines() if "github" in line]
+    assert any("invalid" in line for line in github_lines)
+
+
 def test_integrate_unknown_service_exits_with_error():
     runner = CliRunner()
 
@@ -973,4 +992,34 @@ def test_integrate_github_rejects_token_symlink(monkeypatch, tmp_path):
 
     assert result.exit_code == 1
     assert "GitHub token path must not be a symlink" in result.output
+    assert "already configured" not in result.output
+
+
+def test_integrate_github_creates_morpheus_dir(monkeypatch, tmp_path):
+    runner = CliRunner()
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    result = runner.invoke(app, ["integrate", "github"])
+
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / ".morpheus").is_dir()
+    assert "Save token to:" in result.output
+
+
+def test_integrate_github_rejects_symlinked_morpheus_dir(monkeypatch, tmp_path):
+    runner = CliRunner()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "github_token.txt").write_text("secret")
+    morpheus_dir = tmp_path / ".morpheus"
+    try:
+        morpheus_dir.symlink_to(outside, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    result = runner.invoke(app, ["integrate", "github"])
+
+    assert result.exit_code == 1
+    assert "GitHub token directory must not be a symlink" in result.output
     assert "already configured" not in result.output
