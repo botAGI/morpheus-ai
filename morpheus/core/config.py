@@ -18,6 +18,8 @@ class MorpheusConfig(BaseModel):
         morpheus_dir = self.project_root / ".morpheus"
         if morpheus_dir.is_symlink():
             raise ValueError(".morpheus path must not be a symlink")
+        if morpheus_dir.exists() and not morpheus_dir.is_dir():
+            raise ValueError(".morpheus path is not a directory")
         morpheus_dir.mkdir(exist_ok=True)
         keys_dir = morpheus_dir / "keys"
         if keys_dir.is_symlink():
@@ -73,6 +75,8 @@ class MorpheusConfig(BaseModel):
         morpheus_dir = self.project_root / ".morpheus"
         if morpheus_dir.is_symlink():
             raise ValueError(".morpheus path must not be a symlink")
+        if morpheus_dir.exists() and not morpheus_dir.is_dir():
+            raise ValueError(".morpheus path is not a directory")
         config_path = morpheus_dir / "morpheus.toml"
         if config_path.is_symlink():
             raise ValueError(f"Config path must not be a symlink: {config_path}")
