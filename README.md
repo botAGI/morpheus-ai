@@ -45,6 +45,10 @@ The first screen is the setup checklist:
 3. Click **Compile**.
 4. Click **Verify**.
 5. Copy the Agent Connect URL or Agent Prompt for another agent.
+6. Click **Bootstrap AGENTS.md** to write agent instructions into the project.
+
+The Start screen also keeps recent project roots and includes **Diagnostics** for
+backend, initialization, WAKE, and receipt readiness.
 
 ## Agent Self-Connect
 
@@ -53,6 +57,10 @@ Agents can discover Morpheus over HTTP without reading this README first:
 ```bash
 curl -s http://127.0.0.1:8000/.well-known/morpheus.json
 curl -s "http://127.0.0.1:8000/agent/connect?project_root=$PWD"
+curl -s "http://127.0.0.1:8000/diagnostics?project_root=$PWD"
+curl -s -X POST http://127.0.0.1:8000/agent/bootstrap \
+  -H 'Content-Type: application/json' \
+  -d "{\"project_root\":\"$PWD\"}"
 ```
 
 `/agent/connect` returns the project state, ordered request sequence, endpoint URLs,
@@ -62,6 +70,9 @@ CLI equivalents, curl commands, and a ready-to-copy agent prompt. A new agent sh
 2. Initialize only when `state.initialized` is false.
 3. Compile and read `WAKE.md` before making project changes.
 4. Run compile and verify after meaningful changes.
+
+`/agent/bootstrap` creates or refreshes the Morpheus-managed section in
+`AGENTS.md` without overwriting existing project-specific instructions.
 
 ## CLI Reference
 

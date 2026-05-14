@@ -128,6 +128,83 @@ def test_agent_connect_reports_compiled_project(tmp_path):
     assert "morpheus wake" in payload["cli"]["read_wake"]
 
 
+def test_diagnostics_reports_project_setup_steps(tmp_path):
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.get("/diagnostics", params={"project_root": str(tmp_path)})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["api_base"] == "http://testserver"
+    assert payload["project_root"] == str(tmp_path)
+    assert payload["state"]["initialized"] is False
+    checks = {check["id"]: check for check in payload["checks"]}
+    assert checks["backend"]["ok"] is True
+    assert checks["project_root"]["ok"] is True
+    assert checks["initialized"]["ok"] is False
+    assert checks["compiled"]["ok"] is False
+    assert checks["wake"]["ok"] is False
+    assert payload["agent_connect_url"].endswith("/agent/connect?project_root=" + str(tmp_path).replace("/", "%2F"))
+    assert payload["commands"]["serve"] == "morpheus serve --host 0.0.0.0 --port 8000"
+
+
+def test_agent_bootstrap_creates_agents_md_without_initializing_project(tmp_path):
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post("/agent/bootstrap", json={"project_root": str(tmp_path)})
+
+    agents_path = tmp_path / "AGENTS.md"
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["path"] == str(agents_path)
+    assert payload["created"] is True
+    assert payload["updated"] is True
+    assert payload["project_root"] == str(tmp_path)
+    assert agents_path.exists()
+    content = agents_path.read_text()
+    assert "<!-- MORPHEUS:BEGIN -->" in content
+    assert "Fetch the Morpheus manifest before making changes" in content
+    assert "http://testserver/agent/connect" in content
+    assert not (tmp_path / ".morpheus").exists()
+
+
+def test_agent_bootstrap_replaces_managed_section_and_preserves_existing_content(tmp_path):
+    agents_path = tmp_path / "AGENTS.md"
+    agents_path.write_text(
+        "# Existing Agent Notes\n\n"
+        "Keep this project-specific rule.\n\n"
+        "<!-- MORPHEUS:BEGIN -->\nold managed text\n<!-- MORPHEUS:END -->\n"
+    )
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post("/agent/bootstrap", json={"project_root": str(tmp_path)})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["created"] is False
+    content = agents_path.read_text()
+    assert "Keep this project-specific rule." in content
+    assert "old managed text" not in content
+    assert content.count("<!-- MORPHEUS:BEGIN -->") == 1
+    assert payload["content"] == content
+
+
+def test_agent_bootstrap_rejects_symlinked_agents_file(tmp_path):
+    outside = tmp_path / "outside.md"
+    outside.write_text("do not overwrite\n")
+    try:
+        (tmp_path / "AGENTS.md").symlink_to(outside)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post("/agent/bootstrap", json={"project_root": str(tmp_path)})
+
+    assert response.status_code == 400
+    assert "AGENTS.md must not be a symlink" in response.json()["detail"]
+    assert outside.read_text() == "do not overwrite\n"
+
+
 def test_init_creates_project_state_for_ui(tmp_path):
     client = api_client(raise_server_exceptions=False)
 
