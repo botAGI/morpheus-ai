@@ -26,6 +26,43 @@ morpheus status
 morpheus serve --host 127.0.0.1 --port 8000
 ```
 
+## UI Quick Start
+
+Run the backend and open the UI:
+
+```bash
+morpheus serve --host 0.0.0.0 --port 8000
+python3 -m http.server 5173 --bind 0.0.0.0
+```
+
+Open `http://127.0.0.1:5173/ui/index.html` on the same machine, or
+`http://<machine-ip>:5173/ui/index.html` from another device on the same LAN.
+
+The first screen is the setup checklist:
+
+1. Set the project root.
+2. Click **Initialize**.
+3. Click **Compile**.
+4. Click **Verify**.
+5. Copy the Agent Connect URL or Agent Prompt for another agent.
+
+## Agent Self-Connect
+
+Agents can discover Morpheus over HTTP without reading this README first:
+
+```bash
+curl -s http://127.0.0.1:8000/.well-known/morpheus.json
+curl -s "http://127.0.0.1:8000/agent/connect?project_root=$PWD"
+```
+
+`/agent/connect` returns the project state, ordered request sequence, endpoint URLs,
+CLI equivalents, curl commands, and a ready-to-copy agent prompt. A new agent should:
+
+1. Fetch `/agent/connect`.
+2. Initialize only when `state.initialized` is false.
+3. Compile and read `WAKE.md` before making project changes.
+4. Run compile and verify after meaningful changes.
+
 ## CLI Reference
 
 | Command | Description |

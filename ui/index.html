@@ -477,6 +477,147 @@
       .settings-input:focus {
         border-color: var(--accent);
       }
+
+      .button-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .secondary-button {
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border);
+        color: var(--text-primary);
+      }
+
+      .secondary-button:hover {
+        background: #242436;
+      }
+
+      .start-grid {
+        display: grid;
+        grid-template-columns: minmax(280px, 1fr) minmax(280px, 1fr);
+        gap: 12px;
+      }
+
+      .full-width {
+        grid-column: 1 / -1;
+      }
+
+      .setup-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .setup-step {
+        display: grid;
+        grid-template-columns: 32px 1fr auto;
+        align-items: center;
+        gap: 12px;
+        padding: 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--bg-tertiary);
+      }
+
+      .step-number {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: var(--bg-secondary);
+        color: var(--text-secondary);
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .setup-step strong {
+        display: block;
+        font-size: 13px;
+        margin-bottom: 2px;
+      }
+
+      .setup-step small {
+        color: var(--text-secondary);
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
+      .step-state {
+        min-width: 86px;
+        text-align: center;
+        border-radius: 999px;
+        padding: 5px 8px;
+        color: var(--text-secondary);
+        background: var(--bg-secondary);
+        border: 1px solid var(--border);
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .step-state.ready {
+        color: #052e16;
+        background: var(--success);
+        border-color: var(--success);
+      }
+
+      .step-state.pending {
+        color: #451a03;
+        background: var(--warning);
+        border-color: var(--warning);
+      }
+
+      .step-state.error {
+        color: white;
+        background: var(--error);
+        border-color: var(--error);
+      }
+
+      .code-box {
+        width: 100%;
+        min-height: 48px;
+        background: #050509;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 12px;
+        color: var(--text-primary);
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        font-size: 12px;
+        line-height: 1.5;
+        font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+      }
+
+      .muted-line {
+        color: var(--text-secondary);
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      @media (max-width: 900px) {
+        main {
+          flex-direction: column;
+        }
+
+        .sidebar {
+          width: 100%;
+          border-right: none;
+          border-bottom: 1px solid var(--border);
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 12px;
+        }
+
+        .start-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .message {
+          max-width: 86%;
+        }
+      }
       
       .stats {
         display: grid;
@@ -592,7 +733,8 @@
           <div class="sidebar-section">
             <h3>Navigation</h3>
             <nav>
-              <div class="nav-item active" data-panel="chat">💬 Chat</div>
+              <div class="nav-item active" data-panel="start">▶ Start</div>
+              <div class="nav-item" data-panel="chat">💬 Chat</div>
               <div class="nav-item" data-panel="status">📊 Status</div>
               <div class="nav-item" data-panel="wake">📄 WAKE.md</div>
               <div class="nav-item" data-panel="settings">⚙️ Settings</div>
@@ -607,8 +749,86 @@
             </nav>
           </div>
         </aside>
+
+        <div class="panel active" id="panel-start">
+          <h2>Start</h2>
+          <div class="start-grid">
+            <div class="card full-width">
+              <h4>Project Setup</h4>
+              <div class="form-row">
+                <label for="start-project-root-input">Project root</label>
+                <input class="settings-input" id="start-project-root-input" type="text" placeholder="/path/to/project" />
+              </div>
+              <p id="start-project-root">Backend working directory</p>
+              <div class="button-row">
+                <button id="start-init-btn">Initialize</button>
+                <button id="start-compile-btn" class="secondary-button">Compile</button>
+                <button id="start-verify-btn" class="secondary-button">Verify</button>
+              </div>
+            </div>
+
+            <div class="card">
+              <h4>Readiness</h4>
+              <div class="setup-list">
+                <div class="setup-step">
+                  <span class="step-number">1</span>
+                  <div>
+                    <strong>Backend</strong>
+                    <small id="step-backend-detail">Waiting for API</small>
+                  </div>
+                  <span class="step-state pending" id="step-backend-state">Check</span>
+                </div>
+                <div class="setup-step">
+                  <span class="step-number">2</span>
+                  <div>
+                    <strong>Project</strong>
+                    <small id="step-project-detail">Choose a root and initialize</small>
+                  </div>
+                  <span class="step-state pending" id="step-project-state">Pending</span>
+                </div>
+                <div class="setup-step">
+                  <span class="step-number">3</span>
+                  <div>
+                    <strong>State</strong>
+                    <small id="step-state-detail">Compile to create WAKE.md</small>
+                  </div>
+                  <span class="step-state pending" id="step-state-state">Pending</span>
+                </div>
+                <div class="setup-step">
+                  <span class="step-number">4</span>
+                  <div>
+                    <strong>Receipt</strong>
+                    <small id="step-verify-detail">Verify after compile</small>
+                  </div>
+                  <span class="step-state pending" id="step-verify-state">Pending</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <h4>Agent Connect</h4>
+              <p class="muted-line" id="agent-state-summary">Waiting for backend</p>
+              <div class="form-row">
+                <label for="agent-connect-url">Manifest URL</label>
+                <pre class="code-box" id="agent-connect-url"></pre>
+              </div>
+              <div class="button-row">
+                <button id="copy-agent-url-btn">Copy URL</button>
+                <button id="refresh-agent-connect-btn" class="secondary-button">Refresh</button>
+              </div>
+            </div>
+
+            <div class="card full-width">
+              <h4>Agent Prompt</h4>
+              <pre class="code-box" id="agent-prompt"></pre>
+              <div class="button-row" style="margin-top: 12px;">
+                <button id="copy-agent-prompt-btn">Copy Agent Prompt</button>
+              </div>
+            </div>
+          </div>
+        </div>
         
-        <div class="chat-area panel active" id="panel-chat">
+        <div class="chat-area panel" id="panel-chat">
           <div class="messages" id="messages">
             <div class="message-wrapper morpheus">
               <div class="message-avatar">🤖</div>
@@ -720,17 +940,51 @@
       const backendStatusDot = document.getElementById('backend-status-dot');
       const backendStatusText = document.getElementById('backend-status-text');
       const projectRootInput = document.getElementById('project-root-input');
+      const startProjectRootInput = document.getElementById('start-project-root-input');
       const apiBaseInput = document.getElementById('api-base-input');
       const projectRootLabel = document.getElementById('project-root');
+      const startProjectRootLabel = document.getElementById('start-project-root');
       const wakeContent = document.getElementById('wake-content');
       const initProjectBtn = document.getElementById('init-project-btn');
+      const startInitBtn = document.getElementById('start-init-btn');
+      const startCompileBtn = document.getElementById('start-compile-btn');
+      const startVerifyBtn = document.getElementById('start-verify-btn');
+      const agentConnectUrl = document.getElementById('agent-connect-url');
+      const agentPrompt = document.getElementById('agent-prompt');
+      const agentStateSummary = document.getElementById('agent-state-summary');
+      const copyAgentUrlBtn = document.getElementById('copy-agent-url-btn');
+      const copyAgentPromptBtn = document.getElementById('copy-agent-prompt-btn');
+      const refreshAgentConnectBtn = document.getElementById('refresh-agent-connect-btn');
+      const setupSteps = {
+        backend: {
+          state: document.getElementById('step-backend-state'),
+          detail: document.getElementById('step-backend-detail'),
+        },
+        project: {
+          state: document.getElementById('step-project-state'),
+          detail: document.getElementById('step-project-detail'),
+        },
+        state: {
+          state: document.getElementById('step-state-state'),
+          detail: document.getElementById('step-state-detail'),
+        },
+        verify: {
+          state: document.getElementById('step-verify-state'),
+          detail: document.getElementById('step-verify-detail'),
+        },
+      };
+      const projectRootInputs = [startProjectRootInput, projectRootInput];
+      const projectRootLabels = [startProjectRootLabel, projectRootLabel];
 
       let isRecording = false;
-      let currentPanel = 'chat';
+      let currentPanel = 'start';
 
       apiBaseInput.value = localStorage.getItem('morpheus.apiBase') || DEFAULT_API_BASE;
-      projectRootInput.value = localStorage.getItem('morpheus.projectRoot') || '';
+      projectRootInputs.forEach((input) => {
+        input.value = localStorage.getItem('morpheus.projectRoot') || '';
+      });
       syncProjectRootLabel();
+      updateAgentConnectPreview();
 
       navItems.forEach((item) => {
         item.addEventListener('click', () => {
@@ -750,17 +1004,33 @@
         });
       });
 
+      projectRootInputs.forEach((input) => {
+        input.addEventListener('input', () => syncProjectRootInputs(input));
+      });
+
       function formatTime(date) {
         return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       }
 
       function selectedProjectRoot() {
-        const value = projectRootInput.value.trim();
+        const value = startProjectRootInput.value.trim() || projectRootInput.value.trim();
         return value.length > 0 ? value : null;
       }
 
       function syncProjectRootLabel() {
-        projectRootLabel.textContent = selectedProjectRoot() || 'Backend working directory';
+        const label = selectedProjectRoot() || 'Backend working directory';
+        projectRootLabels.forEach((element) => {
+          element.textContent = label;
+        });
+      }
+
+      function syncProjectRootInputs(sourceInput) {
+        const value = sourceInput.value;
+        projectRootInputs.forEach((input) => {
+          if (input !== sourceInput) input.value = value;
+        });
+        syncProjectRootLabel();
+        updateAgentConnectPreview();
       }
 
       function apiBase() {
@@ -775,6 +1045,92 @@
           }
         });
         return url;
+      }
+
+      function agentConnectEndpoint() {
+        return endpoint('/agent/connect', { project_root: selectedProjectRoot() }).toString();
+      }
+
+      function buildAgentPrompt(connectUrl = agentConnectEndpoint()) {
+        return [
+          'Before changing this project, connect to Morpheus:',
+          connectUrl,
+          '',
+          'Follow the manifest sequence: status, initialize if needed, compile, read WAKE.md, verify.',
+          'Read WAKE.md before edits and compile plus verify after meaningful changes.',
+        ].join('\n');
+      }
+
+      function updateAgentConnectPreview(payload = null) {
+        const connectUrl = agentConnectEndpoint();
+        agentConnectUrl.textContent = connectUrl;
+        agentPrompt.textContent = payload && payload.agent_prompt
+          ? payload.agent_prompt
+          : buildAgentPrompt(connectUrl);
+
+        if (!payload) return;
+
+        const state = payload.state || {};
+        if (!state.initialized) {
+          agentStateSummary.textContent = 'Agent state: project is not initialized';
+        } else if (!state.compiled) {
+          agentStateSummary.textContent = 'Agent state: initialized, not compiled';
+        } else {
+          agentStateSummary.textContent =
+            `Agent state: ${state.sources || 0} sources, ${state.claims || 0} claims`;
+        }
+      }
+
+      function setStep(step, state, label, detail) {
+        const target = setupSteps[step];
+        target.state.className = `step-state ${state}`;
+        target.state.textContent = label;
+        target.detail.textContent = detail;
+      }
+
+      function updateProjectSteps(status) {
+        if (!status || !status.initialized) {
+          setStep('project', 'pending', 'Pending', 'Initialize project');
+          setStep('state', 'pending', 'Pending', 'Compile to create WAKE.md');
+          setStep('verify', 'pending', 'Pending', 'Verify after compile');
+          return;
+        }
+
+        setStep('project', 'ready', 'Ready', selectedProjectRoot() || 'Backend working directory');
+        if (status.compiled) {
+          setStep(
+            'state',
+            'ready',
+            'Compiled',
+            `${status.sources || 0} sources, ${status.claims || 0} claims`
+          );
+        } else {
+          setStep('state', 'pending', 'Pending', 'Run compile');
+        }
+      }
+
+      async function refreshAgentConnect({ silent = true } = {}) {
+        updateAgentConnectPreview();
+        try {
+          const payload = await apiRequest('/agent/connect', {
+            params: { project_root: selectedProjectRoot() },
+          });
+          updateAgentConnectPreview(payload);
+          return payload;
+        } catch (error) {
+          agentStateSummary.textContent = `Agent connect unavailable: ${error.message}`;
+          if (!silent) addMessage(`Agent connect unavailable: ${error.message}`);
+          throw error;
+        }
+      }
+
+      async function copyText(text, label) {
+        try {
+          await navigator.clipboard.writeText(text);
+          addMessage(`${label} copied.`);
+        } catch (error) {
+          addMessage(`${label}: ${text}`);
+        }
       }
 
       async function apiRequest(path, { method = 'GET', body = null, params = {} } = {}) {
@@ -803,6 +1159,13 @@
           state === 'online' ? 'var(--success)' :
           state === 'error' ? 'var(--error)' :
           'var(--warning)';
+        if (state === 'online') {
+          setStep('backend', 'ready', 'Online', apiBase());
+        } else if (state === 'error') {
+          setStep('backend', 'error', 'Offline', text);
+        } else {
+          setStep('backend', 'pending', 'Check', text);
+        }
       }
 
       function addMessage(text, type = 'morpheus') {
@@ -860,6 +1223,8 @@
             document.getElementById('stat-evidence').textContent = '0';
             document.getElementById('last-compile').textContent = 'Not initialized';
             document.getElementById('receipt-chain').textContent = 'No receipts';
+            updateProjectSteps(status);
+            refreshAgentConnect({ silent: true }).catch(() => {});
             if (!silent) {
               addMessage('Project is not initialized. Use Settings → Initialize Project.');
             }
@@ -873,6 +1238,8 @@
             ? (status.compiled_at || 'Unknown')
             : 'Not compiled yet';
           document.getElementById('receipt-chain').textContent = status.compiled ? 'Available' : 'No receipts';
+          updateProjectSteps(status);
+          refreshAgentConnect({ silent: true }).catch(() => {});
           return status;
         } catch (error) {
           setBackendStatus('error', 'Backend offline');
@@ -903,6 +1270,7 @@
       async function runCompile() {
         addMessage('Running morpheus compile...');
         showTyping(true);
+        startCompileBtn.disabled = true;
         try {
           const projectRoot = selectedProjectRoot();
           const payload = await apiRequest('/compile', {
@@ -919,6 +1287,7 @@
           setBackendStatus('error', 'Backend error');
           addMessage(`Compile failed: ${error.message}`);
         } finally {
+          startCompileBtn.disabled = false;
           showTyping(false);
         }
       }
@@ -927,6 +1296,7 @@
         addMessage('Initializing project...');
         showTyping(true);
         initProjectBtn.disabled = true;
+        startInitBtn.disabled = true;
         try {
           const payload = await apiRequest('/init', {
             method: 'POST',
@@ -942,6 +1312,7 @@
           addMessage(`Initialize failed: ${error.message}`);
         } finally {
           initProjectBtn.disabled = false;
+          startInitBtn.disabled = false;
           showTyping(false);
         }
       }
@@ -949,6 +1320,7 @@
       async function runVerify() {
         addMessage('Running morpheus verify --all...');
         showTyping(true);
+        startVerifyBtn.disabled = true;
         try {
           const payload = await apiRequest('/verify', {
             method: 'POST',
@@ -960,12 +1332,18 @@
           addMessage(
             `${payload.valid ? 'Receipt chain verified.' : 'Receipt chain invalid.'} Receipt: ${payload.receipt_id}.${details}`
           );
+          if (payload.valid) {
+            setStep('verify', 'ready', 'Verified', `Receipt: ${payload.receipt_id}`);
+          } else {
+            setStep('verify', 'error', 'Invalid', payload.errors.join('; ') || 'Receipt invalid');
+          }
           await refreshStatus({ silent: true });
           mascotSpeak();
         } catch (error) {
           setBackendStatus('error', 'Backend error');
           addMessage(`Verify failed: ${error.message}`);
         } finally {
+          startVerifyBtn.disabled = false;
           showTyping(false);
         }
       }
@@ -1025,12 +1403,25 @@
       });
 
       initProjectBtn.addEventListener('click', runInit);
+      startInitBtn.addEventListener('click', runInit);
+      startCompileBtn.addEventListener('click', runCompile);
+      startVerifyBtn.addEventListener('click', runVerify);
+      copyAgentUrlBtn.addEventListener('click', () => {
+        copyText(agentConnectEndpoint(), 'Agent connect URL');
+      });
+      copyAgentPromptBtn.addEventListener('click', () => {
+        copyText(agentPrompt.textContent, 'Agent prompt');
+      });
+      refreshAgentConnectBtn.addEventListener('click', () => {
+        refreshAgentConnect({ silent: false });
+      });
       document.getElementById('compile-btn').addEventListener('click', runCompile);
       document.getElementById('verify-btn').addEventListener('click', runVerify);
       document.getElementById('save-settings-btn').addEventListener('click', () => {
         localStorage.setItem('morpheus.apiBase', apiBase());
-        localStorage.setItem('morpheus.projectRoot', projectRootInput.value.trim());
+        localStorage.setItem('morpheus.projectRoot', selectedProjectRoot() || '');
         syncProjectRootLabel();
+        updateAgentConnectPreview();
         addMessage('Settings saved. Refreshing backend status...');
         refreshStatus();
       });
