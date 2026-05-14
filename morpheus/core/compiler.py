@@ -9,7 +9,7 @@ import re
 
 from morpheus.core.config import MorpheusConfig
 from morpheus.core.models import Source, Claim, Evidence, ProjectState
-from morpheus.core.safe_io import reject_symlink_paths
+from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
 
 
 EVIDENCE_MARKERS = ["TODO:", "DECISION:", "FIXME:", "NOTE:", "HACK:", "XXX:"]
@@ -70,6 +70,7 @@ MARKER_CATEGORIES = {
 
 def compute_sha256(path: Path) -> str:
     reject_symlink_paths([path], "Source file")
+    reject_symlink_components(path, "Source file")
     h = hashlib.sha256()
     with path.open("rb") as file:
         for chunk in iter(lambda: file.read(1024 * 1024), b""):
