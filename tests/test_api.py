@@ -182,6 +182,20 @@ def test_verify_returns_invalid_response_for_broken_receipt_chain(tmp_path):
     assert any("expected exactly one root receipt" in error for error in payload["errors"])
 
 
+def test_verify_accepts_project_root_json_body(tmp_path):
+    MorpheusConfig(project_root=tmp_path).init_default()
+    (tmp_path / "README.md").write_text("TODO: verify API body contract\n")
+    client = api_client()
+
+    compile_response = client.post("/compile", json={"project_root": str(tmp_path)})
+    verify_response = client.post("/verify", json={"project_root": str(tmp_path)})
+
+    assert compile_response.status_code == 200
+    assert verify_response.status_code == 200
+    assert verify_response.json()["valid"] is True
+    assert verify_response.json()["receipt_id"] == compile_response.json()["receipt_id"]
+
+
 def test_verify_returns_bad_request_when_latest_receipt_tail_cannot_be_loaded(
     monkeypatch,
     tmp_path,
