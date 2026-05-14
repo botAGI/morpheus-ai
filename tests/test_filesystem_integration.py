@@ -154,6 +154,19 @@ def test_scan_ignores_symlinked_files_outside_root(tmp_path):
     assert changes == []
 
 
+def test_sha256_rejects_symlinked_files(tmp_path):
+    outside = tmp_path / "outside.txt"
+    outside.write_text("secret")
+    link = tmp_path / "link.txt"
+    try:
+        link.symlink_to(outside)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+
+    with pytest.raises(ValueError, match="must not be a symlink"):
+        FileSystemWatcher(tmp_path)._sha256(link)
+
+
 def test_scan_skips_files_that_cannot_be_hashed(tmp_path, monkeypatch):
     bad = tmp_path / "bad.md"
     good = tmp_path / "good.md"
