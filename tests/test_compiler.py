@@ -67,6 +67,19 @@ def test_compute_sha256_streams_large_files(monkeypatch):
             pytest.fail("temporary file cleanup should not use patched read_bytes")
 
 
+def test_compute_sha256_rejects_symlinked_files(tmp_path):
+    outside = tmp_path / "outside.txt"
+    outside.write_text("secret")
+    link = tmp_path / "link.txt"
+    try:
+        link.symlink_to(outside)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+
+    with pytest.raises(ValueError, match="must not be a symlink"):
+        compute_sha256(link)
+
+
 def test_compile_project_basic():
     with tempfile.TemporaryDirectory() as tmpdir:
         tmppath = Path(tmpdir)
