@@ -81,6 +81,10 @@ def _is_real_directory(path: Path) -> bool:
     return path.is_dir() and not path.is_symlink()
 
 
+def _has_symlink_component(path: Path) -> bool:
+    return any(component.is_symlink() for component in (path, *path.parents))
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "version": "0.1.0"}
@@ -209,7 +213,7 @@ def get_wake(project: str):
     ]
     
     for p in possible_paths:
-        if p.parent.is_symlink() or p.is_symlink():
+        if _has_symlink_component(p):
             continue
         if p.exists():
             try:
