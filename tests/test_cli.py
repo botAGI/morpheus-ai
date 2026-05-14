@@ -918,6 +918,23 @@ def test_integrate_list_does_not_require_service_argument():
     assert "Available Integrations" in result.output
 
 
+def test_integrate_list_reports_configured_github_token(monkeypatch, tmp_path):
+    runner = CliRunner()
+    token_path = tmp_path / ".morpheus" / "github_token.txt"
+    token_path.parent.mkdir(parents=True)
+    token_path.write_text("secret")
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    result = runner.invoke(app, ["integrate", "--list"])
+
+    assert result.exit_code == 0, result.output
+    github_lines = [line for line in result.output.splitlines() if "github" in line]
+    assert any(
+        "configured" in line and "not configured" not in line
+        for line in github_lines
+    )
+
+
 def test_integrate_unknown_service_exits_with_error():
     runner = CliRunner()
 
@@ -937,4 +954,23 @@ def test_integrate_github_rejects_token_directory(monkeypatch, tmp_path):
 
     assert result.exit_code == 1
     assert "GitHub token path is not a file" in result.output
+    assert "already configured" not in result.output
+
+
+def test_integrate_github_rejects_token_symlink(monkeypatch, tmp_path):
+    runner = CliRunner()
+    token_path = tmp_path / ".morpheus" / "github_token.txt"
+    token_path.parent.mkdir(parents=True)
+    external_token = tmp_path / "external-token.txt"
+    external_token.write_text("secret")
+    try:
+        token_path.symlink_to(external_token)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    result = runner.invoke(app, ["integrate", "github"])
+
+    assert result.exit_code == 1
+    assert "GitHub token path must not be a symlink" in result.output
     assert "already configured" not in result.output

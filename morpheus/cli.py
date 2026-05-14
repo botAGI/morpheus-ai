@@ -366,13 +366,21 @@ def integrate(
       github    - GitHub API via Personal Access Token
     """
     if list_services:
+        github_token_path = Path.home() / ".morpheus" / "github_token.txt"
+        if github_token_path.is_symlink() or (github_token_path.exists() and not github_token_path.is_file()):
+            github_status = "[red]invalid[/red]"
+        elif github_token_path.is_file():
+            github_status = "[green]configured[/green]"
+        else:
+            github_status = "[yellow]not configured[/yellow]"
+
         table = Table(title="Available Integrations")
         table.add_column("Service", style="cyan")
         table.add_column("Status", style="green")
         table.add_column("Auth", style="yellow")
         table.add_row("gmail", "[yellow]not configured[/yellow]", "OAuth2")
         table.add_row("calendar", "[yellow]not configured[/yellow]", "OAuth2")
-        table.add_row("github", "[yellow]not configured[/yellow]", "PAT")
+        table.add_row("github", github_status, "PAT")
         console.print(table)
         return
 
@@ -388,6 +396,9 @@ def integrate(
     
     if service == "github":
         token_path = Path.home() / ".morpheus" / "github_token.txt"
+        if token_path.is_symlink():
+            console.print(f"[red]GitHub token path must not be a symlink:[/red] {token_path}")
+            raise typer.Exit(1)
         if token_path.is_file():
             console.print("[green]✓ GitHub token already configured[/green]")
         elif token_path.exists():
