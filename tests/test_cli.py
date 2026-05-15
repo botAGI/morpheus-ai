@@ -2,6 +2,7 @@
 Tests for morpheus.cli.
 """
 import json
+import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -97,8 +98,15 @@ def test_serve_with_ui_starts_static_server_and_api(tmp_path, monkeypatch):
     uvicorn_calls = []
     static_calls = []
     server_events = []
+    ui_env_during_run = []
 
     def fake_run(app_path, *, host, port, reload):
+        ui_env_during_run.append(
+            {
+                "MORPHEUS_UI_HOST": os.environ.get("MORPHEUS_UI_HOST"),
+                "MORPHEUS_UI_PORT": os.environ.get("MORPHEUS_UI_PORT"),
+            }
+        )
         uvicorn_calls.append(
             {
                 "app_path": app_path,
@@ -160,6 +168,9 @@ def test_serve_with_ui_starts_static_server_and_api(tmp_path, monkeypatch):
         assert server_events == ["shutdown", "server_close"]
         assert "UI: http://127.0.0.1:5179/ui/index.html" in result.output
         assert "API: http://127.0.0.1:8123" in result.output
+        assert ui_env_during_run == [{"MORPHEUS_UI_HOST": None, "MORPHEUS_UI_PORT": "5179"}]
+        assert os.environ.get("MORPHEUS_UI_HOST") is None
+        assert os.environ.get("MORPHEUS_UI_PORT") is None
 
 
 def test_serve_with_ui_rejects_missing_ui_index(tmp_path, monkeypatch):

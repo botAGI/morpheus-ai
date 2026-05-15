@@ -8,7 +8,9 @@ Stop starting AI agents from scratch. Morpheus generates `WAKE.md` — a compile
 
 ```bash
 # Install
-pip install -e .
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e ".[dev]"
 
 # Initialize project
 morpheus init
@@ -173,6 +175,29 @@ morpheus diagnostics --json
 morpheus bootstrap-agent --dry-run
 morpheus bootstrap-agent --api-base http://127.0.0.1:8000
 ```
+
+## Development and Release
+
+Local verification:
+
+```bash
+make install-dev
+make verify
+make build
+```
+
+Container smoke:
+
+```bash
+make docker-build
+make docker-run
+```
+
+Release automation lives in `.github/workflows/`. CI runs lint, tests, and
+package builds on pull requests and pushes. Tagged releases matching `v*.*.*`
+publish through PyPI Trusted Publishing after the `pypi` environment is
+configured on PyPI. See [docs/RELEASE.md](docs/RELEASE.md), [SECURITY.md](SECURITY.md),
+and [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## CLI Reference
 

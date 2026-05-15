@@ -5,6 +5,7 @@ Morpheus CLI - morpheus <command>
 Agent State Compiler with verifiable provenance.
 """
 import json
+import os
 import socket
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -903,6 +904,10 @@ def serve(
 
     static_server = None
     bound_ui_host = ui_host or host
+    previous_ui_env = {
+        "MORPHEUS_UI_HOST": os.environ.get("MORPHEUS_UI_HOST"),
+        "MORPHEUS_UI_PORT": os.environ.get("MORPHEUS_UI_PORT"),
+    }
     if ui:
         root = resolve_ui_root_or_exit(ui_root)
         try:
@@ -914,6 +919,11 @@ def serve(
         except OSError as exc:
             console.print(f"[red]UI server failed:[/red] {exc}")
             raise typer.Exit(1) from exc
+        os.environ["MORPHEUS_UI_PORT"] = str(ui_port)
+        if ui_host is None:
+            os.environ.pop("MORPHEUS_UI_HOST", None)
+        else:
+            os.environ["MORPHEUS_UI_HOST"] = bound_ui_host
 
     console.print(Panel.fit(
         "\n".join(serve_summary_lines(host, port, bound_ui_host if ui else None, ui_port)),
@@ -928,6 +938,11 @@ def serve(
             reload=reload,
         )
     finally:
+        for name, previous_value in previous_ui_env.items():
+            if previous_value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = previous_value
         if static_server is not None:
             static_server.shutdown()
             static_server.server_close()
