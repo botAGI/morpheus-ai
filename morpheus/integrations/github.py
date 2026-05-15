@@ -60,7 +60,13 @@ class GitHubIntegration:
         data = _github_get_json_list(
             f"{self.api_url}/repos/{owner}/{repo}/issues",
             headers=headers,
-            params={"state": state, "per_page": _github_per_page(max_results)},
+            params={
+                "state": state,
+                "sort": "updated",
+                "direction": "desc",
+                "since": cutoff.isoformat(),
+                "per_page": _github_per_page(max_results),
+            },
             stop_when=lambda items: _github_recent_issue_count(items, cutoff) >= max_results,
         )
         recent_issues = []
@@ -73,28 +79,34 @@ class GitHubIntegration:
                 continue
             updated_at = _parse_github_datetime(issue.get("updated_at"))
             if updated_at and updated_at > cutoff:
-                recent_issues.append(issue)
-                if len(recent_issues) >= max_results:
-                    break
-        return recent_issues
+                recent_issues.append((updated_at, issue))
+        recent_issues.sort(key=lambda item: item[0], reverse=True)
+        return [issue for _, issue in recent_issues[:max_results]]
     
     def get_pulls(
         self,
         owner: str,
         repo: str,
         state: str = "all",
+        days: int = 30,
         max_results: int = 100,
     ) -> list[dict]:
         """Get pull requests"""
-        if max_results <= 0:
+        if days < 0 or max_results <= 0:
             return []
         token = self._get_token()
         headers = {"Authorization": f"token {token}"} if token else {}
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         data = _github_get_json_list(
             f"{self.api_url}/repos/{owner}/{repo}/pulls",
             headers=headers,
-            params={"state": state, "per_page": _github_per_page(max_results)},
-            stop_when=lambda items: _github_pull_count(items) >= max_results,
+            params={
+                "state": state,
+                "sort": "updated",
+                "direction": "desc",
+                "per_page": _github_per_page(max_results),
+            },
+            stop_when=lambda items: _github_recent_pull_count(items, cutoff) >= max_results,
         )
         if not isinstance(data, list):
             return []
@@ -102,10 +114,11 @@ class GitHubIntegration:
         for pull in data:
             if not isinstance(pull, dict):
                 continue
-            pulls.append(pull)
-            if len(pulls) >= max_results:
-                break
-        return pulls
+            updated_at = _parse_github_datetime(pull.get("updated_at"))
+            if updated_at and updated_at > cutoff:
+                pulls.append((updated_at, pull))
+        pulls.sort(key=lambda item: item[0], reverse=True)
+        return [pull for _, pull in pulls[:max_results]]
 
     def get_commits(
         self,
@@ -135,10 +148,9 @@ class GitHubIntegration:
                 continue
             committed_at = _github_commit_datetime(commit)
             if committed_at and committed_at > cutoff:
-                commits.append(commit)
-                if len(commits) >= max_results:
-                    break
-        return commits
+                commits.append((committed_at, commit))
+        commits.sort(key=lambda item: item[0], reverse=True)
+        return [commit for _, commit in commits[:max_results]]
 
     def extract_evidence(self, item: dict, item_type: str | None = None) -> list[dict]:
         """Extract claim-like statements from a GitHub issue, pull request, or commit."""
@@ -191,15 +203,16 @@ def _github_get_json_list(
     origin_url = url
     next_url = url
     next_params = params
+    seen_urls = {url}
 
     for _ in range(max_pages):
         response = _github_get_response(next_url, headers=headers, params=next_params)
         if response is None:
-            return None
+            return items or None
 
         data = _safe_response_json(response)
         if not isinstance(data, list):
-            return None
+            return items or None
 
         items.extend(data)
         if stop_when is not None and stop_when(items):
@@ -209,6 +222,9 @@ def _github_get_json_list(
             break
         if not _github_same_origin(origin_url, next_url):
             break
+        if next_url in seen_urls:
+            break
+        seen_urls.add(next_url)
         next_params = None
 
     return items
@@ -315,8 +331,15 @@ def _github_recent_issue_count(items: list, cutoff: datetime) -> int:
     return count
 
 
-def _github_pull_count(items: list) -> int:
-    return sum(1 for pull in items if isinstance(pull, dict))
+def _github_recent_pull_count(items: list, cutoff: datetime) -> int:
+    count = 0
+    for pull in items:
+        if not isinstance(pull, dict):
+            continue
+        updated_at = _parse_github_datetime(pull.get("updated_at"))
+        if updated_at and updated_at > cutoff:
+            count += 1
+    return count
 
 
 def _github_recent_commit_count(items: list, cutoff: datetime) -> int:

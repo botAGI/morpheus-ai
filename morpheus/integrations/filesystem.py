@@ -58,6 +58,7 @@ DEFAULT_EXCLUDE_PATTERNS = {
     "id_rsa",
 }
 HEX_DIGITS = set(string.hexdigits)
+CLAIM_MARKERS = ("TODO:", "FIXME:", "DECISION:", "NOTE:", "HACK:", "XXX:")
 
 
 class FileSystemWatcher:
@@ -155,8 +156,9 @@ class FileSystemWatcher:
         claims = []
         
         for i, line in enumerate(lines, 1):
-            for marker in ["TODO:", "FIXME:", "DECISION:", "NOTE:", "HACK:", "XXX:"]:
-                if marker in line:
+            folded_line = line.casefold()
+            for marker in CLAIM_MARKERS:
+                if marker.casefold() in folded_line:
                     claims.append({
                         "path": path,
                         "line": i,

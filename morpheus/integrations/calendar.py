@@ -51,14 +51,15 @@ class CalendarIntegration:
             return []
 
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-        events = []
+        dated_events = []
         for event in data:
             if not isinstance(event, dict):
                 continue
             start = _parse_cache_datetime(event.get("start"))
             if start and start > cutoff:
-                events.append(event)
-        return events
+                dated_events.append((start, event))
+        dated_events.sort(key=lambda item: item[0], reverse=True)
+        return [event for _, event in dated_events]
     
     def extract_evidence(self, event: dict) -> list[dict]:
         """Extract claim-like statements from event"""

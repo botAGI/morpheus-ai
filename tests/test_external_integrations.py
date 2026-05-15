@@ -38,6 +38,23 @@ def github_json_response(payload, *, link: str | None = None):
     return httpx.Response(200, request=request, json=payload, headers=headers)
 
 
+def assert_github_issue_params(params, *, state: str = "all", per_page: int = 100):
+    assert params["state"] == state
+    assert params["sort"] == "updated"
+    assert params["direction"] == "desc"
+    assert datetime.fromisoformat(params["since"]).tzinfo is not None
+    assert params["per_page"] == per_page
+
+
+def assert_github_pull_params(params, *, state: str = "all", per_page: int = 100):
+    assert params == {
+        "state": state,
+        "sort": "updated",
+        "direction": "desc",
+        "per_page": per_page,
+    }
+
+
 def test_github_get_repo_returns_empty_dict_for_non_object_response(monkeypatch, tmp_path):
     class Response:
         def raise_for_status(self):
@@ -179,6 +196,27 @@ def test_gmail_cache_loads_rfc3339_z_dates(tmp_path):
     )
 
     assert [email["id"] for email in emails] == ["gmail-z"]
+
+
+def test_gmail_cache_returns_newest_emails_first(tmp_path):
+    now = datetime.now(timezone.utc)
+    cache_path = tmp_path / "gmail_cache.json"
+    cache_path.write_text(
+        json.dumps(
+            [
+                {"id": "oldest", "date": (now - timedelta(days=3)).isoformat()},
+                {"id": "newest", "date": now.isoformat()},
+                {"id": "middle", "date": (now - timedelta(days=1)).isoformat()},
+            ]
+        )
+    )
+
+    emails = GmailIntegration(token_path=tmp_path / "token.json")._load_from_cache(
+        cache_path,
+        days=30,
+    )
+
+    assert [email["id"] for email in emails] == ["newest", "middle", "oldest"]
 
 
 def test_gmail_parse_cache_datetime_normalizes_z_for_python310(monkeypatch):
@@ -395,6 +433,27 @@ def test_calendar_cache_loads_rfc3339_z_dates(tmp_path):
     assert [event["id"] for event in events] == ["calendar-z"]
 
 
+def test_calendar_cache_returns_newest_events_first(tmp_path):
+    now = datetime.now(timezone.utc)
+    cache_path = tmp_path / "calendar_cache.json"
+    cache_path.write_text(
+        json.dumps(
+            [
+                {"id": "oldest", "start": (now - timedelta(days=3)).isoformat()},
+                {"id": "newest", "start": now.isoformat()},
+                {"id": "middle", "start": (now - timedelta(days=1)).isoformat()},
+            ]
+        )
+    )
+
+    events = CalendarIntegration(token_path=tmp_path / "token.json")._load_from_cache(
+        cache_path,
+        days=30,
+    )
+
+    assert [event["id"] for event in events] == ["newest", "middle", "oldest"]
+
+
 def test_calendar_parse_cache_datetime_normalizes_z_for_python310(monkeypatch):
     class LegacyDateTime:
         @staticmethod
@@ -560,7 +619,7 @@ def test_github_get_issues_filters_by_recent_update(monkeypatch, tmp_path):
 
     def fake_get(url, *, headers, params, timeout):
         assert url == "https://api.github.com/repos/owner/repo/issues"
-        assert params == {"state": "all", "per_page": 100}
+        assert_github_issue_params(params, state="all", per_page=100)
         assert timeout == 10
         return Response()
 
@@ -573,6 +632,34 @@ def test_github_get_issues_filters_by_recent_update(monkeypatch, tmp_path):
     )
 
     assert [issue["number"] for issue in issues] == [1]
+
+
+def test_github_get_issues_requests_updated_sort_and_since_cutoff(monkeypatch, tmp_path):
+    captured_params = []
+    before_request = datetime.now(timezone.utc) - timedelta(days=30, seconds=1)
+
+    def fake_get(url, *, headers, params, timeout):
+        captured_params.append(params)
+        return github_json_response([])
+
+    monkeypatch.setattr("httpx.get", fake_get)
+
+    issues = GitHubIntegration(token_path=tmp_path / "missing-token").get_issues(
+        "owner",
+        "repo",
+        state="open",
+        days=30,
+        max_results=25,
+    )
+
+    assert issues == []
+    assert captured_params
+    assert captured_params[0]["state"] == "open"
+    assert captured_params[0]["per_page"] == 25
+    assert captured_params[0]["sort"] == "updated"
+    assert captured_params[0]["direction"] == "desc"
+    since = datetime.fromisoformat(captured_params[0]["since"])
+    assert before_request <= since <= datetime.now(timezone.utc)
 
 
 def test_github_get_issues_follows_next_page_links(monkeypatch, tmp_path):
@@ -601,13 +688,61 @@ def test_github_get_issues_follows_next_page_links(monkeypatch, tmp_path):
     )
 
     assert [issue["number"] for issue in issues] == [1, 2]
-    assert calls == [
-        (
-            "https://api.github.com/repos/owner/repo/issues",
-            {"state": "open", "per_page": 100},
-        ),
-        (second_page, None),
-    ]
+    assert calls[0][0] == "https://api.github.com/repos/owner/repo/issues"
+    assert_github_issue_params(calls[0][1], state="open", per_page=100)
+    assert calls[1:] == [(second_page, None)]
+
+
+def test_github_get_issues_stops_when_next_page_url_repeats(monkeypatch, tmp_path):
+    now = datetime.now(timezone.utc)
+    first_page = "https://api.github.com/repos/owner/repo/issues"
+    calls = []
+
+    def fake_get(url, *, headers, params=None, timeout):
+        calls.append((url, params))
+        if len(calls) > 1:
+            raise AssertionError("GitHub pagination should stop before repeating a URL")
+        return github_json_response(
+            [{"number": 1, "updated_at": now.isoformat()}],
+            link=f'<{first_page}>; rel="next"',
+        )
+
+    monkeypatch.setattr("httpx.get", fake_get)
+
+    issues = GitHubIntegration(token_path=tmp_path / "missing-token").get_issues(
+        "owner",
+        "repo",
+        days=30,
+    )
+
+    assert [issue["number"] for issue in issues] == [1]
+    assert len(calls) == 1
+    assert calls[0][0] == first_page
+
+
+def test_github_get_issues_keeps_previous_pages_when_later_page_errors(monkeypatch, tmp_path):
+    now = datetime.now(timezone.utc)
+    second_page = "https://api.github.com/repos/owner/repo/issues?page=2"
+
+    def fake_get(url, *, headers, params=None, timeout):
+        if url == second_page:
+            request = httpx.Request("GET", url)
+            raise httpx.ConnectError("connection dropped", request=request)
+        return github_json_response(
+            [{"number": 1, "updated_at": now.isoformat()}],
+            link=f'<{second_page}>; rel="next"',
+        )
+
+    monkeypatch.setattr("httpx.get", fake_get)
+
+    issues = GitHubIntegration(token_path=tmp_path / "missing-token").get_issues(
+        "owner",
+        "repo",
+        days=30,
+        max_results=2,
+    )
+
+    assert [issue["number"] for issue in issues] == [1]
 
 
 def test_github_get_issues_ignores_cross_origin_next_page_links(monkeypatch, tmp_path):
@@ -632,12 +767,9 @@ def test_github_get_issues_ignores_cross_origin_next_page_links(monkeypatch, tmp
     )
 
     assert [issue["number"] for issue in issues] == [1]
-    assert calls == [
-        (
-            "https://api.github.com/repos/owner/repo/issues",
-            {"state": "all", "per_page": 100},
-        )
-    ]
+    assert len(calls) == 1
+    assert calls[0][0] == "https://api.github.com/repos/owner/repo/issues"
+    assert_github_issue_params(calls[0][1], state="all", per_page=100)
 
 
 def test_github_get_issues_respects_max_results(monkeypatch, tmp_path):
@@ -661,6 +793,30 @@ def test_github_get_issues_respects_max_results(monkeypatch, tmp_path):
     )
 
     assert [issue["number"] for issue in issues] == [1]
+
+
+def test_github_get_issues_returns_newest_recent_issues_first(monkeypatch, tmp_path):
+    now = datetime.now(timezone.utc)
+
+    monkeypatch.setattr(
+        "httpx.get",
+        lambda *args, **kwargs: github_json_response(
+            [
+                {"number": 1, "updated_at": (now - timedelta(days=3)).isoformat()},
+                {"number": 2, "updated_at": now.isoformat()},
+                {"number": 3, "updated_at": (now - timedelta(days=1)).isoformat()},
+            ]
+        ),
+    )
+
+    issues = GitHubIntegration(token_path=tmp_path / "missing-token").get_issues(
+        "owner",
+        "repo",
+        days=30,
+        max_results=2,
+    )
+
+    assert [issue["number"] for issue in issues] == [2, 3]
 
 
 def test_github_get_issues_stops_fetching_pages_at_max_results(monkeypatch, tmp_path):
@@ -820,12 +976,18 @@ def test_github_get_issues_skips_pull_request_issue_rows(monkeypatch, tmp_path):
 
 
 def test_github_get_pulls_returns_only_object_rows(monkeypatch, tmp_path):
+    now = datetime.now(timezone.utc)
+
     class Response:
         def raise_for_status(self):
             return None
 
         def json(self):
-            return [{"number": 1}, "not a pull", {"number": 2}]
+            return [
+                {"number": 1, "updated_at": now.isoformat()},
+                "not a pull",
+                {"number": 2, "updated_at": now.isoformat()},
+            ]
 
     monkeypatch.setattr("httpx.get", lambda *args, **kwargs: Response())
 
@@ -838,6 +1000,7 @@ def test_github_get_pulls_returns_only_object_rows(monkeypatch, tmp_path):
 
 
 def test_github_get_pulls_follows_next_page_links(monkeypatch, tmp_path):
+    now = datetime.now(timezone.utc)
     second_page = "https://api.github.com/repos/owner/repo/pulls?page=2"
     calls = []
 
@@ -847,10 +1010,10 @@ def test_github_get_pulls_follows_next_page_links(monkeypatch, tmp_path):
         assert timeout == 10
         if len(calls) == 1:
             return github_json_response(
-                [{"number": 1}],
+                [{"number": 1, "updated_at": now.isoformat()}],
                 link=f'<{second_page}>; rel="next"',
             )
-        return github_json_response([{"number": 2}])
+        return github_json_response([{"number": 2, "updated_at": now.isoformat()}])
 
     monkeypatch.setattr("httpx.get", fake_get)
 
@@ -861,19 +1024,22 @@ def test_github_get_pulls_follows_next_page_links(monkeypatch, tmp_path):
     )
 
     assert [pull["number"] for pull in pulls] == [1, 2]
-    assert calls == [
-        (
-            "https://api.github.com/repos/owner/repo/pulls",
-            {"state": "closed", "per_page": 100},
-        ),
-        (second_page, None),
-    ]
+    assert calls[0][0] == "https://api.github.com/repos/owner/repo/pulls"
+    assert_github_pull_params(calls[0][1], state="closed", per_page=100)
+    assert calls[1:] == [(second_page, None)]
 
 
 def test_github_get_pulls_respects_max_results(monkeypatch, tmp_path):
+    now = datetime.now(timezone.utc)
+
     monkeypatch.setattr(
         "httpx.get",
-        lambda *args, **kwargs: github_json_response([{"number": 1}, {"number": 2}]),
+        lambda *args, **kwargs: github_json_response(
+            [
+                {"number": 1, "updated_at": now.isoformat()},
+                {"number": 2, "updated_at": now.isoformat()},
+            ]
+        ),
     )
 
     pulls = GitHubIntegration(token_path=tmp_path / "missing-token").get_pulls(
@@ -885,13 +1051,44 @@ def test_github_get_pulls_respects_max_results(monkeypatch, tmp_path):
     assert [pull["number"] for pull in pulls] == [1]
 
 
+def test_github_get_pulls_filters_and_sorts_by_recent_update(monkeypatch, tmp_path):
+    now = datetime.now(timezone.utc)
+
+    monkeypatch.setattr(
+        "httpx.get",
+        lambda *args, **kwargs: github_json_response(
+            [
+                {"number": 1, "updated_at": (now - timedelta(days=45)).isoformat()},
+                {"number": 2, "updated_at": (now - timedelta(days=1)).isoformat()},
+                {"number": 3, "updated_at": now.isoformat()},
+                {"number": 4, "updated_at": "not-a-date"},
+                {"number": 5},
+                "not a pull",
+            ]
+        ),
+    )
+
+    pulls = GitHubIntegration(token_path=tmp_path / "missing-token").get_pulls(
+        "owner",
+        "repo",
+        days=30,
+        max_results=1,
+    )
+
+    assert [pull["number"] for pull in pulls] == [3]
+
+
 def test_github_get_pulls_stops_fetching_pages_at_max_results(monkeypatch, tmp_path):
+    now = datetime.now(timezone.utc)
     second_page = "https://api.github.com/repos/owner/repo/pulls?page=2"
 
     def fake_get(url, *, headers, params=None, timeout):
         if url == second_page:
             raise AssertionError("GitHub pulls should stop after max_results")
-        return github_json_response([{"number": 1}], link=f'<{second_page}>; rel="next"')
+        return github_json_response(
+            [{"number": 1, "updated_at": now.isoformat()}],
+            link=f'<{second_page}>; rel="next"',
+        )
 
     monkeypatch.setattr("httpx.get", fake_get)
 
@@ -902,6 +1099,24 @@ def test_github_get_pulls_stops_fetching_pages_at_max_results(monkeypatch, tmp_p
     )
 
     assert [pull["number"] for pull in pulls] == [1]
+
+
+def test_github_get_pulls_returns_empty_list_for_negative_days_without_request(
+    monkeypatch,
+    tmp_path,
+):
+    def fail_request(*args, **kwargs):
+        raise AssertionError("GitHub pulls should not be fetched")
+
+    monkeypatch.setattr("httpx.get", fail_request)
+
+    pulls = GitHubIntegration(token_path=tmp_path / "missing-token").get_pulls(
+        "owner",
+        "repo",
+        days=-1,
+    )
+
+    assert pulls == []
 
 
 def test_github_get_pulls_returns_empty_list_for_non_positive_max_results(
@@ -1038,6 +1253,36 @@ def test_github_get_commits_respects_max_results(monkeypatch, tmp_path):
     )
 
     assert [commit["sha"] for commit in commits] == ["new-a"]
+
+
+def test_github_get_commits_returns_newest_recent_commits_first(monkeypatch, tmp_path):
+    now = datetime.now(timezone.utc)
+
+    monkeypatch.setattr(
+        "httpx.get",
+        lambda *args, **kwargs: github_json_response(
+            [
+                {
+                    "sha": "oldest",
+                    "commit": {"committer": {"date": (now - timedelta(days=3)).isoformat()}},
+                },
+                {"sha": "newest", "commit": {"committer": {"date": now.isoformat()}}},
+                {
+                    "sha": "middle",
+                    "commit": {"author": {"date": (now - timedelta(days=1)).isoformat()}},
+                },
+            ]
+        ),
+    )
+
+    commits = GitHubIntegration(token_path=tmp_path / "missing-token").get_commits(
+        "owner",
+        "repo",
+        days=30,
+        max_results=2,
+    )
+
+    assert [commit["sha"] for commit in commits] == ["newest", "middle"]
 
 
 def test_github_get_commits_stops_fetching_pages_at_max_results(monkeypatch, tmp_path):

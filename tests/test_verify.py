@@ -1,6 +1,7 @@
 """
 Tests for morpheus.core.verify.
 """
+import base64
 import json
 from pathlib import Path
 
@@ -8,7 +9,12 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.hazmat.primitives import serialization
 
-from morpheus.core.provenance import build_receipt, compute_sha256_file
+from morpheus.core.provenance import (
+    build_receipt,
+    compute_sha256_file,
+    evidence_jsonl_bytes,
+    receipt_signature_payload,
+)
 from morpheus.core.verify import verify_receipt_chain
 
 
@@ -38,15 +44,42 @@ def _write_receipt(receipts_dir: Path, name: str, receipt: dict) -> Path:
     return receipt_path
 
 
+def _write_artifacts(morpheus_dir: Path, state_dict: dict, wake_md: str = "# WAKE\n") -> dict:
+    morpheus_dir.mkdir(parents=True, exist_ok=True)
+    wake_path = morpheus_dir / "WAKE.md"
+    state_path = morpheus_dir / "state.json"
+    evidence_path = morpheus_dir / "evidence.jsonl"
+
+    wake_path.write_text(wake_md)
+    state_path.write_text(json.dumps(state_dict, default=str))
+    evidence_path.write_bytes(evidence_jsonl_bytes(state_dict.get("evidence", [])))
+
+    return {
+        "wake_md_sha": compute_sha256_file(wake_path),
+        "state_json_sha": compute_sha256_file(state_path),
+        "evidence_jsonl_sha": compute_sha256_file(evidence_path),
+    }
+
+
+def _resign_receipt(receipt: dict, private_key_path: Path) -> None:
+    private_key = ed25519.Ed25519PrivateKey.from_private_bytes(private_key_path.read_bytes())
+    signature = private_key.sign(receipt_signature_payload(receipt))
+    receipt["signature"]["signature_b64"] = base64.b64encode(signature).decode()
+
+
 def test_verify_receipt_chain_accepts_valid_signed_receipt(tmp_path):
     morpheus_dir = tmp_path / ".morpheus"
     private_key_path = _write_keypair(morpheus_dir / "keys")
+    state_dict = {"claims": [{"id": "clm_0001", "status": "active"}], "evidence": []}
+    artifact_hashes = _write_artifacts(morpheus_dir, state_dict)
 
     receipt = build_receipt(
-        state_dict={"claims": [{"id": "clm_0001", "status": "active"}], "evidence": []},
-        wake_md_sha="a" * 64,
+        state_dict=state_dict,
+        wake_md_sha=artifact_hashes["wake_md_sha"],
         sources_data=[],
         private_key_path=private_key_path,
+        state_json_sha=artifact_hashes["state_json_sha"],
+        evidence_jsonl_sha=artifact_hashes["evidence_jsonl_sha"],
     )
     _write_receipt(morpheus_dir / "receipts", "receipt_001.json", receipt)
 
@@ -54,6 +87,30 @@ def test_verify_receipt_chain_accepts_valid_signed_receipt(tmp_path):
 
     assert valid
     assert errors == []
+
+
+def test_verify_receipt_chain_requires_evidence_hash_field(tmp_path):
+    morpheus_dir = tmp_path / ".morpheus"
+    private_key_path = _write_keypair(morpheus_dir / "keys")
+    state_dict = {"claims": [], "evidence": []}
+    artifact_hashes = _write_artifacts(morpheus_dir, state_dict)
+
+    receipt = build_receipt(
+        state_dict=state_dict,
+        wake_md_sha=artifact_hashes["wake_md_sha"],
+        sources_data=[],
+        private_key_path=private_key_path,
+        state_json_sha=artifact_hashes["state_json_sha"],
+        evidence_jsonl_sha=artifact_hashes["evidence_jsonl_sha"],
+    )
+    receipt.pop("evidence_jsonl_sha256")
+    _resign_receipt(receipt, private_key_path)
+    _write_receipt(morpheus_dir / "receipts", "receipt_001.json", receipt)
+
+    valid, errors = verify_receipt_chain(morpheus_dir)
+
+    assert not valid
+    assert "receipt_001.json: missing field 'evidence_jsonl_sha256'" in errors
 
 
 def test_verify_receipt_chain_rejects_symlinked_morpheus_dir(tmp_path):
@@ -179,6 +236,24 @@ def test_verify_receipt_chain_reports_unreadable_latest_wake_artifact(tmp_path):
     assert any("latest WAKE.md unreadable" in error for error in errors)
 
 
+def test_verify_receipt_chain_rejects_missing_latest_wake_artifact(tmp_path):
+    morpheus_dir = tmp_path / ".morpheus"
+    private_key_path = _write_keypair(morpheus_dir / "keys")
+
+    receipt = build_receipt(
+        state_dict={"claims": [], "evidence": []},
+        wake_md_sha="0" * 64,
+        sources_data=[],
+        private_key_path=private_key_path,
+    )
+    _write_receipt(morpheus_dir / "receipts", "receipt_001.json", receipt)
+
+    valid, errors = verify_receipt_chain(morpheus_dir)
+
+    assert not valid
+    assert any("latest WAKE.md missing" in error for error in errors)
+
+
 def test_verify_receipt_chain_rejects_symlinked_latest_wake_artifact(tmp_path):
     morpheus_dir = tmp_path / ".morpheus"
     private_key_path = _write_keypair(morpheus_dir / "keys")
@@ -223,15 +298,17 @@ def test_verify_receipt_chain_rejects_broken_symlink_latest_wake_artifact(tmp_pa
 def test_verify_receipt_chain_rejects_latest_state_artifact_mismatch(tmp_path):
     morpheus_dir = tmp_path / ".morpheus"
     private_key_path = _write_keypair(morpheus_dir / "keys")
+    state_dict = {"claims": [], "evidence": []}
+    artifact_hashes = _write_artifacts(morpheus_dir, state_dict)
     state_path = morpheus_dir / "state.json"
-    state_path.write_text('{"claims": [], "evidence": []}')
 
     receipt = build_receipt(
-        state_dict={"claims": [], "evidence": []},
-        wake_md_sha="0" * 64,
+        state_dict=state_dict,
+        wake_md_sha=artifact_hashes["wake_md_sha"],
         sources_data=[],
         private_key_path=private_key_path,
-        state_json_sha=compute_sha256_file(state_path),
+        state_json_sha=artifact_hashes["state_json_sha"],
+        evidence_jsonl_sha=artifact_hashes["evidence_jsonl_sha"],
     )
     _write_receipt(morpheus_dir / "receipts", "receipt_001.json", receipt)
     state_path.write_text('{"claims": [{"id": "tampered"}], "evidence": []}')
@@ -245,15 +322,17 @@ def test_verify_receipt_chain_rejects_latest_state_artifact_mismatch(tmp_path):
 def test_verify_receipt_chain_rejects_latest_evidence_artifact_mismatch(tmp_path):
     morpheus_dir = tmp_path / ".morpheus"
     private_key_path = _write_keypair(morpheus_dir / "keys")
+    state_dict = {"claims": [], "evidence": [{"id": "ev_0001"}]}
+    artifact_hashes = _write_artifacts(morpheus_dir, state_dict)
     evidence_path = morpheus_dir / "evidence.jsonl"
-    evidence_path.write_text('{"id":"ev_0001"}\n')
 
     receipt = build_receipt(
-        state_dict={"claims": [], "evidence": [{"id": "ev_0001"}]},
-        wake_md_sha="0" * 64,
+        state_dict=state_dict,
+        wake_md_sha=artifact_hashes["wake_md_sha"],
         sources_data=[],
         private_key_path=private_key_path,
-        evidence_jsonl_sha=compute_sha256_file(evidence_path),
+        state_json_sha=artifact_hashes["state_json_sha"],
+        evidence_jsonl_sha=artifact_hashes["evidence_jsonl_sha"],
     )
     _write_receipt(morpheus_dir / "receipts", "receipt_001.json", receipt)
     evidence_path.write_text('{"id":"ev_tampered"}\n')
@@ -267,20 +346,24 @@ def test_verify_receipt_chain_rejects_latest_evidence_artifact_mismatch(tmp_path
 def test_verify_receipt_chain_validates_previous_receipt_link(tmp_path):
     morpheus_dir = tmp_path / ".morpheus"
     private_key_path = _write_keypair(morpheus_dir / "keys")
+    state_dict = {"claims": [], "evidence": []}
+    artifact_hashes = _write_artifacts(morpheus_dir, state_dict)
 
     first = build_receipt(
-        state_dict={"claims": [], "evidence": []},
+        state_dict=state_dict,
         wake_md_sha="d" * 64,
         sources_data=[],
         private_key_path=private_key_path,
     )
     first_path = _write_receipt(morpheus_dir / "receipts", "receipt_001.json", first)
     second = build_receipt(
-        state_dict={"claims": [], "evidence": []},
-        wake_md_sha="e" * 64,
+        state_dict=state_dict,
+        wake_md_sha=artifact_hashes["wake_md_sha"],
         sources_data=[],
         private_key_path=private_key_path,
         prev_hash=compute_sha256_file(first_path),
+        state_json_sha=artifact_hashes["state_json_sha"],
+        evidence_jsonl_sha=artifact_hashes["evidence_jsonl_sha"],
     )
     _write_receipt(morpheus_dir / "receipts", "receipt_002.json", second)
 
@@ -293,20 +376,24 @@ def test_verify_receipt_chain_validates_previous_receipt_link(tmp_path):
 def test_verify_receipt_chain_orders_receipts_by_previous_hash_not_filename(tmp_path):
     morpheus_dir = tmp_path / ".morpheus"
     private_key_path = _write_keypair(morpheus_dir / "keys")
+    state_dict = {"claims": [], "evidence": []}
+    artifact_hashes = _write_artifacts(morpheus_dir, state_dict)
 
     first = build_receipt(
-        state_dict={"claims": [], "evidence": []},
+        state_dict=state_dict,
         wake_md_sha="4" * 64,
         sources_data=[],
         private_key_path=private_key_path,
     )
     first_path = _write_receipt(morpheus_dir / "receipts", "receipt_z_first.json", first)
     second = build_receipt(
-        state_dict={"claims": [], "evidence": []},
-        wake_md_sha="5" * 64,
+        state_dict=state_dict,
+        wake_md_sha=artifact_hashes["wake_md_sha"],
         sources_data=[],
         private_key_path=private_key_path,
         prev_hash=compute_sha256_file(first_path),
+        state_json_sha=artifact_hashes["state_json_sha"],
+        evidence_jsonl_sha=artifact_hashes["evidence_jsonl_sha"],
     )
     _write_receipt(morpheus_dir / "receipts", "receipt_a_second.json", second)
 
@@ -319,20 +406,24 @@ def test_verify_receipt_chain_orders_receipts_by_previous_hash_not_filename(tmp_
 def test_verify_receipt_chain_detects_previous_receipt_file_tampering(tmp_path):
     morpheus_dir = tmp_path / ".morpheus"
     private_key_path = _write_keypair(morpheus_dir / "keys")
+    state_dict = {"claims": [], "evidence": []}
+    artifact_hashes = _write_artifacts(morpheus_dir, state_dict)
 
     first = build_receipt(
-        state_dict={"claims": [], "evidence": []},
+        state_dict=state_dict,
         wake_md_sha="1" * 64,
         sources_data=[],
         private_key_path=private_key_path,
     )
     first_path = _write_receipt(morpheus_dir / "receipts", "receipt_001.json", first)
     second = build_receipt(
-        state_dict={"claims": [], "evidence": []},
-        wake_md_sha="2" * 64,
+        state_dict=state_dict,
+        wake_md_sha=artifact_hashes["wake_md_sha"],
         sources_data=[],
         private_key_path=private_key_path,
         prev_hash=compute_sha256_file(first_path),
+        state_json_sha=artifact_hashes["state_json_sha"],
+        evidence_jsonl_sha=artifact_hashes["evidence_jsonl_sha"],
     )
     _write_receipt(morpheus_dir / "receipts", "receipt_002.json", second)
 

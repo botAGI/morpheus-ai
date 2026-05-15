@@ -6,6 +6,17 @@ from datetime import datetime, timezone
 from morpheus.core.models import ProjectState
 
 
+CATEGORY_ORDER = ["decision", "task", "fixme", "note", "hack", "xxx"]
+CATEGORY_TITLES = {
+    "decision": "### Active Decisions",
+    "task": "### Open Tasks",
+    "fixme": "### Fixmes",
+    "note": "### Notes",
+    "hack": "### Hacks",
+    "xxx": "### XXX",
+}
+
+
 def generate_wake_md(state: ProjectState, receipt_id: str) -> str:
     """Generate WAKE.md from project state."""
     compiled_at = format_utc_timestamp(state.compiled_at)
@@ -27,16 +38,9 @@ def generate_wake_md(state: ProjectState, receipt_id: str) -> str:
         cat = claim.category
         by_category.setdefault(cat, []).append(claim)
 
-    category_titles = {
-        "decision": "### Active Decisions",
-        "task": "### Open Tasks",
-        "fixme": "### Fixmes",
-        "note": "### Notes",
-        "hack": "### Hacks",
-    }
-
-    for cat, claims in by_category.items():
-        title = category_titles.get(cat, f"### {cat.title()}")
+    for cat in sorted(by_category, key=category_sort_key):
+        claims = by_category[cat]
+        title = CATEGORY_TITLES.get(cat, f"### {cat.title()}")
         lines.append(title)
         lines.append("")
         for c in claims:
@@ -55,6 +59,14 @@ def generate_wake_md(state: ProjectState, receipt_id: str) -> str:
     ])
 
     return "\n".join(lines)
+
+
+def category_sort_key(category: str) -> tuple[int, str]:
+    """Sort known WAKE sections first, with unknown categories stable by name."""
+    try:
+        return (CATEGORY_ORDER.index(category), "")
+    except ValueError:
+        return (len(CATEGORY_ORDER), category)
 
 
 def format_utc_timestamp(value: datetime) -> str:
