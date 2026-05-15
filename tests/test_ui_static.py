@@ -48,3 +48,19 @@ def test_ui_exposes_context_sources_and_faq():
     ]
     for snippet in required_snippets:
         assert snippet in html
+
+
+def test_ui_exposes_integration_paths_for_agents():
+    html = Path("ui/index.html").read_text()
+
+    required_snippets = [
+        'id="integrations-summary"',
+        'id="integrations-list"',
+        'id="refresh-integrations-btn"',
+        "function renderIntegrations",
+        "async function refreshIntegrations",
+        "apiRequest('/integrations'",
+        "Integration Paths",
+    ]
+    for snippet in required_snippets:
+        assert snippet in html

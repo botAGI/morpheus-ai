@@ -106,6 +106,14 @@ def test_agent_connect_guides_uninitialized_project(tmp_path):
     config_url = urlparse(payload["endpoints"]["config"]["url"])
     assert config_url.path == "/config"
     assert parse_qs(config_url.query) == {"project_root": [str(tmp_path)]}
+    assert payload["endpoints"]["integrations"]["method"] == "GET"
+    assert urlparse(payload["endpoints"]["integrations"]["url"]).path == "/integrations"
+    assert payload["integrations"]["service"] == "morpheus"
+    assert {service["id"] for service in payload["integrations"]["services"]} >= {
+        "github",
+        "slack",
+        "linear",
+    }
     status_url = urlparse(payload["endpoints"]["status"]["url"])
     assert status_url.path == "/status"
     assert parse_qs(status_url.query) == {"project_root": [str(tmp_path)]}
@@ -120,6 +128,26 @@ def test_agent_connect_guides_uninitialized_project(tmp_path):
         == "morpheus serve --ui --host 0.0.0.0 --port 8000 --ui-port 5173"
     )
     assert "Fetch the connect manifest" in payload["agent_prompt"]
+
+
+def test_integrations_endpoint_reports_services_for_agents(monkeypatch, tmp_path):
+    morpheus_home = tmp_path / ".morpheus"
+    morpheus_home.mkdir()
+    (morpheus_home / "linear_cache.json").write_text("[]")
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.get("/integrations")
+
+    assert response.status_code == 200
+    payload = response.json()
+    services = {service["id"]: service for service in payload["services"]}
+    assert payload["service"] == "morpheus"
+    assert payload["home"] == str(morpheus_home)
+    assert services["linear"]["status"] == "cache_ready"
+    assert services["linear"]["setup_command"] == "morpheus integrate linear"
+    assert services["slack"]["status"] == "not_configured"
+    assert services["github"]["auth"] == "PAT"
 
 
 def test_agent_connect_reports_compiled_project(tmp_path):

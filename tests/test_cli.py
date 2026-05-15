@@ -321,10 +321,13 @@ def test_agent_connect_json_reports_manifest_without_server(tmp_path):
             "status",
             "prepare_agent",
             "read_wake",
+            "inspect_integrations",
             "verify",
         ]
         assert payload["next_action"]["id"] == "prepare_agent"
         assert payload["endpoints"]["prepare_agent"]["url"] == "http://morpheus.local:8000/agent/prepare"
+        assert payload["endpoints"]["integrations"]["url"] == "http://morpheus.local:8000/integrations"
+        assert payload["integrations"]["service"] == "morpheus"
         assert payload["cli"]["agent_connect"] == "morpheus agent-connect --json"
         assert (
             payload["cli"]["serve_ui"]
@@ -1460,6 +1463,28 @@ def test_integrate_list_reports_slack_and_linear(monkeypatch, tmp_path):
     assert "slack" in result.output
     assert "linear" in result.output
     assert "cache + token" in result.output
+
+
+def test_integrate_list_json_reports_machine_readable_manifest(monkeypatch, tmp_path):
+    runner = CliRunner()
+    morpheus_home = tmp_path / ".morpheus"
+    morpheus_home.mkdir()
+    (morpheus_home / "github_token.txt").write_text("secret")
+    (morpheus_home / "slack_cache.json").write_text("[]")
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    result = runner.invoke(app, ["integrate", "--list", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    services = {service["id"]: service for service in payload["services"]}
+    assert payload["service"] == "morpheus"
+    assert services["github"]["status"] == "configured"
+    assert services["github"]["token_path"] == str(morpheus_home / "github_token.txt")
+    assert services["slack"]["status"] == "cache_ready"
+    assert services["slack"]["cache_path"] == str(morpheus_home / "slack_cache.json")
+    assert services["linear"]["setup_command"] == "morpheus integrate linear"
+    assert services["gmail"]["status"] == "not_configured"
 
 
 def test_integrate_list_reports_invalid_symlinked_morpheus_dir(monkeypatch, tmp_path):

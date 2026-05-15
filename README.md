@@ -87,6 +87,13 @@ Current integration adapters:
 - `slack`: local Slack message cache plus optional token file.
 - `linear`: local Linear issue cache plus optional token file.
 
+Agents and UI can read the same integration manifest:
+
+```bash
+morpheus integrate --list --json
+curl -s http://127.0.0.1:8000/integrations
+```
+
 Slack and Linear cache files live in `~/.morpheus/slack_cache.json` and
 `~/.morpheus/linear_cache.json`. They are useful for exports or agent-built
 sync jobs before full OAuth/API sync is configured.
@@ -104,6 +111,7 @@ curl -s "http://127.0.0.1:8000/agent/handoff.md?project_root=$PWD"
 curl -s "http://127.0.0.1:8000/agent/handoff?project_root=$PWD"
 curl -s "http://127.0.0.1:8000/agent/connect?project_root=$PWD"
 curl -s "http://127.0.0.1:8000/diagnostics?project_root=$PWD"
+curl -s "http://127.0.0.1:8000/integrations"
 curl -s "http://127.0.0.1:8000/config?project_root=$PWD"
 curl -s -X POST http://127.0.0.1:8000/config \
   -H 'Content-Type: application/json' \
@@ -160,9 +168,11 @@ morpheus bootstrap-agent --api-base http://127.0.0.1:8000
 | `morpheus bootstrap-agent --dry-run` | Preview Morpheus instructions for AGENTS.md |
 | `morpheus bootstrap-agent` | Create/update Morpheus instructions in AGENTS.md |
 | `morpheus integrate --list` | Show available integrations |
+| `morpheus integrate --list --json` | Print machine-readable integration status |
 | `morpheus consolidate --days 7` | Sessions → training dataset |
 | `morpheus train --epochs 3` | QLoRA fine-tuning |
 | `morpheus eval --test-file eval_questions.jsonl` | Evaluate adapter quality |
+| `morpheus model-smoke --base-model qwen2.5:0.5b` | Smoke-test a local Ollama model |
 | `morpheus serve --port 8000` | Run FastAPI backend for the UI |
 | `morpheus serve --ui --ui-port 5173` | Run backend and static browser UI together |
 | `morpheus version` | Show version |
