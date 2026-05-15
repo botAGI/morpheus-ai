@@ -12,10 +12,10 @@ def reject_symlink_paths(paths: list[Path], label: str = "Path") -> None:
 
 
 def reject_symlink_components(path: Path, label: str = "Path") -> None:
-    """Reject a path when any existing component in its chain is a symlink."""
+    """Reject a path when any component in its chain is a symlink."""
     components = (path, *path.parents)
     for component in components:
         if component.parent == component or component.parent == Path(component.anchor):
             continue
-        if component.exists() and component.is_symlink():
+        if component.is_symlink():
             raise ValueError(f"{label} must not contain a symlink: {component}")
