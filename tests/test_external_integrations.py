@@ -12,6 +12,8 @@ import morpheus.integrations.gmail as gmail_module
 from morpheus.integrations.calendar import CalendarIntegration
 from morpheus.integrations.github import GitHubIntegration
 from morpheus.integrations.gmail import GmailIntegration
+from morpheus.integrations.linear import LinearIntegration
+from morpheus.integrations.slack import SlackIntegration
 
 
 def github_status_error_response(status_code: int = 403):
@@ -217,6 +219,134 @@ def test_gmail_cache_returns_newest_emails_first(tmp_path):
     )
 
     assert [email["id"] for email in emails] == ["newest", "middle", "oldest"]
+
+
+def test_slack_cache_loads_recent_messages_newest_first(tmp_path):
+    now = datetime.now(timezone.utc)
+    cache_path = tmp_path / "slack_cache.json"
+    cache_path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "old",
+                    "ts": (now - timedelta(days=45)).isoformat(),
+                    "text": "TODO: too old",
+                },
+                {
+                    "id": "newest",
+                    "ts": now.isoformat(),
+                    "channel": "eng",
+                    "text": "DECISION: keep receipts signed",
+                },
+                {
+                    "id": "middle",
+                    "ts": (now - timedelta(days=1)).isoformat(),
+                    "text": "TODO: write docs",
+                },
+                {"id": "bad-date", "ts": "not-a-date", "text": "TODO: bad"},
+                ["not", "a", "message"],
+            ]
+        )
+    )
+
+    messages = SlackIntegration(token_path=tmp_path / "token.txt")._load_from_cache(
+        cache_path,
+        days=30,
+    )
+
+    assert [message["id"] for message in messages] == ["newest", "middle"]
+
+
+def test_slack_extract_evidence_from_message_text(tmp_path):
+    evidence = SlackIntegration(token_path=tmp_path / "token.txt").extract_evidence(
+        {
+            "id": "m1",
+            "channel": "eng",
+            "user": "U123",
+            "text": "DECISION: ship the safer flow",
+            "permalink": "https://slack.example/archives/C1/p1",
+        }
+    )
+
+    assert evidence == [
+        {
+            "type": "slack_claim",
+            "source": "slack",
+            "message_id": "m1",
+            "channel": "eng",
+            "user": "U123",
+            "keyword": "DECISION:",
+            "excerpt": "DECISION: ship the safer flow",
+            "url": "https://slack.example/archives/C1/p1",
+        }
+    ]
+
+
+def test_slack_authenticate_rejects_token_symlink(tmp_path):
+    external_token = tmp_path / "external-slack-token.txt"
+    external_token.write_text("secret")
+    token_path = tmp_path / "slack_token.txt"
+    try:
+        token_path.symlink_to(external_token)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+
+    integration = SlackIntegration(token_path=token_path)
+
+    assert not integration.authenticate()
+    assert integration._get_token() is None
+
+
+def test_linear_cache_loads_recent_issues_newest_first(tmp_path):
+    now = datetime.now(timezone.utc)
+    cache_path = tmp_path / "linear_cache.json"
+    cache_path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "old",
+                    "updated_at": (now - timedelta(days=45)).isoformat(),
+                    "title": "TODO: too old",
+                },
+                {
+                    "id": "newest",
+                    "updated_at": now.isoformat(),
+                    "identifier": "MOR-10",
+                    "title": "FIXME: repair sync",
+                },
+                {
+                    "id": "middle",
+                    "updated_at": (now - timedelta(days=1)).isoformat(),
+                    "identifier": "MOR-9",
+                    "description": "TODO: document setup",
+                },
+                {"id": "bad-date", "updated_at": "not-a-date", "title": "TODO: bad"},
+            ]
+        )
+    )
+
+    issues = LinearIntegration(token_path=tmp_path / "token.txt")._load_from_cache(
+        cache_path,
+        days=30,
+    )
+
+    assert [issue["id"] for issue in issues] == ["newest", "middle"]
+
+
+def test_linear_extract_evidence_from_issue_title_and_description(tmp_path):
+    evidence = LinearIntegration(token_path=tmp_path / "token.txt").extract_evidence(
+        {
+            "id": "issue-1",
+            "identifier": "MOR-1",
+            "title": "TODO: expose context sources",
+            "description": "DECISION: keep paths inside root",
+            "url": "https://linear.example/MOR-1",
+        }
+    )
+
+    assert [item["keyword"] for item in evidence] == ["DECISION:", "TODO:"]
+    assert all(item["type"] == "linear_claim" for item in evidence)
+    assert all(item["issue_id"] == "issue-1" for item in evidence)
 
 
 def test_gmail_parse_cache_datetime_normalizes_z_for_python310(monkeypatch):

@@ -1392,6 +1392,18 @@ def test_integrate_list_reports_configured_github_token(monkeypatch, tmp_path):
     )
 
 
+def test_integrate_list_reports_slack_and_linear(monkeypatch, tmp_path):
+    runner = CliRunner()
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    result = runner.invoke(app, ["integrate", "--list"])
+
+    assert result.exit_code == 0, result.output
+    assert "slack" in result.output
+    assert "linear" in result.output
+    assert "cache + token" in result.output
+
+
 def test_integrate_list_reports_invalid_symlinked_morpheus_dir(monkeypatch, tmp_path):
     runner = CliRunner()
     outside = tmp_path / "outside"
@@ -1414,10 +1426,34 @@ def test_integrate_list_reports_invalid_symlinked_morpheus_dir(monkeypatch, tmp_
 def test_integrate_unknown_service_exits_with_error():
     runner = CliRunner()
 
-    result = runner.invoke(app, ["integrate", "slack"])
+    result = runner.invoke(app, ["integrate", "notion"])
 
     assert result.exit_code == 1
     assert "Unknown integration service" in result.output
+
+
+def test_integrate_slack_prints_cache_setup(monkeypatch, tmp_path):
+    runner = CliRunner()
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    result = runner.invoke(app, ["integrate", "slack"])
+
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / ".morpheus").is_dir()
+    assert "Slack cache supported" in result.output
+    assert "slack_cache.json" in result.output
+
+
+def test_integrate_linear_prints_cache_setup(monkeypatch, tmp_path):
+    runner = CliRunner()
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    result = runner.invoke(app, ["integrate", "linear"])
+
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / ".morpheus").is_dir()
+    assert "Linear cache supported" in result.output
+    assert "linear_cache.json" in result.output
 
 
 def test_integrate_github_rejects_token_directory(monkeypatch, tmp_path):

@@ -71,6 +71,26 @@ All watched paths must stay inside the selected project root. To absorb several
 projects, choose their parent workspace as the project root and list each project
 folder in **Context Sources**.
 
+## Integrations
+
+List available integrations:
+
+```bash
+morpheus integrate --list
+```
+
+Current integration adapters:
+
+- `github`: GitHub issues, pull requests, and commits via PAT.
+- `gmail`: local Gmail cache/OAuth placeholder.
+- `calendar`: local Calendar cache/OAuth placeholder.
+- `slack`: local Slack message cache plus optional token file.
+- `linear`: local Linear issue cache plus optional token file.
+
+Slack and Linear cache files live in `~/.morpheus/slack_cache.json` and
+`~/.morpheus/linear_cache.json`. They are useful for exports or agent-built
+sync jobs before full OAuth/API sync is configured.
+
 ## Agent Self-Connect
 
 Agents can discover Morpheus over HTTP without reading this README first:
@@ -189,7 +209,7 @@ morpheus-ai/
 ├── morpheus/
 │   ├── cli.py           # CLI commands
 │   ├── core/            # Compiler, provenance, models
-│   ├── integrations/     # Gmail, Calendar, GitHub
+│   ├── integrations/     # Filesystem, Gmail, Calendar, GitHub, Slack, Linear
 │   ├── api/             # FastAPI server
 │   └── training/        # Phase 3: QLoRA pipeline
 ├── ui/                  # Tauri desktop app
