@@ -494,3 +494,25 @@ def test_extract_claims_returns_marker_locations(tmp_path):
             "excerpt": "XXX: investigate edge case",
         },
     ]
+
+
+def test_extract_claims_matches_markers_case_insensitively(tmp_path):
+    source = tmp_path / "notes.md"
+    source.write_text("todo: lower task\nDecision: mixed decision\n")
+
+    claims = FileSystemWatcher(tmp_path).extract_claims("notes.md")
+
+    assert claims == [
+        {
+            "path": "notes.md",
+            "line": 1,
+            "marker": "TODO:",
+            "excerpt": "todo: lower task",
+        },
+        {
+            "path": "notes.md",
+            "line": 2,
+            "marker": "DECISION:",
+            "excerpt": "Decision: mixed decision",
+        },
+    ]

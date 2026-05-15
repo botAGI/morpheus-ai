@@ -74,6 +74,44 @@ def test_generate_wake_md_claims_by_category():
     assert "broken thing" in wake
 
 
+def test_generate_wake_md_orders_known_categories_consistently():
+    claims = [
+        Claim(id="clm_001", source_id="src_001", line_start=1, line_end=1,
+              excerpt="FIXME: repair sync", category="fixme", created_at=datetime.now(timezone.utc)),
+        Claim(id="clm_002", source_id="src_001", line_start=2, line_end=2,
+              excerpt="NOTE: keep context", category="note", created_at=datetime.now(timezone.utc)),
+        Claim(id="clm_003", source_id="src_001", line_start=3, line_end=3,
+              excerpt="DECISION: use receipts", category="decision", created_at=datetime.now(timezone.utc)),
+        Claim(id="clm_004", source_id="src_001", line_start=4, line_end=4,
+              excerpt="TODO: document flow", category="task", created_at=datetime.now(timezone.utc)),
+        Claim(id="clm_005", source_id="src_001", line_start=5, line_end=5,
+              excerpt="HACK: temporary guard", category="hack", created_at=datetime.now(timezone.utc)),
+        Claim(id="clm_006", source_id="src_001", line_start=6, line_end=6,
+              excerpt="XXX: investigate edge case", category="xxx", created_at=datetime.now(timezone.utc)),
+    ]
+
+    state = ProjectState(
+        sources=[],
+        claims=claims,
+        evidence=[],
+        compiled_at=datetime.now(timezone.utc),
+        receipt_id="rcpt_order",
+    )
+
+    wake = generate_wake_md(state, "rcpt_order")
+
+    headings = [
+        "### Active Decisions",
+        "### Open Tasks",
+        "### Fixmes",
+        "### Notes",
+        "### Hacks",
+        "### XXX",
+    ]
+    positions = [wake.index(heading) for heading in headings]
+    assert positions == sorted(positions)
+
+
 def test_generate_wake_md_empty_project():
     state = ProjectState(
         sources=[],

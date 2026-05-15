@@ -56,14 +56,15 @@ class GmailIntegration:
             return []
 
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-        emails = []
+        dated_emails = []
         for email in data:
             if not isinstance(email, dict):
                 continue
             email_date = _parse_cache_datetime(email.get("date"))
             if email_date and email_date > cutoff:
-                emails.append(email)
-        return emails
+                dated_emails.append((email_date, email))
+        dated_emails.sort(key=lambda item: item[0], reverse=True)
+        return [email for _, email in dated_emails]
     
     def extract_evidence(self, email: dict) -> list[dict]:
         """Extract claim-like statements from email"""

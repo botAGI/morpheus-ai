@@ -79,7 +79,13 @@ def verify_receipt_chain(morpheus_dir: Path) -> tuple[bool, list[str]]:
         receipt = record["receipt"]
 
         # Check required fields
-        required = ["receipt_id", "wake_md_sha256", "state_json_sha256", "signature"]
+        required = [
+            "receipt_id",
+            "wake_md_sha256",
+            "state_json_sha256",
+            "evidence_jsonl_sha256",
+            "signature",
+        ]
         for field in required:
             if field not in receipt:
                 errors.append(f"{receipt_file.name}: missing field '{field}'")
@@ -149,6 +155,7 @@ def _verify_latest_artifact_hash(
         errors.append(f"latest {relative_path} must not be a symlink")
         return
     if not artifact_path.exists():
+        errors.append(f"latest {relative_path} missing")
         return
 
     latest_receipt = ordered_records[-1]["receipt"]
