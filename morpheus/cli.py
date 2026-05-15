@@ -194,17 +194,29 @@ def receipt_claim_total(value) -> int:
     return sum(count for count in value.values() if isinstance(count, int))
 
 
-def github_token_path_error(token_path: Path) -> str | None:
+def integration_token_path_error(token_path: Path, service_label: str) -> str | None:
     token_dir = token_path.parent
     if token_dir.is_symlink():
-        return f"GitHub token directory must not be a symlink: {token_dir}"
+        return f"{service_label} token directory must not be a symlink: {token_dir}"
     if token_dir.exists() and not token_dir.is_dir():
-        return f"GitHub token directory is not a directory: {token_dir}"
+        return f"{service_label} token directory is not a directory: {token_dir}"
     if token_path.is_symlink():
-        return f"GitHub token path must not be a symlink: {token_path}"
+        return f"{service_label} token path must not be a symlink: {token_path}"
     if token_path.exists() and not token_path.is_file():
-        return f"GitHub token path is not a file: {token_path}"
+        return f"{service_label} token path is not a file: {token_path}"
     return None
+
+
+def github_token_path_error(token_path: Path) -> str | None:
+    return integration_token_path_error(token_path, "GitHub")
+
+
+def integration_status(token_path: Path, service_label: str) -> str:
+    if integration_token_path_error(token_path, service_label):
+        return "[red]invalid[/red]"
+    if token_path.is_file():
+        return "[green]configured[/green]"
+    return "[yellow]not configured[/yellow]"
 
 
 def request_context(api_base: str):
@@ -655,7 +667,7 @@ def wake():
 
 @app.command()
 def integrate(
-    service: str | None = typer.Argument(None, help="Service: gmail, calendar, github"),
+    service: str | None = typer.Argument(None, help="Service: gmail, calendar, github, slack, linear"),
     list_services: bool = typer.Option(False, "--list", help="List available integrations")
 ):
     """Connect external integrations.
@@ -664,15 +676,11 @@ def integrate(
       gmail     - Gmail API via OAuth2
       calendar  - Google Calendar API via OAuth2  
       github    - GitHub API via Personal Access Token
+      slack     - Slack cache export + optional token
+      linear    - Linear cache export + optional token
     """
     if list_services:
-        github_token_path = Path.home() / ".morpheus" / "github_token.txt"
-        if github_token_path_error(github_token_path):
-            github_status = "[red]invalid[/red]"
-        elif github_token_path.is_file():
-            github_status = "[green]configured[/green]"
-        else:
-            github_status = "[yellow]not configured[/yellow]"
+        morpheus_home = Path.home() / ".morpheus"
 
         table = Table(title="Available Integrations")
         table.add_column("Service", style="cyan")
@@ -680,14 +688,28 @@ def integrate(
         table.add_column("Auth", style="yellow")
         table.add_row("gmail", "[yellow]not configured[/yellow]", "OAuth2")
         table.add_row("calendar", "[yellow]not configured[/yellow]", "OAuth2")
-        table.add_row("github", github_status, "PAT")
+        table.add_row(
+            "github",
+            integration_status(morpheus_home / "github_token.txt", "GitHub"),
+            "PAT",
+        )
+        table.add_row(
+            "slack",
+            integration_status(morpheus_home / "slack_token.txt", "Slack"),
+            "cache + token",
+        )
+        table.add_row(
+            "linear",
+            integration_status(morpheus_home / "linear_token.txt", "Linear"),
+            "cache + token",
+        )
         console.print(table)
         return
 
     if service is None:
         console.print("[red]Service required. Use --list to show available integrations.[/red]")
         raise typer.Exit(1)
-    if service not in {"gmail", "calendar", "github"}:
+    if service not in {"gmail", "calendar", "github", "slack", "linear"}:
         console.print(f"[red]Unknown integration service:[/red] {service}")
         console.print("[yellow]Use --list to show available integrations.[/yellow]")
         raise typer.Exit(1)
@@ -713,6 +735,23 @@ def integrate(
             console.print("2. Generate new token (classic) with 'repo' scope")
             console.print(f"3. Save token to: {token_path}")
             console.print(f"4. Run: echo 'YOUR_TOKEN' > {token_path}")
+    elif service in {"slack", "linear"}:
+        service_label = service.title()
+        token_path = Path.home() / ".morpheus" / f"{service}_token.txt"
+        cache_path = Path.home() / ".morpheus" / f"{service}_cache.json"
+        path_error = integration_token_path_error(token_path, service_label)
+        if path_error:
+            console.print(f"[red]{path_error}[/red]")
+            raise typer.Exit(1)
+        try:
+            token_path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            console.print(f"[red]{service_label} token directory cannot be created:[/red] {exc}")
+            raise typer.Exit(1) from exc
+        console.print(f"[green]{service_label} cache supported[/green]")
+        console.print(f"Cache file: {cache_path}")
+        console.print(f"Optional token file: {token_path}")
+        console.print("Drop exported JSON rows there, then compile or call the integration directly.")
     else:
         console.print(f"[yellow]{service} integration not yet implemented[/yellow]")
         console.print("Use GitHub for now, more coming soon.")
