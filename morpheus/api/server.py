@@ -38,9 +38,15 @@ except ModuleNotFoundError:
             return lambda func: func
 
     class PlainTextResponse:
-        def __init__(self, content: str, media_type: str = "text/plain"):
+        def __init__(
+            self,
+            content: str,
+            media_type: str = "text/plain",
+            headers: dict | None = None,
+        ):
             self.content = content
             self.media_type = media_type
+            self.headers = headers or {}
 
     class Request:
         base_url: str
@@ -138,6 +144,7 @@ DEFAULT_MODEL_SMOKE_MODEL = "qwen2.5:0.5b"
 DEFAULT_MODEL_SMOKE_PROMPT = (
     "Reply with one short sentence confirming Morpheus model smoke test is working."
 )
+MCP_PROTOCOL_VERSION = "2025-11-25"
 
 
 def latest_receipt_or_http_error(receipts_dir: Path) -> Path | None:
@@ -351,6 +358,81 @@ def endpoint_url(api_base: str, path: str, project_root: Path | None = None) -> 
     return f"{api_base}{path}{'?' + query if query else ''}"
 
 
+def a2a_agent_card_payload(request: Request) -> dict:
+    api_base = api_base_url(request)
+    return {
+        "name": "Morpheus AI",
+        "description": (
+            "Agent State Compiler with verifiable provenance, WAKE.md handoff, "
+            "integration status, and local model smoke testing."
+        ),
+        "supportedInterfaces": [
+            {
+                "url": f"{api_base}/agent/connect",
+                "protocolBinding": "https://morpheus.ai/protocols/agent-connect/v1",
+                "protocolVersion": "0.1.0",
+            },
+            {
+                "url": f"{api_base}/mcp",
+                "protocolBinding": "MCP",
+                "protocolVersion": MCP_PROTOCOL_VERSION,
+            },
+        ],
+        "provider": {
+            "organization": "Morpheus AI",
+            "url": api_base,
+        },
+        "version": "0.1.0",
+        "documentationUrl": f"{api_base}/.well-known/morpheus.json",
+        "capabilities": {
+            "streaming": False,
+            "pushNotifications": False,
+            "stateTransitionHistory": False,
+            "extendedAgentCard": False,
+        },
+        "defaultInputModes": ["application/json", "text/plain"],
+        "defaultOutputModes": ["application/json", "text/markdown", "text/plain"],
+        "skills": [
+            {
+                "id": "compile-project-state",
+                "name": "Compile Project State",
+                "description": "Compile watched sources into WAKE.md and signed receipts.",
+                "tags": ["state", "provenance", "handoff"],
+                "examples": ["Compile this project before an agent starts work."],
+                "inputModes": ["application/json"],
+                "outputModes": ["application/json", "text/markdown"],
+            },
+            {
+                "id": "build-agent-handoff",
+                "name": "Build Agent Handoff",
+                "description": "Return a copyable handoff bundle for another autonomous agent.",
+                "tags": ["handoff", "agents", "wake"],
+                "examples": ["Build a handoff for the next coding agent."],
+                "inputModes": ["application/json"],
+                "outputModes": ["application/json", "text/markdown"],
+            },
+            {
+                "id": "inspect-integrations",
+                "name": "Inspect Integrations",
+                "description": "Report GitHub, Gmail, Calendar, Slack, and Linear setup state.",
+                "tags": ["integrations", "context", "mcp"],
+                "examples": ["Which external context sources are configured?"],
+                "inputModes": ["application/json"],
+                "outputModes": ["application/json"],
+            },
+            {
+                "id": "smoke-test-local-model",
+                "name": "Smoke Test Local Model",
+                "description": "Run a direct Ollama smoke test through Morpheus.",
+                "tags": ["ollama", "model", "health"],
+                "examples": ["Check qwen2.5:0.5b through the local API."],
+                "inputModes": ["application/json", "text/plain"],
+                "outputModes": ["application/json", "text/plain"],
+            },
+        ],
+    }
+
+
 def prepare_agent_request(api_base: str, project_root: Path) -> dict:
     return {
         "method": "POST",
@@ -553,6 +635,158 @@ def agent_connect_payload(request: Request, project_root: Path) -> dict:
             "and run compile plus verify after meaningful changes."
         ),
     }
+
+
+def mcp_tool_definitions() -> list[dict]:
+    project_root_schema = {
+        "type": "object",
+        "properties": {
+            "project_root": {
+                "type": "string",
+                "description": "Optional absolute project root. Defaults to the server working directory.",
+            }
+        },
+        "additionalProperties": False,
+    }
+    return [
+        {
+            "name": "morpheus_status",
+            "title": "Morpheus Project Status",
+            "description": "Return initialization, compilation, source, claim, and evidence counts.",
+            "inputSchema": project_root_schema,
+        },
+        {
+            "name": "morpheus_diagnostics",
+            "title": "Morpheus Diagnostics",
+            "description": "Return readiness checks and the recommended next action for an agent.",
+            "inputSchema": project_root_schema,
+        },
+        {
+            "name": "morpheus_integrations",
+            "title": "Morpheus Integrations",
+            "description": "Return machine-readable integration setup status.",
+            "inputSchema": {"type": "object", "additionalProperties": False},
+        },
+        {
+            "name": "morpheus_model_smoke",
+            "title": "Morpheus Model Smoke",
+            "description": "Run a local Ollama smoke test through Morpheus.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "base_model": {
+                        "type": "string",
+                        "description": "Ollama model name.",
+                        "default": DEFAULT_MODEL_SMOKE_MODEL,
+                    },
+                    "prompt": {
+                        "type": "string",
+                        "description": "Prompt to send to the model.",
+                        "default": DEFAULT_MODEL_SMOKE_PROMPT,
+                    },
+                },
+                "additionalProperties": False,
+            },
+        },
+    ]
+
+
+def mcp_success(request_id, result: dict) -> dict:
+    return {"jsonrpc": "2.0", "id": request_id, "result": result}
+
+
+def mcp_error(request_id, code: int, message: str) -> dict:
+    return {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "error": {"code": code, "message": message},
+    }
+
+
+def mcp_tool_result(payload: dict) -> dict:
+    return {
+        "content": [
+            {
+                "type": "text",
+                "text": json.dumps(payload, indent=2, default=str),
+            }
+        ],
+        "isError": False,
+    }
+
+
+def mcp_project_root(arguments: dict) -> Path:
+    value = arguments.get("project_root") if isinstance(arguments, dict) else None
+    return Path(value) if value else Path.cwd()
+
+
+def mcp_call_tool(request: Request, name: str, arguments: dict) -> dict:
+    if name == "morpheus_status":
+        return mcp_tool_result(project_status_payload(mcp_project_root(arguments)))
+    if name == "morpheus_diagnostics":
+        return mcp_tool_result(diagnostics_payload(request, mcp_project_root(arguments)))
+    if name == "morpheus_integrations":
+        return mcp_tool_result(integration_manifest())
+    if name == "morpheus_model_smoke":
+        payload = model_smoke_payload(ModelSmokeRequest(**(arguments or {}))).model_dump()
+        return mcp_tool_result(payload)
+    raise ValueError(f"Unknown MCP tool: {name}")
+
+
+def mcp_origin_allowed(request: Request) -> bool:
+    origin = request.headers.get("origin") if hasattr(request, "headers") else None
+    if not origin:
+        return True
+    origin_host = urlsplit(origin).hostname
+    request_host = urlsplit(api_base_url(request)).hostname
+    return origin_host in {"127.0.0.1", "localhost", request_host}
+
+
+def mcp_payload(request: Request, payload: dict) -> dict | None:
+    request_id = payload.get("id") if isinstance(payload, dict) else None
+    if not isinstance(payload, dict) or payload.get("jsonrpc") != "2.0":
+        return mcp_error(request_id, -32600, "Invalid JSON-RPC request")
+
+    method = payload.get("method")
+    params = payload.get("params") or {}
+    if method == "notifications/initialized":
+        return None
+    if method == "initialize":
+        protocol_version = params.get("protocolVersion") or MCP_PROTOCOL_VERSION
+        return mcp_success(
+            request_id,
+            {
+                "protocolVersion": protocol_version
+                if protocol_version == MCP_PROTOCOL_VERSION
+                else MCP_PROTOCOL_VERSION,
+                "capabilities": {"tools": {"listChanged": False}},
+                "serverInfo": {
+                    "name": "morpheus",
+                    "title": "Morpheus AI",
+                    "version": "0.1.0",
+                    "description": "Agent State Compiler with verifiable provenance.",
+                },
+                "instructions": (
+                    "Use Morpheus tools to inspect project state, build handoffs, "
+                    "check integrations, and smoke-test local models."
+                ),
+            },
+        )
+    if method == "tools/list":
+        return mcp_success(request_id, {"tools": mcp_tool_definitions()})
+    if method == "tools/call":
+        if not isinstance(params, dict) or not isinstance(params.get("name"), str):
+            return mcp_error(request_id, -32602, "tools/call requires a tool name")
+        try:
+            result = mcp_call_tool(
+                request,
+                params["name"],
+                params.get("arguments") if isinstance(params.get("arguments"), dict) else {},
+            )
+        except ValueError as exc:
+            return mcp_error(request_id, -32602, str(exc))
+        return mcp_success(request_id, result)
+    return mcp_error(request_id, -32601, "Method not found")
 
 
 def diagnostic_check(check_id: str, label: str, ok: bool, detail: str) -> dict:
@@ -961,11 +1195,34 @@ def well_known_morpheus(request: Request):
         "connect_url": f"{api_base}/agent/connect",
         "handoff_url": f"{api_base}/agent/handoff",
         "handoff_markdown_url": f"{api_base}/agent/handoff.md",
+        "agent_card_url": f"{api_base}/.well-known/agent-card.json",
+        "mcp_url": f"{api_base}/mcp",
         "docs": {
             "human_quickstart": "README.md",
             "state_file": ".morpheus/WAKE.md",
         },
     }
+
+
+@app.get("/.well-known/agent-card.json")
+def a2a_agent_card(request: Request):
+    """Return an A2A-compatible Agent Card for Morpheus discovery."""
+    return PlainTextResponse(
+        json.dumps(a2a_agent_card_payload(request)),
+        media_type="application/json",
+        headers={"Cache-Control": "public, max-age=300"},
+    )
+
+
+@app.post("/mcp")
+def mcp_endpoint(request: Request, payload: dict = Body(default=None)):
+    """Minimal MCP Streamable HTTP endpoint exposing read-only Morpheus tools."""
+    if not mcp_origin_allowed(request):
+        raise HTTPException(status_code=403, detail="Origin not allowed")
+    response = mcp_payload(request, payload)
+    if response is None:
+        return PlainTextResponse("", media_type="application/json", headers={})
+    return response
 
 
 @app.get("/agent/connect")
