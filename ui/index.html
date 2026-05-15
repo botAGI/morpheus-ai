@@ -496,6 +496,27 @@
         align-items: center;
       }
 
+      .panel-toolbar,
+      .chat-action-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 16px;
+      }
+
+      .chat-action-row {
+        padding: 12px 24px 0;
+        margin-bottom: 0;
+      }
+
+      .chat-action-row button,
+      .panel-toolbar button {
+        padding: 8px 14px;
+        border-radius: 16px;
+        font-size: 12px;
+      }
+
       .secondary-button {
         background: var(--bg-tertiary);
         border: 1px solid var(--border);
@@ -1160,6 +1181,13 @@
         </div>
         
         <div class="chat-area panel" id="panel-chat">
+          <div class="chat-action-row">
+            <button id="chat-prepare-btn">Prepare</button>
+            <button id="chat-diagnostics-btn" class="secondary-button">Diagnostics</button>
+            <button id="chat-compile-btn" class="secondary-button">Compile</button>
+            <button id="chat-verify-btn" class="secondary-button">Verify</button>
+            <button id="chat-wake-btn" class="secondary-button">WAKE.md</button>
+          </div>
           <div class="messages" id="messages">
             <div class="message-wrapper morpheus">
               <div class="message-avatar">🤖</div>
@@ -1190,6 +1218,10 @@
         
         <div class="panel" id="panel-status">
           <h2>Project Status</h2>
+          <div class="panel-toolbar">
+            <button id="refresh-status-btn">Refresh Status</button>
+            <button id="status-diagnostics-btn" class="secondary-button">Run Diagnostics</button>
+          </div>
           <div class="stats">
             <div class="stat">
               <div class="stat-value" id="stat-sources">0</div>
@@ -1216,6 +1248,10 @@
         
         <div class="panel" id="panel-wake">
           <h2>WAKE.md</h2>
+          <div class="panel-toolbar">
+            <button id="refresh-wake-btn">Refresh WAKE.md</button>
+            <button id="copy-wake-btn" class="secondary-button">Copy WAKE.md</button>
+          </div>
           <pre id="wake-content">Run "morpheus compile" to generate WAKE.md</pre>
         </div>
         
@@ -1240,7 +1276,10 @@
           </div>
           <div class="card">
             <h4>Integrations</h4>
-            <p>Gmail, Calendar, GitHub — coming soon</p>
+            <p id="settings-integrations-summary">No integration manifest loaded.</p>
+            <div class="button-row" style="margin-top: 12px;">
+              <button id="settings-refresh-integrations-btn" class="secondary-button">Refresh Integrations</button>
+            </div>
           </div>
           <div class="card">
             <h4>Voice</h4>
@@ -1282,6 +1321,15 @@
       const startInitBtn = document.getElementById('start-init-btn');
       const startCompileBtn = document.getElementById('start-compile-btn');
       const startVerifyBtn = document.getElementById('start-verify-btn');
+      const refreshStatusBtn = document.getElementById('refresh-status-btn');
+      const statusDiagnosticsBtn = document.getElementById('status-diagnostics-btn');
+      const refreshWakeBtn = document.getElementById('refresh-wake-btn');
+      const copyWakeBtn = document.getElementById('copy-wake-btn');
+      const chatPrepareBtn = document.getElementById('chat-prepare-btn');
+      const chatDiagnosticsBtn = document.getElementById('chat-diagnostics-btn');
+      const chatCompileBtn = document.getElementById('chat-compile-btn');
+      const chatVerifyBtn = document.getElementById('chat-verify-btn');
+      const chatWakeBtn = document.getElementById('chat-wake-btn');
       const quickstartSummary = document.getElementById('quickstart-summary');
       const quickstartCommands = document.getElementById('quickstart-commands');
       const connectPackOutput = document.getElementById('connect-pack-output');
@@ -1297,8 +1345,10 @@
       const saveContextPathsBtn = document.getElementById('save-context-paths-btn');
       const loadContextPathsBtn = document.getElementById('load-context-paths-btn');
       const integrationsSummary = document.getElementById('integrations-summary');
+      const settingsIntegrationsSummary = document.getElementById('settings-integrations-summary');
       const integrationsList = document.getElementById('integrations-list');
       const refreshIntegrationsBtn = document.getElementById('refresh-integrations-btn');
+      const settingsRefreshIntegrationsBtn = document.getElementById('settings-refresh-integrations-btn');
       const modelSmokeBaseModel = document.getElementById('model-smoke-base-model');
       const modelSmokePrompt = document.getElementById('model-smoke-prompt');
       const runModelSmokeBtn = document.getElementById('run-model-smoke-btn');
@@ -1354,6 +1404,7 @@
       const projectRootLabels = [startProjectRootLabel, projectRootLabel];
 
       let isRecording = false;
+      let recognition = null;
       let currentNextAction = null;
       let currentPanel = 'start';
 
@@ -1366,21 +1417,28 @@
       updateAgentConnectPreview();
       renderRecentProjects();
 
+      function openPanel(panel) {
+        navItems.forEach((navItem) => {
+          navItem.classList.toggle('active', navItem.dataset.panel === panel);
+        });
+        panels.forEach((panelEl) => panelEl.classList.remove('active'));
+        const targetPanel = document.getElementById(`panel-${panel}`);
+        if (targetPanel) {
+          targetPanel.classList.add('active');
+          currentPanel = panel;
+        }
+
+        if (panel === 'status') {
+          refreshStatus();
+        }
+        if (panel === 'wake') {
+          refreshWake();
+        }
+      }
+
       navItems.forEach((item) => {
         item.addEventListener('click', () => {
-          const panel = item.dataset.panel;
-          navItems.forEach((navItem) => navItem.classList.remove('active'));
-          item.classList.add('active');
-          panels.forEach((panelEl) => panelEl.classList.remove('active'));
-          document.getElementById(`panel-${panel}`).classList.add('active');
-          currentPanel = panel;
-
-          if (panel === 'status') {
-            refreshStatus();
-          }
-          if (panel === 'wake') {
-            refreshWake();
-          }
+          openPanel(item.dataset.panel);
         });
       });
 
@@ -1597,9 +1655,11 @@
         const readyCount = services.filter((service) => (
           service.status === 'configured' || service.status === 'cache_ready'
         )).length;
-        integrationsSummary.textContent = services.length
+        const summary = services.length
           ? `${readyCount}/${services.length} integrations ready | ${payload.home}`
           : 'No integration manifest loaded.';
+        integrationsSummary.textContent = summary;
+        settingsIntegrationsSummary.textContent = summary;
         integrationsList.innerHTML = '';
 
         services.forEach((service) => {
@@ -1640,7 +1700,9 @@
 
       async function refreshIntegrations({ silent = true } = {}) {
         integrationsSummary.textContent = 'Loading integrations...';
+        settingsIntegrationsSummary.textContent = 'Loading integrations...';
         refreshIntegrationsBtn.disabled = true;
+        settingsRefreshIntegrationsBtn.disabled = true;
         try {
           const payload = await apiRequest('/integrations');
           renderIntegrations(payload);
@@ -1652,6 +1714,7 @@
           throw error;
         } finally {
           refreshIntegrationsBtn.disabled = false;
+          settingsRefreshIntegrationsBtn.disabled = false;
         }
       }
 
@@ -1736,17 +1799,30 @@
         diagnosticsNextActionLabel.textContent = action.label || action.id || 'Next action';
         diagnosticsNextActionDetail.textContent = action.detail || '';
         diagnosticsNextActionCommand.textContent = action.command || '';
-        const runnableActions = ['prepare_agent', 'handoff'];
+        const runnableActions = ['set_project_root', 'prepare_agent', 'handoff'];
         runNextActionBtn.textContent =
+          action.id === 'set_project_root' ? 'Set Project Root' :
           action.id === 'handoff' ? 'Build Handoff' :
           action.id === 'prepare_agent' ? 'Prepare Agent' :
           'Run Action';
         runNextActionBtn.disabled = !runnableActions.includes(action.id);
       }
 
+      function focusProjectRootInput() {
+        openPanel('start');
+        startProjectRootInput.focus();
+        startProjectRootInput.select();
+        addMessage('Set a project root, then run diagnostics again.');
+      }
+
       async function runNextAction() {
         if (!currentNextAction) {
           await runDiagnostics({ silent: false });
+          return;
+        }
+
+        if (currentNextAction.id === 'set_project_root') {
+          focusProjectRootInput();
           return;
         }
 
@@ -2035,6 +2111,28 @@
         return payload;
       }
 
+      async function runChatAction(action) {
+        if (action === 'prepare') {
+          await prepareAgent();
+          return;
+        }
+        if (action === 'diagnostics') {
+          await runDiagnostics({ silent: false });
+          return;
+        }
+        if (action === 'compile') {
+          await runCompile();
+          return;
+        }
+        if (action === 'verify') {
+          await runVerify();
+          return;
+        }
+        if (action === 'wake') {
+          openPanel('wake');
+        }
+      }
+
       function setBackendStatus(state, text) {
         backendStatusText.textContent = text;
         backendStatusDot.style.background =
@@ -2267,24 +2365,67 @@
         mascotSpeak();
       }
 
+      function speechRecognitionClass() {
+        return window.SpeechRecognition || window.webkitSpeechRecognition;
+      }
+
+      function stopVoiceInput() {
+        if (recognition) {
+          recognition.stop();
+        }
+        isRecording = false;
+        voiceBtn.classList.remove('recording');
+        voiceIndicator.classList.remove('active');
+        voiceStatusText.textContent = 'Listening...';
+      }
+
+      function startVoiceInput() {
+        const Recognition = speechRecognitionClass();
+        if (!Recognition) {
+          voiceStatusText.textContent = 'Voice input unavailable';
+          voiceIndicator.classList.add('active');
+          setTimeout(() => {
+            voiceIndicator.classList.remove('active');
+            voiceStatusText.textContent = 'Listening...';
+          }, 1600);
+          addMessage('Voice input unavailable in this browser.');
+          return;
+        }
+
+        recognition = new Recognition();
+        recognition.lang = navigator.language || 'en-US';
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+        recognition.onresult = (event) => {
+          const transcript = event.results[0][0].transcript.trim();
+          inputEl.value = transcript;
+          stopVoiceInput();
+          if (transcript) sendMessage();
+        };
+        recognition.onerror = (event) => {
+          stopVoiceInput();
+          addMessage(`Voice input failed: ${event.error || 'unknown error'}`);
+        };
+        recognition.onend = () => {
+          if (isRecording) stopVoiceInput();
+        };
+        isRecording = true;
+        voiceBtn.classList.add('recording');
+        voiceIndicator.classList.add('active');
+        voiceStatusText.textContent = 'Listening...';
+        recognition.start();
+      }
+
       sendBtn.addEventListener('click', sendMessage);
       inputEl.addEventListener('keypress', (event) => {
         if (event.key === 'Enter') sendMessage();
       });
 
       voiceBtn.addEventListener('click', () => {
-        isRecording = !isRecording;
-        voiceBtn.classList.toggle('recording', isRecording);
-        voiceIndicator.classList.toggle('active', isRecording);
-
         if (isRecording) {
-          voiceStatusText.textContent = 'Listening...';
+          stopVoiceInput();
         } else {
-          voiceStatusText.textContent = 'Voice capture is not wired yet';
-          setTimeout(() => {
-            voiceIndicator.classList.remove('active');
-            voiceStatusText.textContent = 'Listening...';
-          }, 1400);
+          startVoiceInput();
         }
       });
 
@@ -2293,6 +2434,33 @@
       startInitBtn.addEventListener('click', runInit);
       startCompileBtn.addEventListener('click', runCompile);
       startVerifyBtn.addEventListener('click', runVerify);
+      refreshStatusBtn.addEventListener('click', () => {
+        refreshStatus({ silent: false });
+      });
+      statusDiagnosticsBtn.addEventListener('click', () => {
+        runDiagnostics({ silent: false });
+      });
+      refreshWakeBtn.addEventListener('click', () => {
+        refreshWake({ silent: false });
+      });
+      copyWakeBtn.addEventListener('click', () => {
+        copyText(wakeContent.textContent, 'WAKE.md');
+      });
+      chatPrepareBtn.addEventListener('click', () => {
+        runChatAction('prepare');
+      });
+      chatDiagnosticsBtn.addEventListener('click', () => {
+        runChatAction('diagnostics');
+      });
+      chatCompileBtn.addEventListener('click', () => {
+        runChatAction('compile');
+      });
+      chatVerifyBtn.addEventListener('click', () => {
+        runChatAction('verify');
+      });
+      chatWakeBtn.addEventListener('click', () => {
+        runChatAction('wake');
+      });
       refreshQuickstartBtn.addEventListener('click', () => {
         refreshQuickstart({ silent: false });
       });
@@ -2306,6 +2474,9 @@
         saveProjectConfig({ silent: false });
       });
       refreshIntegrationsBtn.addEventListener('click', () => {
+        refreshIntegrations({ silent: false });
+      });
+      settingsRefreshIntegrationsBtn.addEventListener('click', () => {
         refreshIntegrations({ silent: false });
       });
       runModelSmokeBtn.addEventListener('click', runModelSmoke);
