@@ -840,6 +840,36 @@ def eval_command(
     )
 
 
+@app.command("model-smoke")
+def model_smoke_command(
+    base_model: str = typer.Option(
+        "qwen2.5:0.5b",
+        "--base-model",
+        help="Ollama model to smoke-test",
+    ),
+    prompt: str = typer.Option(
+        "Reply with one short sentence confirming Morpheus model smoke test is working.",
+        "--prompt",
+        help="Prompt to send to the model",
+    ),
+):
+    """Run a direct Ollama smoke test through Morpheus."""
+    from morpheus.training.eval import query_model
+
+    answer = query_model(prompt, base_model=base_model)
+    if answer.startswith("Error:"):
+        console.print(f"[red]{answer}[/red]")
+        raise typer.Exit(1)
+
+    console.print(
+        Panel.fit(
+            f"Model: [bold]{base_model}[/bold]\nAnswer:\n{answer}",
+            title="Morpheus Model Smoke",
+            border_style="green",
+        )
+    )
+
+
 @app.command()
 def serve(
     host: str = typer.Option("127.0.0.1", help="Host for the FastAPI backend"),
