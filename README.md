@@ -50,14 +50,26 @@ Open `http://127.0.0.1:5173/ui/index.html` on the same machine, or
 The first screen is the setup checklist:
 
 1. Set the project root.
-2. Click **Initialize**.
-3. Click **Compile**.
-4. Click **Verify**.
-5. Copy the Agent Connect URL or Agent Prompt for another agent.
-6. Click **Bootstrap AGENTS.md** to write agent instructions into the project.
+2. Set **Context Sources**. Use `.` for the whole root, or one path per line
+   for a monorepo/workspace such as `frontend`, `backend`, and `docs`.
+3. Click **Prepare Agent**.
+4. Copy the Agent Connect URL, Agent Prompt, or Handoff for another agent.
 
 The Start screen also keeps recent project roots and includes **Diagnostics** for
-backend, initialization, WAKE, and receipt readiness.
+backend, initialization, WAKE, receipt readiness, and the recommended next
+action. The FAQ on the Start screen explains the main flows directly in the UI.
+
+## Multiple Context Sources
+
+Morpheus reads paths from `.morpheus/morpheus.toml`:
+
+```toml
+watch_dirs = ["frontend", "backend", "docs"]
+```
+
+All watched paths must stay inside the selected project root. To absorb several
+projects, choose their parent workspace as the project root and list each project
+folder in **Context Sources**.
 
 ## Agent Self-Connect
 
@@ -72,6 +84,10 @@ curl -s "http://127.0.0.1:8000/agent/handoff.md?project_root=$PWD"
 curl -s "http://127.0.0.1:8000/agent/handoff?project_root=$PWD"
 curl -s "http://127.0.0.1:8000/agent/connect?project_root=$PWD"
 curl -s "http://127.0.0.1:8000/diagnostics?project_root=$PWD"
+curl -s "http://127.0.0.1:8000/config?project_root=$PWD"
+curl -s -X POST http://127.0.0.1:8000/config \
+  -H 'Content-Type: application/json' \
+  -d "{\"project_root\":\"$PWD\",\"watch_dirs\":[\"frontend\",\"backend\",\"docs\"]}"
 curl -s -X POST http://127.0.0.1:8000/agent/bootstrap/preview \
   -H 'Content-Type: application/json' \
   -d "{\"project_root\":\"$PWD\"}"

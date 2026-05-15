@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 from pydantic import BaseModel
+import toml
 
 try:
     from fastapi import Body, FastAPI, HTTPException, Request
@@ -86,6 +87,10 @@ class AgentBootstrapRequest(BaseModel):
 
 class AgentPrepareRequest(BaseModel):
     project_root: Optional[str] = None
+
+class ProjectConfigRequest(BaseModel):
+    project_root: Optional[str] = None
+    watch_dirs: Optional[list[str]] = None
 
 class VerifyRequest(BaseModel):
     project_root: Optional[str] = None
@@ -203,6 +208,112 @@ def normalize_agent_state(status_payload: dict) -> dict:
     }
 
 
+def normalized_watch_dirs(project_root: Path, watch_dirs: list[str] | None) -> list[str]:
+    """Normalize UI/API watch path input to project-relative paths."""
+    raw_dirs = [
+        str(watch_dir).strip()
+        for watch_dir in (watch_dirs or ["."])
+        if str(watch_dir).strip()
+    ]
+    if not raw_dirs:
+        raw_dirs = ["."]
+
+    root = project_root.resolve()
+    normalized = []
+    for raw_dir in raw_dirs:
+        candidate = Path(raw_dir)
+        if not candidate.is_absolute():
+            candidate = project_root / candidate
+        reject_symlink_components(candidate, "Watch path")
+        resolved = candidate.resolve()
+        try:
+            relative = resolved.relative_to(root)
+        except ValueError as exc:
+            raise ValueError(f"Watch path must stay inside project root: {raw_dir}") from exc
+        stored = relative.as_posix()
+        if stored in ("", "."):
+            stored = "."
+        if stored not in normalized:
+            normalized.append(stored)
+    return normalized
+
+
+def watch_path_info(project_root: Path, watch_dir: str) -> dict:
+    try:
+        normalized = normalized_watch_dirs(project_root, [watch_dir])[0]
+        path = project_root if normalized == "." else project_root / normalized
+        exists = path.exists()
+        if path.is_dir():
+            kind = "directory"
+        elif path.is_file():
+            kind = "file"
+        elif exists:
+            kind = "other"
+        else:
+            kind = "missing"
+        return {
+            "path": normalized,
+            "absolute_path": str(path),
+            "exists": exists,
+            "kind": kind,
+            "valid": True,
+            "detail": kind,
+        }
+    except ValueError as exc:
+        return {
+            "path": str(watch_dir),
+            "absolute_path": str(Path(watch_dir)),
+            "exists": False,
+            "kind": "invalid",
+            "valid": False,
+            "detail": str(exc),
+        }
+
+
+def project_config_payload(project_root: Path) -> dict:
+    if not _is_real_directory(project_root):
+        raise HTTPException(status_code=400, detail="Project root must be an existing real directory")
+
+    morpheus_dir = project_root / ".morpheus"
+    initialized = _is_real_directory(morpheus_dir)
+    try:
+        config = MorpheusConfig(project_root=project_root).load()
+        watch_dirs = normalized_watch_dirs(project_root, config.watch_dirs)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {
+        "service": "morpheus",
+        "version": "0.1.0",
+        "project_root": str(project_root),
+        "initialized": initialized,
+        "config_path": str(morpheus_dir / "morpheus.toml"),
+        "watch_dirs": watch_dirs,
+        "watch_paths": [watch_path_info(project_root, watch_dir) for watch_dir in watch_dirs],
+    }
+
+
+def write_project_config(project_root: Path, watch_dirs: list[str] | None) -> dict:
+    if not _is_real_directory(project_root):
+        raise HTTPException(status_code=400, detail="Project root must be an existing real directory")
+
+    try:
+        normalized_dirs = normalized_watch_dirs(project_root, watch_dirs)
+        MorpheusConfig(project_root=project_root).init_default()
+        config_path = project_root / ".morpheus" / "morpheus.toml"
+        reject_symlink_paths([config_path], "Config path")
+        reject_symlink_components(config_path, "Config path")
+        if config_path.exists() and not config_path.is_file():
+            raise ValueError(f"Config path is not a file: {config_path}")
+        data = toml.loads(config_path.read_text()) if config_path.exists() else {}
+        data["watch_dirs"] = normalized_dirs
+        config_path.write_text(toml.dumps(data))
+    except (OSError, toml.TomlDecodeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return project_config_payload(project_root)
+
+
 def api_base_url(request: Request) -> str:
     """Return the externally visible API base from the incoming request."""
     return str(request.base_url).rstrip("/")
@@ -313,6 +424,10 @@ def agent_connect_payload(request: Request, project_root: Path) -> dict:
             "url": f"{api_base}/compile",
             "json": json_body,
         },
+        "config": {
+            "method": "GET",
+            "url": endpoint_url(api_base, "/config", project_root),
+        },
         "prepare_agent": prepare_agent_request(api_base, project_root),
         "wake": {
             "method": "GET",
@@ -388,6 +503,7 @@ def agent_connect_payload(request: Request, project_root: Path) -> dict:
             ),
             "wake": f"curl -s {shlex.quote(wake_url)}",
             "verify": f"curl -s -X POST {shlex.quote(endpoints['verify']['url'])}",
+            "config": f"curl -s {shlex.quote(endpoints['config']['url'])}",
         },
         "agent_prompt": (
             "Fetch the connect manifest before working on this project. "
@@ -851,6 +967,24 @@ def diagnostics(request: Request, project_root: Optional[str] = None):
     """Return backend and project readiness diagnostics for the UI."""
     root = Path(project_root) if project_root else Path.cwd()
     return diagnostics_payload(request, root)
+
+
+@app.get("/config")
+def get_project_config(project_root: Optional[str] = None):
+    """Return Morpheus project context source configuration."""
+    root = Path(project_root) if project_root else Path.cwd()
+    return project_config_payload(root)
+
+
+@app.post("/config")
+def update_project_config(config_request: ProjectConfigRequest):
+    """Save Morpheus project context source configuration."""
+    root = (
+        Path(config_request.project_root)
+        if config_request.project_root
+        else Path.cwd()
+    )
+    return write_project_config(root, config_request.watch_dirs)
 
 
 @app.post("/agent/bootstrap", response_model=AgentBootstrapResponse)
