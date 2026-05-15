@@ -22,3 +22,10 @@ def test_prepare_agent_updates_receipt_step_from_verify_result():
 
     assert "payload.verified && payload.verified.valid" in html
     assert "setStep('verify', 'ready', 'Verified', `Receipt: ${receiptId}`)" in html
+
+
+def test_next_action_button_only_enables_runnable_actions():
+    html = Path("ui/index.html").read_text()
+
+    assert "const runnableActions = ['prepare_agent', 'handoff'];" in html
+    assert "runNextActionBtn.disabled = !runnableActions.includes(action.id);" in html

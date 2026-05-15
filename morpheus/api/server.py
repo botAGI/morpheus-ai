@@ -259,7 +259,24 @@ def handoff_action(api_base: str, project_root: Path) -> dict:
     }
 
 
+def set_project_root_action() -> dict:
+    return {
+        "id": "set_project_root",
+        "label": "Set Project Root",
+        "detail": "Choose an existing safe project directory.",
+        "command": None,
+        "request": None,
+    }
+
+
 def diagnostics_next_action(api_base: str, project_root: Path, checks: list[dict]) -> dict:
+    project_root_check = next(
+        (check for check in checks if check["id"] == "project_root"),
+        None,
+    )
+    if project_root_check and not project_root_check["ok"]:
+        return set_project_root_action()
+
     ready_checks = {
         "project_root",
         "initialized",
@@ -311,11 +328,12 @@ def agent_connect_payload(request: Request, project_root: Path) -> dict:
     connect_url = endpoint_url(api_base, "/agent/connect", project_root)
     state = normalize_agent_state(project_status_payload(project_root))
     bootstrap_ok = agent_bootstrap_diagnostic(request, project_root)["ok"]
-    next_action = (
-        handoff_action(api_base, project_root)
-        if state["initialized"] and state["compiled"] and bootstrap_ok
-        else prepare_agent_action(api_base, project_root)
-    )
+    if not _is_real_directory(project_root):
+        next_action = set_project_root_action()
+    elif state["initialized"] and state["compiled"] and bootstrap_ok:
+        next_action = handoff_action(api_base, project_root)
+    else:
+        next_action = prepare_agent_action(api_base, project_root)
     return {
         "service": "morpheus",
         "version": "0.1.0",

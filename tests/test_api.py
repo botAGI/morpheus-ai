@@ -174,6 +174,39 @@ def test_diagnostics_reports_project_setup_steps(tmp_path):
     )
 
 
+def test_diagnostics_recommends_setting_project_root_for_missing_path(tmp_path):
+    missing_root = tmp_path / "missing"
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.get("/diagnostics", params={"project_root": str(missing_root)})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["state"]["initialized"] is False
+    checks = {check["id"]: check for check in payload["checks"]}
+    assert checks["project_root"]["ok"] is False
+    assert payload["next_action"] == {
+        "id": "set_project_root",
+        "label": "Set Project Root",
+        "detail": "Choose an existing safe project directory.",
+        "command": None,
+        "request": None,
+    }
+
+
+def test_agent_connect_recommends_setting_project_root_for_missing_path(tmp_path):
+    missing_root = tmp_path / "missing"
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.get("/agent/connect", params={"project_root": str(missing_root)})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["state"]["initialized"] is False
+    assert payload["next_action"]["id"] == "set_project_root"
+    assert payload["next_action"]["request"] is None
+
+
 def test_diagnostics_reports_current_agent_bootstrap(tmp_path):
     client = api_client(raise_server_exceptions=False)
     bootstrap_response = client.post("/agent/bootstrap", json={"project_root": str(tmp_path)})
