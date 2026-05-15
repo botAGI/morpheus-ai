@@ -224,6 +224,55 @@ def endpoint_url(api_base: str, path: str, project_root: Path | None = None) -> 
     return f"{api_base}{path}{'?' + query if query else ''}"
 
 
+def prepare_agent_request(api_base: str, project_root: Path) -> dict:
+    return {
+        "method": "POST",
+        "url": f"{api_base}/agent/prepare",
+        "json": {"project_root": str(project_root)},
+    }
+
+
+def handoff_request(api_base: str, project_root: Path) -> dict:
+    return {
+        "method": "GET",
+        "url": endpoint_url(api_base, "/agent/handoff", project_root),
+    }
+
+
+def prepare_agent_action(api_base: str, project_root: Path) -> dict:
+    return {
+        "id": "prepare_agent",
+        "label": "Prepare Agent",
+        "detail": "Initialize, compile, bootstrap AGENTS.md, verify, and produce handoff.",
+        "command": "morpheus prepare-agent",
+        "request": prepare_agent_request(api_base, project_root),
+    }
+
+
+def handoff_action(api_base: str, project_root: Path) -> dict:
+    return {
+        "id": "handoff",
+        "label": "Build Handoff",
+        "detail": "Project is ready. Build the copyable handoff bundle.",
+        "command": "morpheus handoff",
+        "request": handoff_request(api_base, project_root),
+    }
+
+
+def diagnostics_next_action(api_base: str, project_root: Path, checks: list[dict]) -> dict:
+    ready_checks = {
+        "project_root",
+        "initialized",
+        "compiled",
+        "wake",
+        "agent_bootstrap",
+    }
+    checks_by_id = {check["id"]: check for check in checks}
+    if all(checks_by_id.get(check_id, {}).get("ok") for check_id in ready_checks):
+        return handoff_action(api_base, project_root)
+    return prepare_agent_action(api_base, project_root)
+
+
 def agent_connect_payload(request: Request, project_root: Path) -> dict:
     """Build a self-contained connection manifest for autonomous agents."""
     api_base = api_base_url(request)
@@ -247,6 +296,7 @@ def agent_connect_payload(request: Request, project_root: Path) -> dict:
             "url": f"{api_base}/compile",
             "json": json_body,
         },
+        "prepare_agent": prepare_agent_request(api_base, project_root),
         "wake": {
             "method": "GET",
             "url": wake_url,
@@ -255,15 +305,24 @@ def agent_connect_payload(request: Request, project_root: Path) -> dict:
             "method": "POST",
             "url": endpoint_url(api_base, "/verify", project_root),
         },
+        "handoff": handoff_request(api_base, project_root),
     }
 
     connect_url = endpoint_url(api_base, "/agent/connect", project_root)
+    state = normalize_agent_state(project_status_payload(project_root))
+    bootstrap_ok = agent_bootstrap_diagnostic(request, project_root)["ok"]
+    next_action = (
+        handoff_action(api_base, project_root)
+        if state["initialized"] and state["compiled"] and bootstrap_ok
+        else prepare_agent_action(api_base, project_root)
+    )
     return {
         "service": "morpheus",
         "version": "0.1.0",
         "api_base": api_base,
         "project_root": project_root_text,
-        "state": normalize_agent_state(project_status_payload(project_root)),
+        "state": state,
+        "next_action": next_action,
         "sequence": [
             {
                 "id": "status",
@@ -271,14 +330,9 @@ def agent_connect_payload(request: Request, project_root: Path) -> dict:
                 "request": endpoints["status"],
             },
             {
-                "id": "initialize_if_needed",
-                "goal": "Create .morpheus when state.initialized is false.",
-                "request": endpoints["initialize"],
-            },
-            {
-                "id": "compile",
-                "goal": "Compile project sources into WAKE.md and a signed receipt.",
-                "request": endpoints["compile"],
+                "id": "prepare_agent",
+                "goal": "Run the one-step prepare flow when next_action.id is prepare_agent.",
+                "request": endpoints["prepare_agent"],
             },
             {
                 "id": "read_wake",
@@ -319,7 +373,8 @@ def agent_connect_payload(request: Request, project_root: Path) -> dict:
         },
         "agent_prompt": (
             "Fetch the connect manifest before working on this project. "
-            f"Use {connect_url}, follow sequence in order, read WAKE.md before edits, "
+            f"Use {connect_url}, run `morpheus prepare-agent` when next_action.id is prepare_agent, "
+            "follow sequence in order, read WAKE.md before edits, "
             "and run compile plus verify after meaningful changes."
         ),
     }
@@ -435,6 +490,7 @@ def diagnostics_payload(request: Request, project_root: Path) -> dict:
         "cwd": str(Path.cwd()),
         "state": status_payload,
         "checks": checks,
+        "next_action": diagnostics_next_action(api_base, project_root, checks),
         "agent_connect_url": endpoint_url(api_base, "/agent/connect", project_root),
         "commands": {
             "agent_connect": "morpheus agent-connect --json",

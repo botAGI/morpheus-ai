@@ -101,11 +101,16 @@ def test_agent_connect_guides_uninitialized_project(tmp_path):
     }
     assert payload["endpoints"]["initialize"]["method"] == "POST"
     assert payload["endpoints"]["initialize"]["json"] == {"project_root": str(tmp_path)}
+    assert payload["endpoints"]["prepare_agent"]["method"] == "POST"
+    assert payload["endpoints"]["prepare_agent"]["json"] == {"project_root": str(tmp_path)}
     status_url = urlparse(payload["endpoints"]["status"]["url"])
     assert status_url.path == "/status"
     assert parse_qs(status_url.query) == {"project_root": [str(tmp_path)]}
     assert payload["sequence"][0]["id"] == "status"
-    assert payload["sequence"][1]["id"] == "initialize_if_needed"
+    assert payload["sequence"][1]["id"] == "prepare_agent"
+    assert payload["next_action"]["id"] == "prepare_agent"
+    assert payload["next_action"]["command"] == "morpheus prepare-agent"
+    assert payload["next_action"]["request"] == payload["endpoints"]["prepare_agent"]
     assert payload["cli"]["agent_connect"] == "morpheus agent-connect --json"
     assert (
         payload["cli"]["serve_ui"]
@@ -129,6 +134,7 @@ def test_agent_connect_reports_compiled_project(tmp_path):
     assert payload["state"]["compiled"] is True
     assert payload["state"]["sources"] == 1
     assert payload["state"]["claims"] == 1
+    assert payload["next_action"]["id"] == "prepare_agent"
     wake_url = urlparse(payload["endpoints"]["wake"]["url"])
     assert wake_url.path == "/wake"
     assert parse_qs(wake_url.query) == {"project_root": [str(tmp_path)]}
@@ -153,6 +159,12 @@ def test_diagnostics_reports_project_setup_steps(tmp_path):
     assert checks["wake"]["ok"] is False
     assert checks["agent_bootstrap"]["ok"] is False
     assert checks["agent_bootstrap"]["detail"] == "Run Bootstrap AGENTS.md"
+    assert payload["next_action"]["id"] == "prepare_agent"
+    assert payload["next_action"]["label"] == "Prepare Agent"
+    assert payload["next_action"]["command"] == "morpheus prepare-agent"
+    assert payload["next_action"]["request"]["method"] == "POST"
+    assert payload["next_action"]["request"]["url"] == "http://testserver/agent/prepare"
+    assert payload["next_action"]["request"]["json"] == {"project_root": str(tmp_path)}
     assert payload["agent_connect_url"].endswith("/agent/connect?project_root=" + str(tmp_path).replace("/", "%2F"))
     assert payload["commands"]["agent_connect"] == "morpheus agent-connect --json"
     assert payload["commands"]["serve"] == "morpheus serve --host 0.0.0.0 --port 8000"
@@ -173,6 +185,25 @@ def test_diagnostics_reports_current_agent_bootstrap(tmp_path):
     checks = {check["id"]: check for check in response.json()["checks"]}
     assert checks["agent_bootstrap"]["ok"] is True
     assert checks["agent_bootstrap"]["detail"] == "AGENTS.md is current"
+
+
+def test_diagnostics_recommends_handoff_after_prepare_agent(tmp_path):
+    (tmp_path / "README.md").write_text("TODO: ready for handoff\n")
+    client = api_client(raise_server_exceptions=False)
+    prepare_response = client.post("/agent/prepare", json={"project_root": str(tmp_path)})
+
+    response = client.get("/diagnostics", params={"project_root": str(tmp_path)})
+
+    assert prepare_response.status_code == 200
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["next_action"]["id"] == "handoff"
+    assert payload["next_action"]["label"] == "Build Handoff"
+    assert payload["next_action"]["command"] == "morpheus handoff"
+    handoff_url = urlparse(payload["next_action"]["request"]["url"])
+    assert payload["next_action"]["request"]["method"] == "GET"
+    assert handoff_url.path == "/agent/handoff"
+    assert parse_qs(handoff_url.query) == {"project_root": [str(tmp_path)]}
 
 
 def test_agent_handoff_returns_bundle_for_uninitialized_project(tmp_path):

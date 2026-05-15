@@ -282,6 +282,19 @@ def test_diagnostics_json_reports_current_project_without_server(tmp_path):
         assert checks["backend"]["ok"] is True
         assert checks["project_root"]["ok"] is True
         assert checks["initialized"]["ok"] is False
+        assert payload["next_action"]["id"] == "prepare_agent"
+        assert payload["next_action"]["command"] == "morpheus prepare-agent"
+
+
+def test_diagnostics_human_output_prints_next_action(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        result = runner.invoke(app, ["diagnostics"])
+
+        assert result.exit_code == 0, result.output
+        assert "Next action: Prepare Agent" in result.output
+        assert "morpheus prepare-agent" in result.output
 
 
 def test_agent_connect_json_reports_manifest_without_server(tmp_path):
@@ -306,11 +319,12 @@ def test_agent_connect_json_reports_manifest_without_server(tmp_path):
         assert payload["state"]["initialized"] is False
         assert [step["id"] for step in payload["sequence"]] == [
             "status",
-            "initialize_if_needed",
-            "compile",
+            "prepare_agent",
             "read_wake",
             "verify",
         ]
+        assert payload["next_action"]["id"] == "prepare_agent"
+        assert payload["endpoints"]["prepare_agent"]["url"] == "http://morpheus.local:8000/agent/prepare"
         assert payload["cli"]["agent_connect"] == "morpheus agent-connect --json"
         assert (
             payload["cli"]["serve_ui"]
@@ -328,6 +342,8 @@ def test_agent_connect_human_output_includes_next_action(tmp_path):
         assert result.exit_code == 0, result.output
         assert "Morpheus Agent Connect" in result.output
         assert "Project:" in result.output
+        assert "Next action: Prepare Agent" in result.output
+        assert "morpheus prepare-agent" in result.output
         assert "morpheus agent-connect --json" in result.output
 
 
