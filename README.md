@@ -104,6 +104,11 @@ Agents can discover Morpheus over HTTP without reading this README first:
 
 ```bash
 curl -s http://127.0.0.1:8000/.well-known/morpheus.json
+curl -s http://127.0.0.1:8000/.well-known/agent-card.json
+curl -s -X POST http://127.0.0.1:8000/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 curl -s -X POST http://127.0.0.1:8000/agent/prepare \
   -H 'Content-Type: application/json' \
   -d "{\"project_root\":\"$PWD\"}"
@@ -138,6 +143,21 @@ ready-to-copy agent prompt. A new agent should:
 
 `/agent/bootstrap` creates or refreshes the Morpheus-managed section in
 `AGENTS.md` without overwriting existing project-specific instructions.
+
+## Modern Agent Interop
+
+Morpheus exposes three local discovery surfaces:
+
+- `/.well-known/morpheus.json`: native Morpheus discovery.
+- `/.well-known/agent-card.json`: A2A-compatible Agent Card with Morpheus
+  skills and supported interfaces.
+- `/mcp`: minimal MCP Streamable HTTP endpoint exposing read-only tools:
+  `morpheus_status`, `morpheus_diagnostics`, `morpheus_integrations`, and
+  `morpheus_model_smoke`.
+
+For LAN testing, `morpheus serve --ui --host 0.0.0.0 --port 8000 --ui-port 5173`
+is convenient. For untrusted networks, prefer `127.0.0.1` and put authentication
+or a trusted tunnel in front of remote MCP/A2A access.
 
 Agents running locally can use the CLI equivalent without starting the HTTP API:
 

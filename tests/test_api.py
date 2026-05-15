@@ -79,7 +79,139 @@ def test_well_known_morpheus_manifest_exposes_agent_connect_url():
     assert payload["connect_url"] == "http://testserver/agent/connect"
     assert payload["handoff_url"] == "http://testserver/agent/handoff"
     assert payload["handoff_markdown_url"] == "http://testserver/agent/handoff.md"
+    assert payload["agent_card_url"] == "http://testserver/.well-known/agent-card.json"
+    assert payload["mcp_url"] == "http://testserver/mcp"
     assert payload["docs"]["human_quickstart"] == "README.md"
+
+
+def test_a2a_agent_card_endpoint_describes_morpheus_interfaces():
+    client = api_client()
+
+    response = client.get("/.well-known/agent-card.json")
+
+    assert response.status_code == 200
+    assert "max-age" in response.headers["cache-control"]
+    payload = response.json()
+    assert payload["name"] == "Morpheus AI"
+    assert payload["version"] == "0.1.0"
+    assert payload["capabilities"]["streaming"] is False
+    assert payload["defaultInputModes"] == ["application/json", "text/plain"]
+    assert payload["defaultOutputModes"] == ["application/json", "text/markdown", "text/plain"]
+    interfaces = {item["protocolBinding"]: item for item in payload["supportedInterfaces"]}
+    assert interfaces["https://morpheus.ai/protocols/agent-connect/v1"]["url"] == (
+        "http://testserver/agent/connect"
+    )
+    assert interfaces["MCP"]["url"] == "http://testserver/mcp"
+    assert {skill["id"] for skill in payload["skills"]} >= {
+        "compile-project-state",
+        "build-agent-handoff",
+        "inspect-integrations",
+        "smoke-test-local-model",
+    }
+
+
+def test_mcp_endpoint_rejects_untrusted_origin():
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+        headers={"origin": "http://evil.example"},
+    )
+
+    assert response.status_code == 403
+
+
+def test_mcp_initialize_returns_tools_capability():
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"protocolVersion": "2025-11-25", "capabilities": {}},
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["jsonrpc"] == "2.0"
+    assert payload["id"] == 1
+    assert payload["result"]["protocolVersion"] == "2025-11-25"
+    assert payload["result"]["capabilities"] == {"tools": {"listChanged": False}}
+    assert payload["result"]["serverInfo"]["name"] == "morpheus"
+
+
+def test_mcp_tools_list_exposes_morpheus_tools():
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "id": "tools", "method": "tools/list"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    tool_names = {tool["name"] for tool in payload["result"]["tools"]}
+    assert tool_names >= {
+        "morpheus_status",
+        "morpheus_diagnostics",
+        "morpheus_integrations",
+        "morpheus_model_smoke",
+    }
+
+
+def test_mcp_tools_call_returns_integration_manifest():
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": "call",
+            "method": "tools/call",
+            "params": {"name": "morpheus_integrations", "arguments": {}},
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["id"] == "call"
+    assert payload["result"]["isError"] is False
+    content = payload["result"]["content"]
+    assert content[0]["type"] == "text"
+    assert '"services"' in content[0]["text"]
+
+
+def test_mcp_model_smoke_tool_uses_eval_query(monkeypatch):
+    client = api_client(raise_server_exceptions=False)
+
+    def fake_query_model(prompt, base_model="qwen2.5:7b", adapter_path=None, **kwargs):
+        return f"{base_model}: {prompt}"
+
+    import morpheus.training.eval as eval_module
+
+    monkeypatch.setattr(eval_module, "query_model", fake_query_model)
+
+    response = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": "smoke",
+            "method": "tools/call",
+            "params": {
+                "name": "morpheus_model_smoke",
+                "arguments": {"base_model": "qwen2.5:0.5b", "prompt": "ping"},
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["result"]["isError"] is False
+    assert "qwen2.5:0.5b: ping" in payload["result"]["content"][0]["text"]
 
 
 def test_agent_connect_guides_uninitialized_project(tmp_path):
