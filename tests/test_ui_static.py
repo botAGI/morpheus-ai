@@ -71,6 +71,27 @@ def test_settings_integrations_panel_uses_real_manifest_controls():
     assert "coming soon" not in html.lower()
 
 
+def test_settings_integrations_panel_has_single_button_row_wrapper():
+    html = Path("ui/index.html").read_text()
+    settings_integrations = html.split("<h4>Integrations</h4>", 1)[1].split("<h4>Voice</h4>", 1)[0]
+
+    assert settings_integrations.count('class="button-row"') == 1
+
+
+def test_ui_bootstraps_backend_api_from_query_parameter():
+    html = Path("ui/index.html").read_text()
+
+    required_snippets = [
+        "function apiBaseFromQuery",
+        "new URLSearchParams(window.location.search)",
+        "params.get('api')",
+        "localStorage.setItem('morpheus.apiBase', queryApiBase)",
+        "apiBaseInput.value = queryApiBase ||",
+    ]
+    for snippet in required_snippets:
+        assert snippet in html
+
+
 def test_voice_button_uses_browser_speech_recognition_when_available():
     html = Path("ui/index.html").read_text()
 

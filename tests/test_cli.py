@@ -272,8 +272,17 @@ def test_serve_summary_reuses_lan_ip_for_api_and_ui(monkeypatch):
     assert lines == [
         "API: http://127.0.0.1:8000",
         "LAN API: http://192.0.2.24:8000",
-        "UI: http://127.0.0.1:5173/ui/index.html",
-        "LAN UI: http://192.0.2.24:5173/ui/index.html",
+        "UI: http://127.0.0.1:5173/ui/index.html?api=http%3A%2F%2F127.0.0.1%3A8000",
+        "LAN UI: http://192.0.2.24:5173/ui/index.html?api=http%3A%2F%2F192.0.2.24%3A8000",
+    ]
+
+
+def test_serve_summary_embeds_non_default_api_port_in_ui_link():
+    lines = cli_module.serve_summary_lines("127.0.0.1", 8123, "127.0.0.1", 5179)
+
+    assert lines == [
+        "API: http://127.0.0.1:8123",
+        "UI: http://127.0.0.1:5179/ui/index.html?api=http%3A%2F%2F127.0.0.1%3A8123",
     ]
 
 
