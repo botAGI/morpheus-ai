@@ -5,6 +5,7 @@ from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
+from morpheus.integrations.dates import parse_cache_datetime
 
 class GmailIntegration:
     SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
@@ -85,13 +86,5 @@ class GmailIntegration:
         return evidence
 
 
-def _parse_cache_datetime(value: str | None) -> datetime | None:
-    if not value or not isinstance(value, str):
-        return None
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed
+def _parse_cache_datetime(value: str | int | float | None) -> datetime | None:
+    return parse_cache_datetime(value, datetime_type=datetime)

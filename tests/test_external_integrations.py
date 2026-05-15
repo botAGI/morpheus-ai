@@ -200,6 +200,34 @@ def test_gmail_cache_loads_rfc3339_z_dates(tmp_path):
     assert [email["id"] for email in emails] == ["gmail-z"]
 
 
+def test_gmail_cache_loads_epoch_date_values(tmp_path):
+    now = datetime.now(timezone.utc)
+    cache_path = tmp_path / "gmail_cache.json"
+    cache_path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "old-epoch",
+                    "date": (now - timedelta(days=45)).timestamp(),
+                    "snippet": "TODO: too old",
+                },
+                {
+                    "id": "new-epoch",
+                    "date": now.timestamp(),
+                    "snippet": "TODO: import epoch Gmail cache row",
+                },
+            ]
+        )
+    )
+
+    emails = GmailIntegration(token_path=tmp_path / "token.json")._load_from_cache(
+        cache_path,
+        days=30,
+    )
+
+    assert [email["id"] for email in emails] == ["new-epoch"]
+
+
 def test_gmail_cache_returns_newest_emails_first(tmp_path):
     now = datetime.now(timezone.utc)
     cache_path = tmp_path / "gmail_cache.json"
@@ -245,6 +273,39 @@ def test_slack_cache_loads_recent_messages_newest_first(tmp_path):
                 },
                 {"id": "bad-date", "ts": "not-a-date", "text": "TODO: bad"},
                 ["not", "a", "message"],
+            ]
+        )
+    )
+
+    messages = SlackIntegration(token_path=tmp_path / "token.txt")._load_from_cache(
+        cache_path,
+        days=30,
+    )
+
+    assert [message["id"] for message in messages] == ["newest", "middle"]
+
+
+def test_slack_cache_loads_native_epoch_ts_values(tmp_path):
+    now = datetime.now(timezone.utc)
+    cache_path = tmp_path / "slack_cache.json"
+    cache_path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "old",
+                    "ts": f"{(now - timedelta(days=45)).timestamp():.6f}",
+                    "text": "TODO: too old",
+                },
+                {
+                    "id": "newest",
+                    "ts": f"{now.timestamp():.6f}",
+                    "text": "DECISION: ship from Slack export",
+                },
+                {
+                    "id": "middle",
+                    "ts": f"{(now - timedelta(days=1)).timestamp():.6f}",
+                    "text": "TODO: import native Slack timestamp",
+                },
             ]
         )
     )
@@ -331,6 +392,62 @@ def test_linear_cache_loads_recent_issues_newest_first(tmp_path):
     )
 
     assert [issue["id"] for issue in issues] == ["newest", "middle"]
+
+
+def test_linear_cache_uses_created_at_when_updated_timestamp_is_missing(tmp_path):
+    now = datetime.now(timezone.utc)
+    cache_path = tmp_path / "linear_cache.json"
+    cache_path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "old-created",
+                    "createdAt": (now - timedelta(days=45)).isoformat(),
+                    "title": "TODO: too old",
+                },
+                {
+                    "id": "new-created",
+                    "createdAt": now.isoformat(),
+                    "title": "DECISION: import newly created Linear issue",
+                },
+            ]
+        )
+    )
+
+    issues = LinearIntegration(token_path=tmp_path / "token.txt")._load_from_cache(
+        cache_path,
+        days=30,
+    )
+
+    assert [issue["id"] for issue in issues] == ["new-created"]
+
+
+def test_linear_cache_loads_epoch_updated_values(tmp_path):
+    now = datetime.now(timezone.utc)
+    cache_path = tmp_path / "linear_cache.json"
+    cache_path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "old-epoch",
+                    "updatedAt": (now - timedelta(days=45)).timestamp(),
+                    "title": "TODO: too old",
+                },
+                {
+                    "id": "new-epoch",
+                    "updatedAt": now.timestamp(),
+                    "title": "TODO: import epoch Linear issue",
+                },
+            ]
+        )
+    )
+
+    issues = LinearIntegration(token_path=tmp_path / "token.txt")._load_from_cache(
+        cache_path,
+        days=30,
+    )
+
+    assert [issue["id"] for issue in issues] == ["new-epoch"]
 
 
 def test_linear_extract_evidence_from_issue_title_and_description(tmp_path):
@@ -561,6 +678,34 @@ def test_calendar_cache_loads_rfc3339_z_dates(tmp_path):
     )
 
     assert [event["id"] for event in events] == ["calendar-z"]
+
+
+def test_calendar_cache_loads_epoch_start_values(tmp_path):
+    now = datetime.now(timezone.utc)
+    cache_path = tmp_path / "calendar_cache.json"
+    cache_path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "old-epoch",
+                    "start": (now - timedelta(days=45)).timestamp(),
+                    "summary": "TODO: too old",
+                },
+                {
+                    "id": "new-epoch",
+                    "start": now.timestamp(),
+                    "summary": "TODO: import epoch Calendar event",
+                },
+            ]
+        )
+    )
+
+    events = CalendarIntegration(token_path=tmp_path / "token.json")._load_from_cache(
+        cache_path,
+        days=30,
+    )
+
+    assert [event["id"] for event in events] == ["new-epoch"]
 
 
 def test_calendar_cache_returns_newest_events_first(tmp_path):
