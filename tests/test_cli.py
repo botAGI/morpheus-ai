@@ -1310,6 +1310,64 @@ def test_eval_command_forwards_options(monkeypatch):
     ]
 
 
+def test_model_smoke_command_queries_model(monkeypatch):
+    runner = CliRunner()
+    calls = []
+
+    def fake_query_model(prompt, base_model="qwen2.5:7b", adapter_path=None, **kwargs):
+        calls.append(
+            {
+                "prompt": prompt,
+                "base_model": base_model,
+                "adapter_path": adapter_path,
+                "kwargs": kwargs,
+            }
+        )
+        return "ok answer"
+
+    import morpheus.training.eval as eval_module
+
+    monkeypatch.setattr(eval_module, "query_model", fake_query_model)
+
+    result = runner.invoke(
+        app,
+        [
+            "model-smoke",
+            "--base-model",
+            "qwen2.5:0.5b",
+            "--prompt",
+            "ping",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "ok answer" in result.output
+    assert calls == [
+        {
+            "prompt": "ping",
+            "base_model": "qwen2.5:0.5b",
+            "adapter_path": None,
+            "kwargs": {},
+        }
+    ]
+
+
+def test_model_smoke_command_exits_on_model_error(monkeypatch):
+    runner = CliRunner()
+
+    def fake_query_model(prompt, base_model="qwen2.5:7b", adapter_path=None, **kwargs):
+        return "Error: ollama executable not found"
+
+    import morpheus.training.eval as eval_module
+
+    monkeypatch.setattr(eval_module, "query_model", fake_query_model)
+
+    result = runner.invoke(app, ["model-smoke"])
+
+    assert result.exit_code == 1
+    assert "Error: ollama executable not found" in result.output
+
+
 def test_consolidate_command_forwards_min_pairs_option(monkeypatch):
     runner = CliRunner()
     calls = []
