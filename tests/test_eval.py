@@ -329,6 +329,19 @@ def test_query_model_uses_ollama_run(monkeypatch):
     ]
 
 
+def test_query_model_strips_terminal_control_sequences(monkeypatch):
+    class Completed:
+        returncode = 0
+        stdout = "A\x1b[1D\x1b[K\nAI models are ready.\n"
+        stderr = ""
+
+    monkeypatch.setattr(eval_module.subprocess, "run", lambda *args, **kwargs: Completed())
+
+    result = eval_module.query_model("prompt", base_model="qwen2.5:0.5b")
+
+    assert result == "AI models are ready."
+
+
 def test_query_model_prints_adapter_path_in_manual_load_hint(monkeypatch, tmp_path, capsys):
     adapter_dir = tmp_path / "adapter"
     adapter_dir.mkdir()
