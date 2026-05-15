@@ -80,3 +80,26 @@ def test_ui_exposes_model_smoke_controls():
     ]
     for snippet in required_snippets:
         assert snippet in html
+
+
+def test_ui_exposes_launchpad_for_humans_and_agents():
+    html = Path("ui/index.html").read_text()
+
+    required_snippets = [
+        "Morpheus Launchpad",
+        'id="quickstart-summary"',
+        'id="quickstart-commands"',
+        'id="connect-pack-output"',
+        'id="refresh-quickstart-btn"',
+        'id="copy-connect-pack-btn"',
+        "async function refreshQuickstart",
+        "function renderQuickstart",
+        "function buildConnectPack",
+        "apiRequest('/quickstart'",
+        "Human start",
+        "Agent start",
+        "A2A Agent Card",
+        "MCP endpoint",
+    ]
+    for snippet in required_snippets:
+        assert snippet in html

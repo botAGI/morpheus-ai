@@ -358,6 +358,82 @@ def endpoint_url(api_base: str, path: str, project_root: Path | None = None) -> 
     return f"{api_base}{path}{'?' + query if query else ''}"
 
 
+def quickstart_payload(request: Request, project_root: Path) -> dict:
+    api_base = api_base_url(request)
+    ui_url = api_base.replace(":8000", ":5173") + "/ui/index.html"
+    native_manifest = endpoint_url(api_base, "/agent/connect", project_root)
+    a2a_card = f"{api_base}/.well-known/agent-card.json"
+    mcp_url = f"{api_base}/mcp"
+    return {
+        "service": "morpheus",
+        "version": "0.1.0",
+        "project_root": str(project_root),
+        "ui_url": ui_url,
+        "commands": {
+            "clone": "git clone <repo-url> morpheus-ai && cd morpheus-ai",
+            "install": [
+                "python -m venv .venv",
+                "source .venv/bin/activate",
+                "pip install -e .",
+            ],
+            "run_local": "morpheus serve --ui --host 127.0.0.1 --port 8000 --ui-port 5173",
+            "run_lan": "morpheus serve --ui --host 0.0.0.0 --port 8000 --ui-port 5173",
+            "prepare_agent": "morpheus prepare-agent",
+            "agent_manifest": "morpheus agent-connect --json",
+            "verify": "morpheus verify --all",
+            "model_smoke": f"morpheus model-smoke --base-model {DEFAULT_MODEL_SMOKE_MODEL}",
+        },
+        "connect": {
+            "native": native_manifest,
+            "a2a_agent_card": a2a_card,
+            "mcp": mcp_url,
+            "ui": ui_url,
+        },
+        "human_path": [
+            {
+                "id": "install",
+                "label": "Install once",
+                "detail": "Create a venv and run pip install -e .",
+            },
+            {
+                "id": "run",
+                "label": "Run Morpheus",
+                "detail": "Start backend and UI with morpheus serve --ui.",
+            },
+            {
+                "id": "prepare",
+                "label": "Prepare Agent",
+                "detail": "Click Prepare Agent or run morpheus prepare-agent.",
+            },
+        ],
+        "agent_path": [
+            {
+                "id": "discover",
+                "label": "Discover",
+                "detail": "Fetch the native manifest, A2A Agent Card, or MCP endpoint.",
+            },
+            {
+                "id": "read",
+                "label": "Read State",
+                "detail": "Read WAKE.md before changing the project.",
+            },
+            {
+                "id": "verify",
+                "label": "Verify",
+                "detail": "Compile and verify after meaningful changes.",
+            },
+        ],
+        "copy_paste_agent_prompt": "\n".join([
+            "Connect to Morpheus before changing this project.",
+            f"Native manifest: {native_manifest}",
+            f"A2A Agent Card: {a2a_card}",
+            f"MCP endpoint: {mcp_url}",
+            "Run `morpheus prepare-agent` if next_action.id is prepare_agent.",
+            "Read WAKE.md before edits, then compile and verify after meaningful changes.",
+        ]),
+    }
+
+
 def a2a_agent_card_payload(request: Request) -> dict:
     api_base = api_base_url(request)
     return {
@@ -1197,11 +1273,19 @@ def well_known_morpheus(request: Request):
         "handoff_markdown_url": f"{api_base}/agent/handoff.md",
         "agent_card_url": f"{api_base}/.well-known/agent-card.json",
         "mcp_url": f"{api_base}/mcp",
+        "quickstart_url": f"{api_base}/quickstart",
         "docs": {
             "human_quickstart": "README.md",
             "state_file": ".morpheus/WAKE.md",
         },
     }
+
+
+@app.get("/quickstart")
+def quickstart(request: Request, project_root: Optional[str] = None):
+    """Return one-screen install, run, and connect instructions."""
+    root = Path(project_root) if project_root else Path.cwd()
+    return quickstart_payload(request, root)
 
 
 @app.get("/.well-known/agent-card.json")

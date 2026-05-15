@@ -81,7 +81,34 @@ def test_well_known_morpheus_manifest_exposes_agent_connect_url():
     assert payload["handoff_markdown_url"] == "http://testserver/agent/handoff.md"
     assert payload["agent_card_url"] == "http://testserver/.well-known/agent-card.json"
     assert payload["mcp_url"] == "http://testserver/mcp"
+    assert payload["quickstart_url"] == "http://testserver/quickstart"
     assert payload["docs"]["human_quickstart"] == "README.md"
+
+
+def test_quickstart_endpoint_returns_human_and_agent_launch_plan(tmp_path):
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.get("/quickstart", params={"project_root": str(tmp_path)})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["service"] == "morpheus"
+    assert payload["project_root"] == str(tmp_path)
+    assert payload["human_path"][0]["id"] == "install"
+    assert "pip install -e ." in payload["commands"]["install"][2]
+    assert payload["commands"]["run_local"] == (
+        "morpheus serve --ui --host 127.0.0.1 --port 8000 --ui-port 5173"
+    )
+    assert payload["commands"]["run_lan"] == (
+        "morpheus serve --ui --host 0.0.0.0 --port 8000 --ui-port 5173"
+    )
+    assert payload["connect"]["native"] == (
+        f"http://testserver/agent/connect?project_root={str(tmp_path).replace('/', '%2F')}"
+    )
+    assert payload["connect"]["a2a_agent_card"] == "http://testserver/.well-known/agent-card.json"
+    assert payload["connect"]["mcp"] == "http://testserver/mcp"
+    assert payload["agent_path"][0]["id"] == "discover"
+    assert "morpheus prepare-agent" in payload["copy_paste_agent_prompt"]
 
 
 def test_a2a_agent_card_endpoint_describes_morpheus_interfaces():
