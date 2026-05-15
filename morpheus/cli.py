@@ -32,6 +32,7 @@ from morpheus.core.provenance import (
 )
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
 from morpheus.core.verify import verify_receipt_chain
+from morpheus.integrations.manifest import integration_manifest
 from morpheus.training.consolidate import consolidate_sessions
 from morpheus.training.train import check_dependencies
 
@@ -217,6 +218,16 @@ def integration_status(token_path: Path, service_label: str) -> str:
     if token_path.is_file():
         return "[green]configured[/green]"
     return "[yellow]not configured[/yellow]"
+
+
+def rich_integration_status(status: str) -> str:
+    labels = {
+        "configured": "[green]configured[/green]",
+        "cache_ready": "[green]cache ready[/green]",
+        "not_configured": "[yellow]not configured[/yellow]",
+        "invalid": "[red]invalid[/red]",
+    }
+    return labels.get(status, status)
 
 
 def request_context(api_base: str):
@@ -668,7 +679,8 @@ def wake():
 @app.command()
 def integrate(
     service: str | None = typer.Argument(None, help="Service: gmail, calendar, github, slack, linear"),
-    list_services: bool = typer.Option(False, "--list", help="List available integrations")
+    list_services: bool = typer.Option(False, "--list", help="List available integrations"),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON"),
 ):
     """Connect external integrations.
     
@@ -680,29 +692,22 @@ def integrate(
       linear    - Linear cache export + optional token
     """
     if list_services:
-        morpheus_home = Path.home() / ".morpheus"
+        manifest = integration_manifest()
+
+        if json_output:
+            console.out(json.dumps(manifest, indent=2))
+            return
 
         table = Table(title="Available Integrations")
         table.add_column("Service", style="cyan")
         table.add_column("Status", style="green")
         table.add_column("Auth", style="yellow")
-        table.add_row("gmail", "[yellow]not configured[/yellow]", "OAuth2")
-        table.add_row("calendar", "[yellow]not configured[/yellow]", "OAuth2")
-        table.add_row(
-            "github",
-            integration_status(morpheus_home / "github_token.txt", "GitHub"),
-            "PAT",
-        )
-        table.add_row(
-            "slack",
-            integration_status(morpheus_home / "slack_token.txt", "Slack"),
-            "cache + token",
-        )
-        table.add_row(
-            "linear",
-            integration_status(morpheus_home / "linear_token.txt", "Linear"),
-            "cache + token",
-        )
+        for item in manifest["services"]:
+            table.add_row(
+                item["id"],
+                rich_integration_status(item["status"]),
+                item["auth"],
+            )
         console.print(table)
         return
 

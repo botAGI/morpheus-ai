@@ -521,6 +521,65 @@
         gap: 10px;
       }
 
+      .integration-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .integration-item {
+        display: grid;
+        grid-template-columns: minmax(120px, 0.8fr) minmax(160px, 1fr) auto;
+        gap: 12px;
+        align-items: start;
+        padding: 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--bg-tertiary);
+      }
+
+      .integration-item strong {
+        display: block;
+        font-size: 13px;
+      }
+
+      .integration-item small {
+        display: block;
+        margin-top: 4px;
+        color: var(--text-secondary);
+        line-height: 1.4;
+      }
+
+      .integration-status {
+        min-width: 104px;
+        border-radius: 999px;
+        padding: 5px 8px;
+        border: 1px solid var(--border);
+        background: var(--bg-secondary);
+        color: var(--text-secondary);
+        text-align: center;
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .integration-status.configured,
+      .integration-status.cache_ready {
+        color: #052e16;
+        background: var(--success);
+        border-color: var(--success);
+      }
+
+      .integration-status.not_configured {
+        color: #451a03;
+        background: var(--warning);
+        border-color: var(--warning);
+      }
+
+      .integration-status.invalid {
+        color: white;
+        background: var(--error);
+        border-color: var(--error);
+      }
+
       .setup-step {
         display: grid;
         grid-template-columns: 32px 1fr auto;
@@ -647,6 +706,10 @@
         }
 
         .start-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .integration-item {
           grid-template-columns: 1fr;
         }
 
@@ -822,6 +885,15 @@
               <div class="button-row">
                 <button id="save-context-paths-btn">Save Context Sources</button>
                 <button id="load-context-paths-btn" class="secondary-button">Load Config</button>
+              </div>
+            </div>
+
+            <div class="card full-width">
+              <h4>Integration Paths</h4>
+              <p class="muted-line" id="integrations-summary">Load integration status for optional external context.</p>
+              <div class="integration-list" id="integrations-list"></div>
+              <div class="button-row" style="margin-top: 12px;">
+                <button id="refresh-integrations-btn" class="secondary-button">Refresh Integrations</button>
               </div>
             </div>
 
@@ -1089,6 +1161,9 @@
       const contextPathsSummary = document.getElementById('context-paths-summary');
       const saveContextPathsBtn = document.getElementById('save-context-paths-btn');
       const loadContextPathsBtn = document.getElementById('load-context-paths-btn');
+      const integrationsSummary = document.getElementById('integrations-summary');
+      const integrationsList = document.getElementById('integrations-list');
+      const refreshIntegrationsBtn = document.getElementById('refresh-integrations-btn');
       const diagnosticsNextActionLabel = document.getElementById('diagnostics-next-action-label');
       const diagnosticsNextActionDetail = document.getElementById('diagnostics-next-action-detail');
       const diagnosticsNextActionCommand = document.getElementById('diagnostics-next-action-command');
@@ -1294,6 +1369,79 @@
           ` | ${payload.config_path}`;
       }
 
+      function integrationStatusText(status) {
+        const labels = {
+          configured: 'Configured',
+          cache_ready: 'Cache ready',
+          not_configured: 'Not configured',
+          invalid: 'Invalid',
+        };
+        return labels[status] || status || 'Unknown';
+      }
+
+      function renderIntegrations(payload) {
+        const services = (payload && payload.services) || [];
+        const readyCount = services.filter((service) => (
+          service.status === 'configured' || service.status === 'cache_ready'
+        )).length;
+        integrationsSummary.textContent = services.length
+          ? `${readyCount}/${services.length} integrations ready | ${payload.home}`
+          : 'No integration manifest loaded.';
+        integrationsList.innerHTML = '';
+
+        services.forEach((service) => {
+          const item = document.createElement('div');
+          item.className = 'integration-item';
+
+          const title = document.createElement('div');
+          const name = document.createElement('strong');
+          name.textContent = service.label || service.id;
+          const auth = document.createElement('small');
+          auth.textContent = service.auth || '';
+          title.appendChild(name);
+          title.appendChild(auth);
+
+          const details = document.createElement('div');
+          const source = document.createElement('small');
+          source.textContent = service.source || '';
+          const command = document.createElement('small');
+          command.textContent = service.setup_command || '';
+          details.appendChild(source);
+          details.appendChild(command);
+          if (service.cache_path) {
+            const cache = document.createElement('small');
+            cache.textContent = service.cache_path;
+            details.appendChild(cache);
+          }
+
+          const status = document.createElement('span');
+          status.className = `integration-status ${service.status || 'not_configured'}`;
+          status.textContent = integrationStatusText(service.status);
+
+          item.appendChild(title);
+          item.appendChild(details);
+          item.appendChild(status);
+          integrationsList.appendChild(item);
+        });
+      }
+
+      async function refreshIntegrations({ silent = true } = {}) {
+        integrationsSummary.textContent = 'Loading integrations...';
+        refreshIntegrationsBtn.disabled = true;
+        try {
+          const payload = await apiRequest('/integrations');
+          renderIntegrations(payload);
+          return payload;
+        } catch (error) {
+          integrationsSummary.textContent = `Integrations unavailable: ${error.message}`;
+          integrationsList.innerHTML = '';
+          if (!silent) addMessage(`Integrations unavailable: ${error.message}`);
+          throw error;
+        } finally {
+          refreshIntegrationsBtn.disabled = false;
+        }
+      }
+
       async function loadProjectConfig({ silent = false } = {}) {
         contextPathsSummary.textContent = 'Loading context sources...';
         loadContextPathsBtn.disabled = true;
@@ -1389,6 +1537,10 @@
 
         if (payload.next_action) {
           updateNextAction(payload.next_action);
+        }
+
+        if (payload.integrations) {
+          renderIntegrations(payload.integrations);
         }
 
         const state = payload.state || {};
@@ -1906,6 +2058,9 @@
       saveContextPathsBtn.addEventListener('click', () => {
         saveProjectConfig({ silent: false });
       });
+      refreshIntegrationsBtn.addEventListener('click', () => {
+        refreshIntegrations({ silent: false });
+      });
       runNextActionBtn.addEventListener('click', runNextAction);
       copyAgentUrlBtn.addEventListener('click', () => {
         copyText(agentConnectEndpoint(), 'Agent connect URL');
@@ -1953,6 +2108,7 @@
         setBackendStatus('error', 'Backend offline');
       });
       runDiagnostics({ silent: true }).catch(() => {});
+      refreshIntegrations({ silent: true }).catch(() => {});
     </script>
   </body>
 </html>

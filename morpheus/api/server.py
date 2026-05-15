@@ -61,6 +61,7 @@ from morpheus.core.provenance import (
     receipt_file_name,
 )
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
+from morpheus.integrations.manifest import integration_manifest
 
 app = FastAPI(
     title="Morpheus API",
@@ -428,6 +429,10 @@ def agent_connect_payload(request: Request, project_root: Path) -> dict:
             "method": "GET",
             "url": endpoint_url(api_base, "/config", project_root),
         },
+        "integrations": {
+            "method": "GET",
+            "url": f"{api_base}/integrations",
+        },
         "prepare_agent": prepare_agent_request(api_base, project_root),
         "wake": {
             "method": "GET",
@@ -473,12 +478,18 @@ def agent_connect_payload(request: Request, project_root: Path) -> dict:
                 "request": endpoints["wake"],
             },
             {
+                "id": "inspect_integrations",
+                "goal": "Inspect optional external context sources such as GitHub, Slack, and Linear.",
+                "request": endpoints["integrations"],
+            },
+            {
                 "id": "verify",
                 "goal": "Verify receipt integrity after compilation.",
                 "request": endpoints["verify"],
             },
         ],
         "endpoints": endpoints,
+        "integrations": integration_manifest(),
         "cli": {
             "agent_connect": "morpheus agent-connect --json",
             "diagnostics": "morpheus diagnostics --json",
@@ -504,6 +515,7 @@ def agent_connect_payload(request: Request, project_root: Path) -> dict:
             "wake": f"curl -s {shlex.quote(wake_url)}",
             "verify": f"curl -s -X POST {shlex.quote(endpoints['verify']['url'])}",
             "config": f"curl -s {shlex.quote(endpoints['config']['url'])}",
+            "integrations": f"curl -s {shlex.quote(endpoints['integrations']['url'])}",
         },
         "agent_prompt": (
             "Fetch the connect manifest before working on this project. "
@@ -967,6 +979,12 @@ def diagnostics(request: Request, project_root: Optional[str] = None):
     """Return backend and project readiness diagnostics for the UI."""
     root = Path(project_root) if project_root else Path.cwd()
     return diagnostics_payload(request, root)
+
+
+@app.get("/integrations")
+def integrations():
+    """Return integration setup status for humans, UI, and agents."""
+    return integration_manifest()
 
 
 @app.get("/config")
