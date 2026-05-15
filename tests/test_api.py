@@ -103,6 +103,9 @@ def test_agent_connect_guides_uninitialized_project(tmp_path):
     assert payload["endpoints"]["initialize"]["json"] == {"project_root": str(tmp_path)}
     assert payload["endpoints"]["prepare_agent"]["method"] == "POST"
     assert payload["endpoints"]["prepare_agent"]["json"] == {"project_root": str(tmp_path)}
+    config_url = urlparse(payload["endpoints"]["config"]["url"])
+    assert config_url.path == "/config"
+    assert parse_qs(config_url.query) == {"project_root": [str(tmp_path)]}
     status_url = urlparse(payload["endpoints"]["status"]["url"])
     assert status_url.path == "/status"
     assert parse_qs(status_url.query) == {"project_root": [str(tmp_path)]}
@@ -218,6 +221,70 @@ def test_diagnostics_reports_current_agent_bootstrap(tmp_path):
     checks = {check["id"]: check for check in response.json()["checks"]}
     assert checks["agent_bootstrap"]["ok"] is True
     assert checks["agent_bootstrap"]["detail"] == "AGENTS.md is current"
+
+
+def test_project_config_reports_default_watch_dirs_without_initializing(tmp_path):
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.get("/config", params={"project_root": str(tmp_path)})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["project_root"] == str(tmp_path)
+    assert payload["initialized"] is False
+    assert payload["watch_dirs"] == ["."]
+    assert payload["watch_paths"] == [
+        {
+            "path": ".",
+            "absolute_path": str(tmp_path),
+            "exists": True,
+            "kind": "directory",
+            "valid": True,
+            "detail": "directory",
+        }
+    ]
+
+
+def test_project_config_updates_watch_dirs_and_compile_uses_multiple_paths(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "src" / "todo.md").write_text("TODO: source task\n")
+    (tmp_path / "docs" / "decision.md").write_text("DECISION: document architecture\n")
+    (tmp_path / "ignored.md").write_text("TODO: ignore root\n")
+    client = api_client(raise_server_exceptions=False)
+
+    config_response = client.post(
+        "/config",
+        json={"project_root": str(tmp_path), "watch_dirs": ["src", "docs"]},
+    )
+    compile_response = client.post("/compile", json={"project_root": str(tmp_path)})
+
+    assert config_response.status_code == 200
+    assert compile_response.status_code == 200
+    assert config_response.json()["initialized"] is True
+    assert config_response.json()["watch_dirs"] == ["src", "docs"]
+    assert 'watch_dirs = [ "src", "docs",]' in (
+        tmp_path / ".morpheus" / "morpheus.toml"
+    ).read_text()
+    assert compile_response.json()["source_count"] == 2
+    wake_md = compile_response.json()["wake_md"]
+    assert "TODO: source task" in wake_md
+    assert "DECISION: document architecture" in wake_md
+    assert "TODO: ignore root" not in wake_md
+
+
+def test_project_config_rejects_watch_dir_outside_project(tmp_path):
+    outside = tmp_path.parent / "outside-project"
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post(
+        "/config",
+        json={"project_root": str(tmp_path), "watch_dirs": [str(outside)]},
+    )
+
+    assert response.status_code == 400
+    assert "Watch path must stay inside project root" in response.json()["detail"]
+    assert not (tmp_path / ".morpheus").exists()
 
 
 def test_diagnostics_recommends_handoff_after_prepare_agent(tmp_path):

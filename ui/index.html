@@ -474,6 +474,13 @@
         outline: none;
       }
 
+      textarea.settings-input {
+        min-height: 120px;
+        resize: vertical;
+        line-height: 1.5;
+        font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+      }
+
       select.settings-input {
         appearance: none;
       }
@@ -604,6 +611,25 @@
         color: var(--text-secondary);
         font-size: 12px;
         line-height: 1.5;
+      }
+
+      details {
+        border-top: 1px solid var(--border);
+        padding: 12px 0;
+      }
+
+      details:first-of-type {
+        border-top: 0;
+      }
+
+      summary {
+        cursor: pointer;
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      details p {
+        margin-top: 8px;
       }
 
       @media (max-width: 900px) {
@@ -778,10 +804,24 @@
               <p id="start-project-root">Backend working directory</p>
               <div class="button-row">
                 <button id="start-prepare-btn">Prepare Agent</button>
-                <button id="start-init-btn">Initialize</button>
+                <button id="refresh-diagnostics-btn" class="secondary-button">Diagnostics</button>
+                <button id="start-init-btn" class="secondary-button">Initialize</button>
                 <button id="start-compile-btn" class="secondary-button">Compile</button>
                 <button id="start-verify-btn" class="secondary-button">Verify</button>
-                <button id="refresh-diagnostics-btn" class="secondary-button">Diagnostics</button>
+              </div>
+            </div>
+
+            <div class="card full-width">
+              <h4>Context Sources</h4>
+              <p class="muted-line">One path per line, relative to the project root. Use the workspace root and list several folders when Morpheus should absorb more than one project.</p>
+              <div class="form-row">
+                <label for="context-watch-dirs-input">Watched paths</label>
+                <textarea class="settings-input" id="context-watch-dirs-input" rows="5" placeholder=".\nsrc\ndocs\npackages/api"></textarea>
+              </div>
+              <p class="muted-line" id="context-paths-summary">Load config to inspect watched paths.</p>
+              <div class="button-row">
+                <button id="save-context-paths-btn">Save Context Sources</button>
+                <button id="load-context-paths-btn" class="secondary-button">Load Config</button>
               </div>
             </div>
 
@@ -898,6 +938,26 @@
               <div class="button-row" style="margin-top: 12px;">
                 <button id="copy-diagnostics-btn">Copy Diagnostics</button>
               </div>
+            </div>
+
+            <div class="card full-width">
+              <h4>FAQ</h4>
+              <details open>
+                <summary>How do I connect Morpheus to a project?</summary>
+                <p>Set Project root, keep Context Sources as <code>.</code> for the whole project, then click Prepare Agent. Morpheus initializes local state, compiles WAKE.md, verifies the receipt chain, and prepares AGENTS.md for other agents.</p>
+              </details>
+              <details>
+                <summary>How do I include several folders or projects?</summary>
+                <p>Choose a parent workspace as Project root and list each folder in Context Sources, one per line. Example: <code>frontend</code>, <code>backend</code>, <code>docs</code>. Morpheus keeps paths inside the selected root for safety.</p>
+              </details>
+              <details>
+                <summary>What should another agent do?</summary>
+                <p>Give the agent the Agent Connect URL or run <code>morpheus prepare-agent</code>. The manifest tells it the next action, where WAKE.md lives, and which commands must run before and after edits.</p>
+              </details>
+              <details>
+                <summary>What is WAKE.md?</summary>
+                <p>WAKE.md is the compiled working memory: sources, tasks, decisions, notes, and receipt metadata. Agents should read it before changing the project.</p>
+              </details>
             </div>
           </div>
         </div>
@@ -1025,6 +1085,10 @@
       const startInitBtn = document.getElementById('start-init-btn');
       const startCompileBtn = document.getElementById('start-compile-btn');
       const startVerifyBtn = document.getElementById('start-verify-btn');
+      const contextWatchDirsInput = document.getElementById('context-watch-dirs-input');
+      const contextPathsSummary = document.getElementById('context-paths-summary');
+      const saveContextPathsBtn = document.getElementById('save-context-paths-btn');
+      const loadContextPathsBtn = document.getElementById('load-context-paths-btn');
       const diagnosticsNextActionLabel = document.getElementById('diagnostics-next-action-label');
       const diagnosticsNextActionDetail = document.getElementById('diagnostics-next-action-detail');
       const diagnosticsNextActionCommand = document.getElementById('diagnostics-next-action-command');
@@ -1083,6 +1147,7 @@
       projectRootInputs.forEach((input) => {
         input.value = localStorage.getItem('morpheus.projectRoot') || '';
       });
+      contextWatchDirsInput.value = localStorage.getItem('morpheus.watchDirs') || '.';
       syncProjectRootLabel();
       updateAgentConnectPreview();
       renderRecentProjects();
@@ -1112,6 +1177,7 @@
         if (!recentProjectsSelect.value) return;
         startProjectRootInput.value = recentProjectsSelect.value;
         syncProjectRootInputs(startProjectRootInput);
+        loadProjectConfig({ silent: true }).catch(() => {});
         refreshStatus().catch(() => {});
         runDiagnostics({ silent: true }).catch(() => {});
       });
@@ -1206,6 +1272,68 @@
           'Follow the manifest sequence: status, initialize if needed, compile, read WAKE.md, verify.',
           'Read WAKE.md before edits and compile plus verify after meaningful changes.',
         ].join('\n');
+      }
+
+      function configuredWatchDirs() {
+        const values = contextWatchDirsInput.value
+          .split(/[\n,]+/)
+          .map((value) => value.trim())
+          .filter(Boolean);
+        return values.length ? [...new Set(values)] : ['.'];
+      }
+
+      function renderProjectConfig(payload) {
+        contextWatchDirsInput.value = (payload.watch_dirs || ['.']).join('\n');
+        localStorage.setItem('morpheus.watchDirs', contextWatchDirsInput.value);
+        const paths = payload.watch_paths || [];
+        const validCount = paths.filter((item) => item.valid).length;
+        const missingCount = paths.filter((item) => item.kind === 'missing').length;
+        contextPathsSummary.textContent =
+          `${validCount}/${paths.length} context paths valid` +
+          (missingCount ? `, ${missingCount} missing` : '') +
+          ` | ${payload.config_path}`;
+      }
+
+      async function loadProjectConfig({ silent = false } = {}) {
+        contextPathsSummary.textContent = 'Loading context sources...';
+        loadContextPathsBtn.disabled = true;
+        try {
+          const payload = await apiRequest('/config', {
+            params: { project_root: selectedProjectRoot() },
+          });
+          renderProjectConfig(payload);
+          return payload;
+        } catch (error) {
+          contextPathsSummary.textContent = `Config load failed: ${error.message}`;
+          if (!silent) addMessage(`Config load failed: ${error.message}`);
+          throw error;
+        } finally {
+          loadContextPathsBtn.disabled = false;
+        }
+      }
+
+      async function saveProjectConfig({ silent = false } = {}) {
+        contextPathsSummary.textContent = 'Saving context sources...';
+        saveContextPathsBtn.disabled = true;
+        try {
+          const payload = await apiRequest('/config', {
+            method: 'POST',
+            body: {
+              project_root: selectedProjectRoot(),
+              watch_dirs: configuredWatchDirs(),
+            },
+          });
+          rememberProjectRoot(payload.project_root);
+          renderProjectConfig(payload);
+          if (!silent) addMessage('Context sources saved.');
+          return payload;
+        } catch (error) {
+          contextPathsSummary.textContent = `Config save failed: ${error.message}`;
+          if (!silent) addMessage(`Config save failed: ${error.message}`);
+          throw error;
+        } finally {
+          saveContextPathsBtn.disabled = false;
+        }
       }
 
       function updateNextAction(action = null) {
@@ -1418,6 +1546,7 @@
         showTyping(true);
         startPrepareBtn.disabled = true;
         try {
+          await saveProjectConfig({ silent: true });
           const payload = await apiRequest('/agent/prepare', {
             method: 'POST',
             body: { project_root: selectedProjectRoot() },
@@ -1771,6 +1900,12 @@
       startInitBtn.addEventListener('click', runInit);
       startCompileBtn.addEventListener('click', runCompile);
       startVerifyBtn.addEventListener('click', runVerify);
+      loadContextPathsBtn.addEventListener('click', () => {
+        loadProjectConfig({ silent: false });
+      });
+      saveContextPathsBtn.addEventListener('click', () => {
+        saveProjectConfig({ silent: false });
+      });
       runNextActionBtn.addEventListener('click', runNextAction);
       copyAgentUrlBtn.addEventListener('click', () => {
         copyText(agentConnectEndpoint(), 'Agent connect URL');
