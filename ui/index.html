@@ -1290,6 +1290,22 @@
     </div>
     
     <script>
+      function apiBaseFromQuery() {
+        try {
+          const params = new URLSearchParams(window.location.search);
+          const rawApiBase = params.get('api');
+          if (!rawApiBase) return null;
+          const parsed = new URL(rawApiBase, window.location.href);
+          if (!['http:', 'https:'].includes(parsed.protocol)) return null;
+          parsed.pathname = parsed.pathname.replace(/\/+$/, '');
+          parsed.search = '';
+          parsed.hash = '';
+          return parsed.toString().replace(/\/+$/, '');
+        } catch (error) {
+          return null;
+        }
+      }
+
       const DEFAULT_API_BASE = (() => {
         const hostname = window.location.hostname || '127.0.0.1';
         const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
@@ -1408,7 +1424,11 @@
       let currentNextAction = null;
       let currentPanel = 'start';
 
-      apiBaseInput.value = localStorage.getItem('morpheus.apiBase') || DEFAULT_API_BASE;
+      const queryApiBase = apiBaseFromQuery();
+      if (queryApiBase) {
+        localStorage.setItem('morpheus.apiBase', queryApiBase);
+      }
+      apiBaseInput.value = queryApiBase || localStorage.getItem('morpheus.apiBase') || DEFAULT_API_BASE;
       projectRootInputs.forEach((input) => {
         input.value = localStorage.getItem('morpheus.projectRoot') || '';
       });

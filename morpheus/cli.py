@@ -11,6 +11,7 @@ from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
 from types import SimpleNamespace
+from urllib.parse import urlencode
 
 import typer
 from pathlib import Path
@@ -80,6 +81,11 @@ def display_url(host: str, port: int, path: str = "") -> str:
     return f"http://{visible_host}:{port}{visible_path}"
 
 
+def ui_entrypoint_path(api_base: str) -> str:
+    """Return the static UI entrypoint with an explicit backend API hint."""
+    return f"/ui/index.html?{urlencode({'api': api_base})}"
+
+
 def primary_lan_ip() -> str | None:
     """Best-effort LAN IP for cross-device URLs; returns None offline."""
     try:
@@ -139,15 +145,17 @@ def start_static_ui_server(*, directory: Path, host: str, port: int):
 
 
 def serve_summary_lines(host: str, port: int, ui_host: str | None, ui_port: int) -> list[str]:
-    lines = [f"API: {display_url(host, port)}"]
+    local_api = display_url(host, port)
+    lines = [f"API: {local_api}"]
     needs_lan_ip = host in WILDCARD_HOSTS or ui_host in WILDCARD_HOSTS
     lan_ip = primary_lan_ip() if needs_lan_ip else None
     if lan_ip and host in WILDCARD_HOSTS:
         lines.append(f"LAN API: {display_url(lan_ip, port)}")
     if ui_host is not None:
-        lines.append(f"UI: {display_url(ui_host, ui_port, '/ui/index.html')}")
+        lines.append(f"UI: {display_url(ui_host, ui_port, ui_entrypoint_path(local_api))}")
         if lan_ip and ui_host in WILDCARD_HOSTS:
-            lines.append(f"LAN UI: {display_url(lan_ip, ui_port, '/ui/index.html')}")
+            lan_api = display_url(lan_ip if host in WILDCARD_HOSTS else host, port)
+            lines.append(f"LAN UI: {display_url(lan_ip, ui_port, ui_entrypoint_path(lan_api))}")
     return lines
 
 
