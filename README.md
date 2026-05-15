@@ -80,12 +80,13 @@ curl -s -X POST http://127.0.0.1:8000/agent/bootstrap \
   -d "{\"project_root\":\"$PWD\"}"
 ```
 
-`/agent/connect` returns the project state, ordered request sequence, endpoint URLs,
-CLI equivalents, curl commands, and a ready-to-copy agent prompt. A new agent should:
+`/agent/connect` returns the project state, the recommended `next_action`, ordered
+request sequence, endpoint URLs, CLI equivalents, curl commands, and a
+ready-to-copy agent prompt. A new agent should:
 
 1. Fetch `/agent/connect`.
-2. Initialize only when `state.initialized` is false.
-3. Compile and read `WAKE.md` before making project changes.
+2. Run `next_action` when it is `prepare_agent`.
+3. Read `WAKE.md` before making project changes.
 4. Run compile and verify after meaningful changes.
 
 `/agent/bootstrap` creates or refreshes the Morpheus-managed section in

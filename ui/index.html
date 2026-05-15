@@ -832,6 +832,19 @@
             </div>
 
             <div class="card">
+              <h4>Next Action</h4>
+              <p class="muted-line" id="diagnostics-next-action-label">Run diagnostics to load the next action.</p>
+              <p class="muted-line" id="diagnostics-next-action-detail"></p>
+              <div class="form-row" style="margin-top: 12px;">
+                <label for="diagnostics-next-action-command">Command</label>
+                <pre class="code-box" id="diagnostics-next-action-command"></pre>
+              </div>
+              <div class="button-row">
+                <button id="run-next-action-btn" disabled>Run Action</button>
+              </div>
+            </div>
+
+            <div class="card">
               <h4>Agent Connect</h4>
               <p class="muted-line" id="agent-state-summary">Waiting for backend</p>
               <div class="form-row">
@@ -1012,6 +1025,10 @@
       const startInitBtn = document.getElementById('start-init-btn');
       const startCompileBtn = document.getElementById('start-compile-btn');
       const startVerifyBtn = document.getElementById('start-verify-btn');
+      const diagnosticsNextActionLabel = document.getElementById('diagnostics-next-action-label');
+      const diagnosticsNextActionDetail = document.getElementById('diagnostics-next-action-detail');
+      const diagnosticsNextActionCommand = document.getElementById('diagnostics-next-action-command');
+      const runNextActionBtn = document.getElementById('run-next-action-btn');
       const agentConnectUrl = document.getElementById('agent-connect-url');
       const agentLocalCommand = document.getElementById('agent-local-command');
       const agentPrompt = document.getElementById('agent-prompt');
@@ -1059,6 +1076,7 @@
       const projectRootLabels = [startProjectRootLabel, projectRootLabel];
 
       let isRecording = false;
+      let currentNextAction = null;
       let currentPanel = 'start';
 
       apiBaseInput.value = localStorage.getItem('morpheus.apiBase') || DEFAULT_API_BASE;
@@ -1190,6 +1208,46 @@
         ].join('\n');
       }
 
+      function updateNextAction(action = null) {
+        currentNextAction = action;
+        if (!action) {
+          diagnosticsNextActionLabel.textContent = 'Run diagnostics to load the next action.';
+          diagnosticsNextActionDetail.textContent = '';
+          diagnosticsNextActionCommand.textContent = '';
+          runNextActionBtn.textContent = 'Run Action';
+          runNextActionBtn.disabled = true;
+          return;
+        }
+
+        diagnosticsNextActionLabel.textContent = action.label || action.id || 'Next action';
+        diagnosticsNextActionDetail.textContent = action.detail || '';
+        diagnosticsNextActionCommand.textContent = action.command || '';
+        runNextActionBtn.textContent =
+          action.id === 'handoff' ? 'Build Handoff' :
+          action.id === 'prepare_agent' ? 'Prepare Agent' :
+          'Run Action';
+        runNextActionBtn.disabled = false;
+      }
+
+      async function runNextAction() {
+        if (!currentNextAction) {
+          await runDiagnostics({ silent: false });
+          return;
+        }
+
+        if (currentNextAction.id === 'prepare_agent') {
+          await prepareAgent();
+          return;
+        }
+
+        if (currentNextAction.id === 'handoff') {
+          await buildAgentHandoff({ silent: false });
+          return;
+        }
+
+        await runDiagnostics({ silent: false });
+      }
+
       function updateAgentConnectPreview(payload = null) {
         const connectUrl = agentConnectEndpoint();
         agentConnectUrl.textContent = connectUrl;
@@ -1199,6 +1257,10 @@
           : buildAgentPrompt(connectUrl);
 
         if (!payload) return;
+
+        if (payload.next_action) {
+          updateNextAction(payload.next_action);
+        }
 
         const state = payload.state || {};
         if (!state.initialized) {
@@ -1286,6 +1348,7 @@
           diagnosticsOutput.textContent = JSON.stringify(payload, null, 2);
           const passed = (payload.checks || []).filter((check) => check.ok).length;
           diagnosticsSummary.textContent = `${passed}/${(payload.checks || []).length} checks passing`;
+          updateNextAction(payload.next_action);
           updateProjectSteps(payload.state, payload.checks || []);
           updateAgentConnectPreview({ agent_prompt: agentPrompt.textContent, state: payload.state });
           rememberProjectRoot();
@@ -1336,6 +1399,7 @@
           agentHandoffSummary.textContent = `Handoff ready for ${payload.project_root}`;
           updateAgentConnectPreview(payload.manifest);
           diagnosticsOutput.textContent = JSON.stringify(payload.diagnostics, null, 2);
+          updateNextAction(payload.diagnostics.next_action);
           updateProjectSteps(payload.diagnostics.state, payload.diagnostics.checks || []);
           return payload;
         } catch (error) {
@@ -1366,6 +1430,7 @@
           agentHandoffSummary.textContent = `Handoff ready for ${payload.project_root}`;
           wakeContent.textContent = payload.handoff.wake_md || '';
           updateAgentConnectPreview(payload.handoff.manifest);
+          updateNextAction(payload.handoff.diagnostics.next_action);
           updateProjectSteps(
             payload.handoff.diagnostics.state,
             payload.handoff.diagnostics.checks || []
@@ -1373,6 +1438,11 @@
           const receiptId = payload.verified && payload.verified.receipt_id
             ? payload.verified.receipt_id
             : 'unknown';
+          if (payload.verified && payload.verified.valid) {
+            setStep('verify', 'ready', 'Verified', `Receipt: ${receiptId}`);
+          } else {
+            setStep('verify', 'error', 'Invalid', 'Receipt verification failed');
+          }
           addMessage(`Agent handoff prepared. Receipt: ${receiptId}.`);
           mascotSpeak();
           return payload;
@@ -1700,6 +1770,7 @@
       startInitBtn.addEventListener('click', runInit);
       startCompileBtn.addEventListener('click', runCompile);
       startVerifyBtn.addEventListener('click', runVerify);
+      runNextActionBtn.addEventListener('click', runNextAction);
       copyAgentUrlBtn.addEventListener('click', () => {
         copyText(agentConnectEndpoint(), 'Agent connect URL');
       });
