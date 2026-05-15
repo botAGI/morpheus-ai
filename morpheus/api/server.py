@@ -1,11 +1,12 @@
 """
 Morpheus API Server
 """
-from urllib.parse import urlencode, urlsplit, urlunsplit
 import json
+import os
 import shlex
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from pydantic import BaseModel
 import toml
@@ -68,6 +69,8 @@ from morpheus.core.provenance import (
 )
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
 from morpheus.integrations.manifest import integration_manifest
+
+WILDCARD_HOSTS = {"0.0.0.0", "::", ""}
 
 app = FastAPI(
     title="Morpheus API",
@@ -358,9 +361,27 @@ def endpoint_url(api_base: str, path: str, project_root: Path | None = None) -> 
     return f"{api_base}{path}{'?' + query if query else ''}"
 
 
+def ui_url_for_request(request: Request) -> str:
+    """Return the UI URL that matches the active API request and CLI UI port."""
+    configured_url = os.environ.get("MORPHEUS_UI_URL")
+    if configured_url:
+        return configured_url.rstrip("/")
+
+    parsed = urlsplit(api_base_url(request))
+    configured_host = os.environ.get("MORPHEUS_UI_HOST")
+    host = configured_host if configured_host not in (None, *WILDCARD_HOSTS) else parsed.hostname
+    if not host:
+        host = "127.0.0.1"
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+
+    port = os.environ.get("MORPHEUS_UI_PORT", "5173")
+    return urlunsplit((parsed.scheme or "http", f"{host}:{port}", "/ui/index.html", "", ""))
+
+
 def quickstart_payload(request: Request, project_root: Path) -> dict:
     api_base = api_base_url(request)
-    ui_url = api_base.replace(":8000", ":5173") + "/ui/index.html"
+    ui_url = ui_url_for_request(request)
     native_manifest = endpoint_url(api_base, "/agent/connect", project_root)
     a2a_card = f"{api_base}/.well-known/agent-card.json"
     mcp_url = f"{api_base}/mcp"
@@ -372,9 +393,9 @@ def quickstart_payload(request: Request, project_root: Path) -> dict:
         "commands": {
             "clone": "git clone <repo-url> morpheus-ai && cd morpheus-ai",
             "install": [
-                "python -m venv .venv",
+                "python3 -m venv .venv",
                 "source .venv/bin/activate",
-                "pip install -e .",
+                "python -m pip install -e .",
             ],
             "run_local": "morpheus serve --ui --host 127.0.0.1 --port 8000 --ui-port 5173",
             "run_lan": "morpheus serve --ui --host 0.0.0.0 --port 8000 --ui-port 5173",

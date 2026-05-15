@@ -95,6 +95,7 @@ def test_quickstart_endpoint_returns_human_and_agent_launch_plan(tmp_path):
     assert payload["service"] == "morpheus"
     assert payload["project_root"] == str(tmp_path)
     assert payload["human_path"][0]["id"] == "install"
+    assert payload["commands"]["install"][0] == "python3 -m venv .venv"
     assert "pip install -e ." in payload["commands"]["install"][2]
     assert payload["commands"]["run_local"] == (
         "morpheus serve --ui --host 127.0.0.1 --port 8000 --ui-port 5173"
@@ -109,6 +110,22 @@ def test_quickstart_endpoint_returns_human_and_agent_launch_plan(tmp_path):
     assert payload["connect"]["mcp"] == "http://testserver/mcp"
     assert payload["agent_path"][0]["id"] == "discover"
     assert "morpheus prepare-agent" in payload["copy_paste_agent_prompt"]
+
+
+def test_quickstart_endpoint_uses_configured_ui_port(tmp_path, monkeypatch):
+    monkeypatch.setenv("MORPHEUS_UI_PORT", "5179")
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.get(
+        "/quickstart",
+        params={"project_root": str(tmp_path)},
+        headers={"host": "192.0.2.24:8123"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ui_url"] == "http://192.0.2.24:5179/ui/index.html"
+    assert payload["connect"]["ui"] == "http://192.0.2.24:5179/ui/index.html"
 
 
 def test_a2a_agent_card_endpoint_describes_morpheus_interfaces():
