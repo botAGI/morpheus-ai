@@ -501,6 +501,8 @@ def diagnostics_command(
     console.print(f"Next action: {next_action['label']}")
     if next_action.get("command"):
         console.print(f"Command: {next_action['command']}")
+    else:
+        console.print(f"Detail: {next_action['detail']}")
     console.print(f"Agent connect: {payload['agent_connect_url']}")
 
 
@@ -523,12 +525,13 @@ def agent_connect_command(
 
     state = payload["state"]
     next_action = payload["next_action"]
+    next_action_command = next_action.get("command") or next_action["detail"]
     console.print(Panel.fit(
         f"Project: [bold]{payload['project_root']}[/bold]\n"
         f"Initialized: [bold]{state['initialized']}[/bold]\n"
         f"Compiled: [bold]{state['compiled']}[/bold]\n"
         f"Next action: [bold]{next_action['label']}[/bold]\n"
-        f"Command: [bold]{next_action['command']}[/bold]\n"
+        f"Command: [bold]{next_action_command}[/bold]\n"
         "Machine JSON: [bold]morpheus agent-connect --json[/bold]\n"
         f"Prompt: {payload['agent_prompt']}",
         title="Morpheus Agent Connect",

@@ -1222,11 +1222,12 @@
         diagnosticsNextActionLabel.textContent = action.label || action.id || 'Next action';
         diagnosticsNextActionDetail.textContent = action.detail || '';
         diagnosticsNextActionCommand.textContent = action.command || '';
+        const runnableActions = ['prepare_agent', 'handoff'];
         runNextActionBtn.textContent =
           action.id === 'handoff' ? 'Build Handoff' :
           action.id === 'prepare_agent' ? 'Prepare Agent' :
           'Run Action';
-        runNextActionBtn.disabled = false;
+        runNextActionBtn.disabled = !runnableActions.includes(action.id);
       }
 
       async function runNextAction() {
