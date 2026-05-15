@@ -92,6 +92,26 @@ def test_ui_bootstraps_backend_api_from_query_parameter():
         assert snippet in html
 
 
+def test_ui_exposes_agent_interop_endpoint_actions():
+    html = Path("ui/index.html").read_text()
+
+    required_snippets = [
+        'id="copy-native-manifest-btn"',
+        'id="copy-a2a-card-btn"',
+        'id="copy-mcp-endpoint-btn"',
+        'id="test-mcp-tools-btn"',
+        'id="mcp-tools-output"',
+        "async function runMcpToolsProbe",
+        "\"method\": \"tools/list\"",
+        "copyNativeManifestBtn.addEventListener('click'",
+        "copyA2aCardBtn.addEventListener('click'",
+        "copyMcpEndpointBtn.addEventListener('click'",
+        "testMcpToolsBtn.addEventListener('click'",
+    ]
+    for snippet in required_snippets:
+        assert snippet in html
+
+
 def test_voice_button_uses_browser_speech_recognition_when_available():
     html = Path("ui/index.html").read_text()
 

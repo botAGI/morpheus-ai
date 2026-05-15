@@ -968,6 +968,16 @@
                   <code id="quickstart-mcp-url"></code>
                 </div>
               </div>
+              <div class="button-row">
+                <button id="copy-native-manifest-btn" class="secondary-button">Copy Native URL</button>
+                <button id="copy-a2a-card-btn" class="secondary-button">Copy A2A URL</button>
+                <button id="copy-mcp-endpoint-btn" class="secondary-button">Copy MCP URL</button>
+                <button id="test-mcp-tools-btn" class="secondary-button">Test MCP Tools</button>
+              </div>
+              <div class="form-row" style="margin-top: 12px;">
+                <label for="mcp-tools-output">MCP tools probe</label>
+                <pre class="code-box" id="mcp-tools-output">Run Test MCP Tools to verify the local MCP endpoint.</pre>
+              </div>
               <div class="form-row">
                 <label for="quickstart-commands">Install and run commands</label>
                 <pre class="code-box" id="quickstart-commands"></pre>
@@ -1356,6 +1366,11 @@
       const quickstartNativeUrl = document.getElementById('quickstart-native-url');
       const quickstartA2aUrl = document.getElementById('quickstart-a2a-url');
       const quickstartMcpUrl = document.getElementById('quickstart-mcp-url');
+      const copyNativeManifestBtn = document.getElementById('copy-native-manifest-btn');
+      const copyA2aCardBtn = document.getElementById('copy-a2a-card-btn');
+      const copyMcpEndpointBtn = document.getElementById('copy-mcp-endpoint-btn');
+      const testMcpToolsBtn = document.getElementById('test-mcp-tools-btn');
+      const mcpToolsOutput = document.getElementById('mcp-tools-output');
       const contextWatchDirsInput = document.getElementById('context-watch-dirs-input');
       const contextPathsSummary = document.getElementById('context-paths-summary');
       const saveContextPathsBtn = document.getElementById('save-context-paths-btn');
@@ -1575,6 +1590,15 @@
         };
       }
 
+      function currentInteropUrls() {
+        const fallback = fallbackQuickstartConnect();
+        return {
+          native: quickstartNativeUrl.textContent || fallback.native,
+          a2a_agent_card: quickstartA2aUrl.textContent || fallback.a2a_agent_card,
+          mcp: quickstartMcpUrl.textContent || fallback.mcp,
+        };
+      }
+
       function buildConnectPack(payload = null) {
         const connect = payload && payload.connect ? payload.connect : fallbackQuickstartConnect();
         return [
@@ -1637,6 +1661,33 @@
           throw error;
         } finally {
           refreshQuickstartBtn.disabled = false;
+        }
+      }
+
+      async function runMcpToolsProbe() {
+        mcpToolsOutput.textContent = 'Testing MCP tools/list...';
+        testMcpToolsBtn.disabled = true;
+        try {
+          const payload = await apiRequest('/mcp', {
+            method: 'POST',
+            body: {
+              "jsonrpc": "2.0",
+              "id": "ui-tools",
+              "method": "tools/list",
+            },
+          });
+          const tools = payload && payload.result && Array.isArray(payload.result.tools)
+            ? payload.result.tools
+            : [];
+          mcpToolsOutput.textContent = tools.length
+            ? tools.map((tool) => `${tool.name}: ${tool.description || tool.title || ''}`).join('\n')
+            : JSON.stringify(payload, null, 2);
+          addMessage(`MCP tools/list returned ${tools.length} tools.`);
+        } catch (error) {
+          mcpToolsOutput.textContent = `MCP probe failed: ${error.message}`;
+          addMessage(`MCP probe failed: ${error.message}`);
+        } finally {
+          testMcpToolsBtn.disabled = false;
         }
       }
 
@@ -2487,6 +2538,16 @@
       copyConnectPackBtn.addEventListener('click', () => {
         copyText(connectPackOutput.textContent || buildConnectPack(), 'Connect pack');
       });
+      copyNativeManifestBtn.addEventListener('click', () => {
+        copyText(currentInteropUrls().native, 'Native manifest URL');
+      });
+      copyA2aCardBtn.addEventListener('click', () => {
+        copyText(currentInteropUrls().a2a_agent_card, 'A2A Agent Card URL');
+      });
+      copyMcpEndpointBtn.addEventListener('click', () => {
+        copyText(currentInteropUrls().mcp, 'MCP endpoint URL');
+      });
+      testMcpToolsBtn.addEventListener('click', runMcpToolsProbe);
       loadContextPathsBtn.addEventListener('click', () => {
         loadProjectConfig({ silent: false });
       });
