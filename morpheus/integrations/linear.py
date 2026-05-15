@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
+from morpheus.integrations.dates import parse_cache_datetime
 
 
 LINEAR_EVIDENCE_KEYWORDS = (
@@ -62,7 +63,11 @@ class LinearIntegration:
             if not isinstance(issue, dict):
                 continue
             updated_at = _parse_cache_datetime(
-                issue.get("updated_at") or issue.get("updatedAt") or issue.get("date")
+                issue.get("updated_at")
+                or issue.get("updatedAt")
+                or issue.get("created_at")
+                or issue.get("createdAt")
+                or issue.get("date")
             )
             if updated_at and updated_at > cutoff:
                 dated_issues.append((updated_at, issue))
@@ -100,13 +105,5 @@ class LinearIntegration:
         return None
 
 
-def _parse_cache_datetime(value: str | None) -> datetime | None:
-    if not value or not isinstance(value, str):
-        return None
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed
+def _parse_cache_datetime(value: str | int | float | None) -> datetime | None:
+    return parse_cache_datetime(value)

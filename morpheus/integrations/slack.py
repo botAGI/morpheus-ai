@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
+from morpheus.integrations.dates import parse_cache_datetime
 
 
 SLACK_EVIDENCE_KEYWORDS = (
@@ -97,13 +98,5 @@ class SlackIntegration:
         return None
 
 
-def _parse_cache_datetime(value: str | None) -> datetime | None:
-    if not value or not isinstance(value, str):
-        return None
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed
+def _parse_cache_datetime(value: str | int | float | None) -> datetime | None:
+    return parse_cache_datetime(value)
