@@ -516,6 +516,61 @@
         grid-column: 1 / -1;
       }
 
+      .launch-grid {
+        display: grid;
+        grid-template-columns: minmax(240px, 1fr) minmax(240px, 1fr);
+        gap: 12px;
+        margin: 12px 0;
+      }
+
+      .launch-path {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--bg-tertiary);
+        padding: 12px;
+      }
+
+      .launch-path strong {
+        display: block;
+        font-size: 13px;
+        margin-bottom: 8px;
+      }
+
+      .launch-path ol {
+        margin-left: 18px;
+        color: var(--text-secondary);
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      .connect-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(160px, 1fr));
+        gap: 10px;
+        margin: 12px 0;
+      }
+
+      .connect-pill {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--bg-tertiary);
+        padding: 10px;
+        min-width: 0;
+      }
+
+      .connect-pill strong {
+        display: block;
+        font-size: 12px;
+        margin-bottom: 4px;
+      }
+
+      .connect-pill code {
+        display: block;
+        color: var(--text-secondary);
+        font-size: 11px;
+        overflow-wrap: anywhere;
+      }
+
       .setup-list {
         display: grid;
         gap: 10px;
@@ -713,6 +768,11 @@
           grid-template-columns: 1fr;
         }
 
+        .launch-grid,
+        .connect-grid {
+          grid-template-columns: 1fr;
+        }
+
         .message {
           max-width: 86%;
         }
@@ -852,6 +912,55 @@
         <div class="panel active" id="panel-start">
           <h2>Start</h2>
           <div class="start-grid">
+            <div class="card full-width">
+              <h4>Morpheus Launchpad</h4>
+              <p class="muted-line" id="quickstart-summary">One install, one run command, one connect pack for humans and agents.</p>
+              <div class="launch-grid">
+                <div class="launch-path">
+                  <strong>Human start</strong>
+                  <ol id="human-start-list">
+                    <li>Install Morpheus</li>
+                    <li>Run backend and UI</li>
+                    <li>Click Prepare Agent</li>
+                  </ol>
+                </div>
+                <div class="launch-path">
+                  <strong>Agent start</strong>
+                  <ol id="agent-start-list">
+                    <li>Fetch manifest</li>
+                    <li>Read WAKE.md</li>
+                    <li>Compile and verify after edits</li>
+                  </ol>
+                </div>
+              </div>
+              <div class="connect-grid">
+                <div class="connect-pill">
+                  <strong>Native Manifest</strong>
+                  <code id="quickstart-native-url"></code>
+                </div>
+                <div class="connect-pill">
+                  <strong>A2A Agent Card</strong>
+                  <code id="quickstart-a2a-url"></code>
+                </div>
+                <div class="connect-pill">
+                  <strong>MCP endpoint</strong>
+                  <code id="quickstart-mcp-url"></code>
+                </div>
+              </div>
+              <div class="form-row">
+                <label for="quickstart-commands">Install and run commands</label>
+                <pre class="code-box" id="quickstart-commands"></pre>
+              </div>
+              <div class="form-row">
+                <label for="connect-pack-output">Copyable connect pack</label>
+                <pre class="code-box" id="connect-pack-output"></pre>
+              </div>
+              <div class="button-row">
+                <button id="refresh-quickstart-btn" class="secondary-button">Refresh Launchpad</button>
+                <button id="copy-connect-pack-btn">Copy Connect Pack</button>
+              </div>
+            </div>
+
             <div class="card full-width">
               <h4>Project Setup</h4>
               <div class="form-row">
@@ -1173,6 +1282,16 @@
       const startInitBtn = document.getElementById('start-init-btn');
       const startCompileBtn = document.getElementById('start-compile-btn');
       const startVerifyBtn = document.getElementById('start-verify-btn');
+      const quickstartSummary = document.getElementById('quickstart-summary');
+      const quickstartCommands = document.getElementById('quickstart-commands');
+      const connectPackOutput = document.getElementById('connect-pack-output');
+      const refreshQuickstartBtn = document.getElementById('refresh-quickstart-btn');
+      const copyConnectPackBtn = document.getElementById('copy-connect-pack-btn');
+      const humanStartList = document.getElementById('human-start-list');
+      const agentStartList = document.getElementById('agent-start-list');
+      const quickstartNativeUrl = document.getElementById('quickstart-native-url');
+      const quickstartA2aUrl = document.getElementById('quickstart-a2a-url');
+      const quickstartMcpUrl = document.getElementById('quickstart-mcp-url');
       const contextWatchDirsInput = document.getElementById('context-watch-dirs-input');
       const contextPathsSummary = document.getElementById('context-paths-summary');
       const saveContextPathsBtn = document.getElementById('save-context-paths-btn');
@@ -1367,6 +1486,80 @@
           'Follow the manifest sequence: status, initialize if needed, compile, read WAKE.md, verify.',
           'Read WAKE.md before edits and compile plus verify after meaningful changes.',
         ].join('\n');
+      }
+
+      function fallbackQuickstartConnect() {
+        return {
+          native: agentConnectEndpoint(),
+          a2a_agent_card: endpoint('/.well-known/agent-card.json').toString(),
+          mcp: endpoint('/mcp').toString(),
+          ui: `${window.location.origin}/ui/index.html`,
+        };
+      }
+
+      function buildConnectPack(payload = null) {
+        const connect = payload && payload.connect ? payload.connect : fallbackQuickstartConnect();
+        return [
+          'Morpheus connect pack',
+          `Project root: ${selectedProjectRoot() || 'backend working directory'}`,
+          `Native manifest: ${connect.native}`,
+          `A2A Agent Card: ${connect.a2a_agent_card}`,
+          `MCP endpoint: ${connect.mcp}`,
+          `UI: ${connect.ui}`,
+          '',
+          'Agent instruction:',
+          payload && payload.copy_paste_agent_prompt
+            ? payload.copy_paste_agent_prompt
+            : buildAgentPrompt(connect.native),
+        ].join('\n');
+      }
+
+      function renderLaunchList(target, steps = []) {
+        target.innerHTML = '';
+        steps.forEach((step) => {
+          const item = document.createElement('li');
+          item.textContent = `${step.label}: ${step.detail}`;
+          target.appendChild(item);
+        });
+      }
+
+      function renderQuickstart(payload) {
+        const installCommands = payload.commands && Array.isArray(payload.commands.install)
+          ? payload.commands.install
+          : [];
+        quickstartSummary.textContent =
+          `Ready for ${payload.project_root || 'backend working directory'} | ${payload.ui_url}`;
+        renderLaunchList(humanStartList, payload.human_path || []);
+        renderLaunchList(agentStartList, payload.agent_path || []);
+        quickstartNativeUrl.textContent = payload.connect.native;
+        quickstartA2aUrl.textContent = payload.connect.a2a_agent_card;
+        quickstartMcpUrl.textContent = payload.connect.mcp;
+        quickstartCommands.textContent = [
+          payload.commands.clone,
+          ...installCommands,
+          payload.commands.run_local,
+          payload.commands.prepare_agent,
+        ].filter(Boolean).join('\n');
+        connectPackOutput.textContent = buildConnectPack(payload);
+      }
+
+      async function refreshQuickstart({ silent = true } = {}) {
+        quickstartSummary.textContent = 'Loading launchpad...';
+        refreshQuickstartBtn.disabled = true;
+        try {
+          const payload = await apiRequest('/quickstart', {
+            params: { project_root: selectedProjectRoot() },
+          });
+          renderQuickstart(payload);
+          return payload;
+        } catch (error) {
+          quickstartSummary.textContent = `Launchpad unavailable: ${error.message}`;
+          connectPackOutput.textContent = buildConnectPack();
+          if (!silent) addMessage(`Launchpad unavailable: ${error.message}`);
+          throw error;
+        } finally {
+          refreshQuickstartBtn.disabled = false;
+        }
       }
 
       function configuredWatchDirs() {
@@ -1577,6 +1770,9 @@
         agentPrompt.textContent = payload && payload.agent_prompt
           ? payload.agent_prompt
           : buildAgentPrompt(connectUrl);
+        if (!connectPackOutput.textContent) {
+          connectPackOutput.textContent = buildConnectPack();
+        }
 
         if (!payload) return;
 
@@ -2097,6 +2293,12 @@
       startInitBtn.addEventListener('click', runInit);
       startCompileBtn.addEventListener('click', runCompile);
       startVerifyBtn.addEventListener('click', runVerify);
+      refreshQuickstartBtn.addEventListener('click', () => {
+        refreshQuickstart({ silent: false });
+      });
+      copyConnectPackBtn.addEventListener('click', () => {
+        copyText(connectPackOutput.textContent || buildConnectPack(), 'Connect pack');
+      });
       loadContextPathsBtn.addEventListener('click', () => {
         loadProjectConfig({ silent: false });
       });
@@ -2155,6 +2357,7 @@
       });
       runDiagnostics({ silent: true }).catch(() => {});
       refreshIntegrations({ silent: true }).catch(() => {});
+      refreshQuickstart({ silent: true }).catch(() => {});
     </script>
   </body>
 </html>

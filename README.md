@@ -104,6 +104,7 @@ Agents can discover Morpheus over HTTP without reading this README first:
 
 ```bash
 curl -s http://127.0.0.1:8000/.well-known/morpheus.json
+curl -s "http://127.0.0.1:8000/quickstart?project_root=$PWD"
 curl -s http://127.0.0.1:8000/.well-known/agent-card.json
 curl -s -X POST http://127.0.0.1:8000/mcp \
   -H 'Content-Type: application/json' \
@@ -148,6 +149,7 @@ ready-to-copy agent prompt. A new agent should:
 
 Morpheus exposes three local discovery surfaces:
 
+- `/quickstart`: install, run, and connect instructions for humans and agents.
 - `/.well-known/morpheus.json`: native Morpheus discovery.
 - `/.well-known/agent-card.json`: A2A-compatible Agent Card with Morpheus
   skills and supported interfaces.
