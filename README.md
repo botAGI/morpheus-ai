@@ -112,6 +112,9 @@ curl -s "http://127.0.0.1:8000/agent/handoff?project_root=$PWD"
 curl -s "http://127.0.0.1:8000/agent/connect?project_root=$PWD"
 curl -s "http://127.0.0.1:8000/diagnostics?project_root=$PWD"
 curl -s "http://127.0.0.1:8000/integrations"
+curl -s -X POST http://127.0.0.1:8000/models/smoke \
+  -H 'Content-Type: application/json' \
+  -d "{\"base_model\":\"qwen2.5:0.5b\"}"
 curl -s "http://127.0.0.1:8000/config?project_root=$PWD"
 curl -s -X POST http://127.0.0.1:8000/config \
   -H 'Content-Type: application/json' \

@@ -64,3 +64,19 @@ def test_ui_exposes_integration_paths_for_agents():
     ]
     for snippet in required_snippets:
         assert snippet in html
+
+
+def test_ui_exposes_model_smoke_controls():
+    html = Path("ui/index.html").read_text()
+
+    required_snippets = [
+        'id="model-smoke-base-model"',
+        'id="model-smoke-prompt"',
+        'id="run-model-smoke-btn"',
+        'id="model-smoke-output"',
+        "async function runModelSmoke",
+        "apiRequest('/models/smoke'",
+        "Model Smoke",
+    ]
+    for snippet in required_snippets:
+        assert snippet in html

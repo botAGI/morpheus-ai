@@ -150,6 +150,68 @@ def test_integrations_endpoint_reports_services_for_agents(monkeypatch, tmp_path
     assert services["github"]["auth"] == "PAT"
 
 
+def test_model_smoke_endpoint_queries_configured_model(monkeypatch):
+    client = api_client(raise_server_exceptions=False)
+    calls = []
+
+    def fake_query_model(prompt, base_model="qwen2.5:7b", adapter_path=None, **kwargs):
+        calls.append(
+            {
+                "prompt": prompt,
+                "base_model": base_model,
+                "adapter_path": adapter_path,
+                "kwargs": kwargs,
+            }
+        )
+        return "model is alive"
+
+    import morpheus.training.eval as eval_module
+
+    monkeypatch.setattr(eval_module, "query_model", fake_query_model)
+
+    response = client.post(
+        "/models/smoke",
+        json={"base_model": "qwen2.5:0.5b", "prompt": "ping"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": True,
+        "base_model": "qwen2.5:0.5b",
+        "prompt": "ping",
+        "answer": "model is alive",
+        "error": None,
+    }
+    assert calls == [
+        {
+            "prompt": "ping",
+            "base_model": "qwen2.5:0.5b",
+            "adapter_path": None,
+            "kwargs": {},
+        }
+    ]
+
+
+def test_model_smoke_endpoint_reports_model_error(monkeypatch):
+    client = api_client(raise_server_exceptions=False)
+
+    def fake_query_model(prompt, base_model="qwen2.5:7b", adapter_path=None, **kwargs):
+        return "Error: ollama executable not found"
+
+    import morpheus.training.eval as eval_module
+
+    monkeypatch.setattr(eval_module, "query_model", fake_query_model)
+
+    response = client.post("/models/smoke", json={})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is False
+    assert payload["base_model"] == "qwen2.5:0.5b"
+    assert payload["answer"] == ""
+    assert payload["error"] == "Error: ollama executable not found"
+
+
 def test_agent_connect_reports_compiled_project(tmp_path):
     MorpheusConfig(project_root=tmp_path).init_default()
     (tmp_path / "README.md").write_text("TODO: agent self-connect smoke\n")

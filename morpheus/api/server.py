@@ -93,6 +93,10 @@ class ProjectConfigRequest(BaseModel):
     project_root: Optional[str] = None
     watch_dirs: Optional[list[str]] = None
 
+class ModelSmokeRequest(BaseModel):
+    base_model: Optional[str] = None
+    prompt: Optional[str] = None
+
 class VerifyRequest(BaseModel):
     project_root: Optional[str] = None
 
@@ -120,9 +124,20 @@ class AgentBootstrapResponse(BaseModel):
     content: str
     agent_connect_url: str
 
+class ModelSmokeResponse(BaseModel):
+    ok: bool
+    base_model: str
+    prompt: str
+    answer: str
+    error: Optional[str] = None
+
 
 MORPHEUS_AGENT_BEGIN = "<!-- MORPHEUS:BEGIN -->"
 MORPHEUS_AGENT_END = "<!-- MORPHEUS:END -->"
+DEFAULT_MODEL_SMOKE_MODEL = "qwen2.5:0.5b"
+DEFAULT_MODEL_SMOKE_PROMPT = (
+    "Reply with one short sentence confirming Morpheus model smoke test is working."
+)
 
 
 def latest_receipt_or_http_error(receipts_dir: Path) -> Path | None:
@@ -433,6 +448,14 @@ def agent_connect_payload(request: Request, project_root: Path) -> dict:
             "method": "GET",
             "url": f"{api_base}/integrations",
         },
+        "model_smoke": {
+            "method": "POST",
+            "url": f"{api_base}/models/smoke",
+            "json": {
+                "base_model": DEFAULT_MODEL_SMOKE_MODEL,
+                "prompt": DEFAULT_MODEL_SMOKE_PROMPT,
+            },
+        },
         "prepare_agent": prepare_agent_request(api_base, project_root),
         "wake": {
             "method": "GET",
@@ -497,6 +520,7 @@ def agent_connect_payload(request: Request, project_root: Path) -> dict:
             "compile": "morpheus compile",
             "read_wake": "morpheus wake",
             "verify": "morpheus verify --all",
+            "model_smoke": f"morpheus model-smoke --base-model {DEFAULT_MODEL_SMOKE_MODEL}",
             "serve": "morpheus serve --host 0.0.0.0 --port 8000",
             "serve_ui": "morpheus serve --ui --host 0.0.0.0 --port 8000 --ui-port 5173",
         },
@@ -516,6 +540,11 @@ def agent_connect_payload(request: Request, project_root: Path) -> dict:
             "verify": f"curl -s -X POST {shlex.quote(endpoints['verify']['url'])}",
             "config": f"curl -s {shlex.quote(endpoints['config']['url'])}",
             "integrations": f"curl -s {shlex.quote(endpoints['integrations']['url'])}",
+            "model_smoke": (
+                f"curl -s -X POST {shlex.quote(endpoints['model_smoke']['url'])} "
+                "-H 'Content-Type: application/json' "
+                f"-d {shlex.quote(json.dumps(endpoints['model_smoke']['json']))}"
+            ),
         },
         "agent_prompt": (
             "Fetch the connect manifest before working on this project. "
@@ -985,6 +1014,40 @@ def diagnostics(request: Request, project_root: Optional[str] = None):
 def integrations():
     """Return integration setup status for humans, UI, and agents."""
     return integration_manifest()
+
+
+def model_smoke_payload(smoke_request: ModelSmokeRequest) -> ModelSmokeResponse:
+    from morpheus.training.eval import query_model
+
+    base_model = (smoke_request.base_model or DEFAULT_MODEL_SMOKE_MODEL).strip()
+    prompt = (smoke_request.prompt or DEFAULT_MODEL_SMOKE_PROMPT).strip()
+    if not base_model:
+        base_model = DEFAULT_MODEL_SMOKE_MODEL
+    if not prompt:
+        prompt = DEFAULT_MODEL_SMOKE_PROMPT
+
+    answer = query_model(prompt, base_model=base_model)
+    if answer.startswith("Error:"):
+        return ModelSmokeResponse(
+            ok=False,
+            base_model=base_model,
+            prompt=prompt,
+            answer="",
+            error=answer,
+        )
+    return ModelSmokeResponse(
+        ok=True,
+        base_model=base_model,
+        prompt=prompt,
+        answer=answer,
+        error=None,
+    )
+
+
+@app.post("/models/smoke", response_model=ModelSmokeResponse)
+def model_smoke(smoke_request: ModelSmokeRequest):
+    """Run a direct local model smoke test through Ollama."""
+    return model_smoke_payload(smoke_request)
 
 
 @app.get("/config")

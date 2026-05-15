@@ -897,6 +897,22 @@
               </div>
             </div>
 
+            <div class="card full-width">
+              <h4>Model Smoke</h4>
+              <div class="form-row">
+                <label for="model-smoke-base-model">Ollama model</label>
+                <input class="settings-input" id="model-smoke-base-model" type="text" value="qwen2.5:0.5b" />
+              </div>
+              <div class="form-row">
+                <label for="model-smoke-prompt">Prompt</label>
+                <textarea class="settings-input" id="model-smoke-prompt" rows="3">Reply with one short sentence confirming Morpheus model smoke test is working.</textarea>
+              </div>
+              <pre class="code-box" id="model-smoke-output"></pre>
+              <div class="button-row" style="margin-top: 12px;">
+                <button id="run-model-smoke-btn" class="secondary-button">Run Model Smoke</button>
+              </div>
+            </div>
+
             <div class="card">
               <h4>Readiness</h4>
               <div class="setup-list">
@@ -1164,6 +1180,10 @@
       const integrationsSummary = document.getElementById('integrations-summary');
       const integrationsList = document.getElementById('integrations-list');
       const refreshIntegrationsBtn = document.getElementById('refresh-integrations-btn');
+      const modelSmokeBaseModel = document.getElementById('model-smoke-base-model');
+      const modelSmokePrompt = document.getElementById('model-smoke-prompt');
+      const runModelSmokeBtn = document.getElementById('run-model-smoke-btn');
+      const modelSmokeOutput = document.getElementById('model-smoke-output');
       const diagnosticsNextActionLabel = document.getElementById('diagnostics-next-action-label');
       const diagnosticsNextActionDetail = document.getElementById('diagnostics-next-action-detail');
       const diagnosticsNextActionCommand = document.getElementById('diagnostics-next-action-command');
@@ -1439,6 +1459,31 @@
           throw error;
         } finally {
           refreshIntegrationsBtn.disabled = false;
+        }
+      }
+
+      async function runModelSmoke() {
+        modelSmokeOutput.textContent = 'Running model smoke...';
+        runModelSmokeBtn.disabled = true;
+        try {
+          const payload = await apiRequest('/models/smoke', {
+            method: 'POST',
+            body: {
+              base_model: modelSmokeBaseModel.value.trim() || 'qwen2.5:0.5b',
+              prompt: modelSmokePrompt.value.trim(),
+            },
+          });
+          modelSmokeOutput.textContent = payload.ok
+            ? payload.answer
+            : payload.error || 'Model smoke failed';
+          addMessage(payload.ok ? 'Model smoke passed.' : `Model smoke failed: ${payload.error}`);
+          return payload;
+        } catch (error) {
+          modelSmokeOutput.textContent = `Model smoke failed: ${error.message}`;
+          addMessage(`Model smoke failed: ${error.message}`);
+          throw error;
+        } finally {
+          runModelSmokeBtn.disabled = false;
         }
       }
 
@@ -2061,6 +2106,7 @@
       refreshIntegrationsBtn.addEventListener('click', () => {
         refreshIntegrations({ silent: false });
       });
+      runModelSmokeBtn.addEventListener('click', runModelSmoke);
       runNextActionBtn.addEventListener('click', runNextAction);
       copyAgentUrlBtn.addEventListener('click', () => {
         copyText(agentConnectEndpoint(), 'Agent connect URL');

@@ -5,6 +5,7 @@ Tests the fine-tuned adapter on held-out session data to measure
 if the model has learned project context.
 """
 import json
+import re
 import subprocess
 from pathlib import Path
 from typing import Optional
@@ -23,6 +24,18 @@ Based on your training, answer this question about the project:
 Question: {question}
 
 Answer what you know. If you don't know, say you don't have that information."""
+
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+CURSOR_LEFT_CLEAR_RE = re.compile(r".\x1b\[[0-9;]*D\x1b\[[0-9;]*K")
+CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def clean_model_output(output: str) -> str:
+    """Remove terminal control sequences that Ollama may emit in non-TTY calls."""
+    cleaned = CURSOR_LEFT_CLEAR_RE.sub("", output)
+    cleaned = ANSI_ESCAPE_RE.sub("", cleaned)
+    cleaned = CONTROL_CHARS_RE.sub("", cleaned)
+    return "\n".join(line.rstrip() for line in cleaned.splitlines()).strip()
 
 
 def load_adapter(adapter_path: Path, base_model: str = "qwen2.5:7b") -> bool:
@@ -78,7 +91,7 @@ def query_model(
     if result.returncode != 0:
         return f"Error: {result.stderr}"
     
-    return result.stdout.strip()
+    return clean_model_output(result.stdout)
 
 
 def run_eval(
