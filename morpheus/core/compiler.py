@@ -147,6 +147,10 @@ def _iter_watch_paths(project_root: Path, watch_dirs: list[str] | None) -> list[
         watch_path = Path(watch_dir)
         if not watch_path.is_absolute():
             watch_path = project_root / watch_path
+        try:
+            reject_symlink_components(watch_path, "Watch path")
+        except ValueError:
+            continue
         watch_path = watch_path.resolve()
 
         try:

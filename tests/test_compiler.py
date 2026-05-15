@@ -605,6 +605,35 @@ integrations = {}
         ]
 
 
+def test_compile_project_does_not_follow_symlinked_watch_dirs():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        morpheus_dir = tmppath / ".morpheus"
+        morpheus_dir.mkdir()
+        (morpheus_dir / "morpheus.toml").write_text(
+            """
+watch_dirs = ["linked"]
+exclude_patterns = [".git", "node_modules", "__pycache__", ".morpheus"]
+evidence_markers = ["TODO:"]
+integrations = {}
+"""
+        )
+        real_dir = tmppath / "real"
+        real_dir.mkdir()
+        (real_dir / "secret.md").write_text("TODO: do not follow watch symlink\n")
+        linked_dir = tmppath / "linked"
+        try:
+            linked_dir.symlink_to(real_dir, target_is_directory=True)
+        except OSError as exc:
+            pytest.skip(f"symlink creation unsupported: {exc}")
+
+        state = compile_project(tmppath)
+
+        assert state.sources == []
+        assert state.claims == []
+        assert state.evidence == []
+
+
 def test_compile_project_skips_watch_dirs_that_fail_during_traversal(monkeypatch):
     with tempfile.TemporaryDirectory() as tmpdir:
         tmppath = Path(tmpdir)
