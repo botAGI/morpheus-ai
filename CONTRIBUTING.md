@@ -51,6 +51,7 @@ The release workflow is prepared for PyPI Trusted Publishing. Configure PyPI
 with:
 
 - repository owner and repository name,
+- PyPI project name: `morpheus-wake`,
 - workflow filename: `release.yml`,
 - environment: `pypi`.
 

@@ -42,22 +42,35 @@ receipts.
 
 ## Быстрый Старт
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -e ".[dev]"
+После первого PyPI release:
 
-# One-command demo: init при необходимости, compile, verify, root WAKE.md.
-morpheus wake .
+```bash
+uvx --from morpheus-wake morpheus wake .
+```
+
+Через pipx:
+
+```bash
+pipx run --spec morpheus-wake morpheus wake .
 ```
 
 Для приватных рабочих папок:
 
 ```bash
-morpheus wake . --private
+uvx --from morpheus-wake morpheus wake . --private
 ```
 
 Это оставит скомпилированное состояние в `.morpheus/WAKE.md`.
+
+Development install:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e ".[dev]"
+
+morpheus wake .
+```
 
 ## До / После
 

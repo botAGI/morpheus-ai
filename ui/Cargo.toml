@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Morpheus AI Desktop App"
 authors = ["Morpheus Team"]
 license = "MIT"
-repository = "https://github.com/morpheus-ai/morpheus"
+repository = "https://github.com/botAGI/morpheus-ai"
 edition = "2021"
 
 [build-dependencies]

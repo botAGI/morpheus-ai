@@ -165,6 +165,14 @@ Only reviewed claims should become active state.
 
 ## 8. CLI Commands
 
+PyPI distribution name:
+
+```toml
+name = "morpheus-wake"
+```
+
+The installed executable remains `morpheus`.
+
 ```bash
 morpheus wake .                 # Init if needed, compile, verify, write root WAKE.md
 morpheus wake . --private       # Keep WAKE.md under .morpheus/

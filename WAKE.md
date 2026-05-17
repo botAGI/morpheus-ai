@@ -38,6 +38,15 @@ instead of starting cold every session.
 5. If public positioning changes, update `README.md`, `README.ru.md`, `SPEC.md`,
    and this file together.
 
+## Source References
+
+- `README.md` - public framing, install story, and quick start.
+- `README.ru.md` - Russian public framing and quick start.
+- `SPEC.md` - product frame, architecture, non-goals, and release criteria.
+- `AGENTS.md` - agent bootstrap behavior.
+- `docs/WHY_WAKE.md` - category rationale for `WAKE.md`.
+- `docs/TESTING.md` - local quality gate and release checks.
+
 ## Next Product Work
 
 - Add review-gated semantic compilation.

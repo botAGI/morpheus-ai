@@ -2,7 +2,7 @@ PYTHON ?= python3
 HOST ?= 127.0.0.1
 PORT ?= 8000
 UI_PORT ?= 5173
-IMAGE ?= morpheus-ai:local
+IMAGE ?= morpheus-wake:local
 
 .PHONY: install-dev lint test verify build serve docker-build docker-run clean
 

@@ -3,6 +3,9 @@
 Morpheus ships as a Python package plus an optional local container for quick
 API/UI testing.
 
+The PyPI distribution is `morpheus-wake`. The installed CLI command is
+`morpheus`.
+
 ## Local Verification
 
 Run the full local gate before cutting a tag:
@@ -24,6 +27,7 @@ job with PyPI Trusted Publishing.
 Required PyPI publisher configuration:
 
 - repository owner and name,
+- PyPI project name: `morpheus-wake`,
 - workflow filename: `release.yml`,
 - environment: `pypi`.
 

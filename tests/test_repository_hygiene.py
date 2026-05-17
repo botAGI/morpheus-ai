@@ -29,6 +29,31 @@ def test_public_wake_is_tracked_as_showcase_artifact():
     assert "WAKE.md" in tracked_files()
 
 
+def test_root_wake_includes_source_references():
+    wake = Path("WAKE.md").read_text()
+
+    assert "## Source References" in wake
+    for source in ["README.md", "SPEC.md", "AGENTS.md", "docs/WHY_WAKE.md"]:
+        assert source in wake
+
+
+def test_readme_first_screen_uses_wake_framing():
+    readme = Path("README.md").read_text()
+    first_screen = "\n".join(readme.splitlines()[:18])
+
+    assert readme.startswith("# Morpheus\n")
+    assert "Stop starting AI agents from scratch." in first_screen
+    assert "Morpheus generates `WAKE.md`" in first_screen
+    assert "`WAKE.md` tells agents where we are." in first_screen
+
+
+def test_public_docs_do_not_regress_to_memory_layer_pitch():
+    stale_pitch = "Local-first memory compiler for AI agents"
+
+    for path in [Path("README.md"), Path("README.ru.md"), Path("SPEC.md"), Path("WAKE.md")]:
+        assert stale_pitch not in path.read_text()
+
+
 def test_public_git_index_excludes_local_agent_artifacts():
     tracked = tracked_files()
 

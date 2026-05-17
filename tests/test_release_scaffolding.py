@@ -50,11 +50,31 @@ def test_release_workflow_uses_trusted_publishing_without_pypi_token():
             "id-token: write",
             "environment:",
             "name: pypi",
+            "https://pypi.org/p/morpheus-wake",
             "pypa/gh-action-pypi-publish@release/v1",
         ],
     )
+    assert "morpheus-ai" not in workflow
     assert "PYPI_TOKEN" not in workflow
     assert "password:" not in workflow
+
+
+def test_distribution_name_avoids_existing_pypi_project():
+    pyproject = read_project_file("pyproject.toml")
+
+    assert 'name = "morpheus-wake"' in pyproject
+    assert 'name = "morpheus-ai"' not in pyproject
+    assert 'morpheus = "morpheus.cli:app"' in pyproject
+
+
+def test_quickstart_uses_distribution_name_and_morpheus_command():
+    readme = read_project_file("README.md")
+    readme_ru = read_project_file("README.ru.md")
+
+    for content in [readme, readme_ru]:
+        assert "uvx --from morpheus-wake morpheus wake ." in content
+        assert "pipx run --spec morpheus-wake morpheus wake ." in content
+        assert "python -m pip install -e \".[dev]\"" in content
 
 
 def test_dependabot_tracks_actions_and_python_dependencies():
@@ -69,6 +89,22 @@ def test_dependabot_tracks_actions_and_python_dependencies():
             'interval: "weekly"',
         ],
     )
+
+
+def test_github_actions_use_node_24_compatible_majors():
+    ci = read_project_file(".github/workflows/ci.yml")
+    release = read_project_file(".github/workflows/release.yml")
+
+    for workflow in [ci, release]:
+        assert "actions/checkout@v6" in workflow
+        assert "actions/setup-python@v6" in workflow
+        assert "actions/checkout@v4" not in workflow
+        assert "actions/setup-python@v5" not in workflow
+    assert "actions/upload-artifact@v7" in ci
+    assert "actions/upload-artifact@v7" in release
+    assert "actions/download-artifact@v8" in release
+    assert "actions/upload-artifact@v4" not in ci + release
+    assert "actions/download-artifact@v4" not in release
 
 
 def test_container_scaffold_runs_morpheus_as_non_root_service():

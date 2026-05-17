@@ -41,22 +41,35 @@ Private projects can keep `WAKE.md` inside `.morpheus/`.
 
 ## Quick Start
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -e ".[dev]"
+After the first PyPI release:
 
-# One-command demo: init if needed, compile, verify, write root WAKE.md.
-morpheus wake .
+```bash
+uvx --from morpheus-wake morpheus wake .
+```
+
+With pipx:
+
+```bash
+pipx run --spec morpheus-wake morpheus wake .
 ```
 
 For private workspaces:
 
 ```bash
-morpheus wake . --private
+uvx --from morpheus-wake morpheus wake . --private
 ```
 
 That keeps the compiled state at `.morpheus/WAKE.md`.
+
+Development install:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e ".[dev]"
+
+morpheus wake .
+```
 
 ## Before / After
 

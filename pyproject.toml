@@ -1,5 +1,5 @@
 [project]
-name = "morpheus-ai"
+name = "morpheus-wake"
 version = "0.1.0"
 description = "WAKE.md for AI agents: compile project state so agents stop starting cold"
 readme = "README.md"
