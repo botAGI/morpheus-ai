@@ -67,3 +67,27 @@ def test_agent_bootstrap_reports_no_update_when_content_is_current(tmp_path, mon
     assert response.updated is False
     assert response.content == original_content
     assert agents_path.read_text() == original_content
+
+
+def test_mcp_initialize_rejects_non_object_params_without_fastapi(monkeypatch):
+    server = import_server_without_fastapi(monkeypatch)
+    request = SimpleNamespace(base_url="http://testserver/", headers={})
+
+    response = server.mcp_payload(
+        request,
+        {
+            "jsonrpc": "2.0",
+            "id": "bad-params",
+            "method": "initialize",
+            "params": [],
+        },
+    )
+
+    assert response == {
+        "jsonrpc": "2.0",
+        "id": "bad-params",
+        "error": {
+            "code": -32602,
+            "message": "MCP params must be a JSON object",
+        },
+    }

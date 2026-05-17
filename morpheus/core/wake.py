@@ -33,8 +33,10 @@ def generate_wake_md(state: ProjectState, receipt_id: str) -> str:
         "",
     ]
 
+    active_claims = [c for c in state.claims if c.status == "active"]
+
     by_category = {}
-    for claim in state.claims:
+    for claim in active_claims:
         cat = claim.category
         by_category.setdefault(cat, []).append(claim)
 
@@ -44,13 +46,26 @@ def generate_wake_md(state: ProjectState, receipt_id: str) -> str:
         lines.append(title)
         lines.append("")
         for c in claims:
-            lines.append(f"- {c.excerpt} *(src:{c.source_id}:{c.line_start})*")
+            excerpt = format_claim_excerpt(c.excerpt)
+            lines.append(f"- {excerpt} *(src:{c.source_id}:{c.line_start})*")
         lines.append("")
 
-    active_claims = [c for c in state.claims if c.status == "active"]
+    referenced_source_ids = {claim.source_id for claim in active_claims}
+    referenced_sources = [
+        source for source in state.sources if source.id in referenced_source_ids
+    ]
+    if referenced_sources:
+        lines.extend(["## Source References", ""])
+        for source in referenced_sources:
+            lines.append(f"- {source.id}: `{source.path}`")
+        lines.append("")
+
     lines.extend([
         "## Evidence Summary",
-        f"- {len(active_claims)} active claims from {len(state.sources)} sources",
+        (
+            f"- {len(active_claims)} active {pluralize(len(active_claims), 'claim')} "
+            f"from {len(state.sources)} {pluralize(len(state.sources), 'source')}"
+        ),
         f"- Compiled: {compiled_at}",
         "",
         "---",
@@ -67,6 +82,18 @@ def category_sort_key(category: str) -> tuple[int, str]:
         return (CATEGORY_ORDER.index(category), "")
     except ValueError:
         return (len(CATEGORY_ORDER), category)
+
+
+def format_claim_excerpt(excerpt: str) -> str:
+    """Collapse claim excerpts to one readable Markdown bullet line."""
+    return " ".join(excerpt.split())
+
+
+def pluralize(count: int, singular: str, plural: str | None = None) -> str:
+    """Return a singular or plural noun for a count."""
+    if count == 1:
+        return singular
+    return plural or f"{singular}s"
 
 
 def format_utc_timestamp(value: datetime) -> str:

@@ -18,7 +18,6 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
-from rich.syntax import Syntax
 
 from morpheus.core.config import MorpheusConfig
 from morpheus.core.compiler import compile_project
@@ -34,7 +33,7 @@ from morpheus.core.provenance import (
 )
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
 from morpheus.core.verify import verify_receipt_chain
-from morpheus.integrations.manifest import integration_manifest
+from morpheus.integrations.manifest import integration_cache_path_error, integration_manifest
 from morpheus.training.consolidate import consolidate_sessions
 from morpheus.training.train import check_dependencies
 
@@ -44,6 +43,10 @@ app = typer.Typer(
 )
 console = Console()
 WILDCARD_HOSTS = {"0.0.0.0", "::", ""}
+DEFAULT_MODEL_SMOKE_MODEL = "qwen2.5:0.5b"
+DEFAULT_MODEL_SMOKE_PROMPT = (
+    "Reply with one short sentence confirming Morpheus model smoke test is working."
+)
 
 
 class QuietHTTPRequestHandler(SimpleHTTPRequestHandler):
@@ -681,8 +684,7 @@ def wake():
     except (OSError, ValueError) as exc:
         console.print(f"[red]WAKE.md unreadable:[/red] {exc}")
         raise typer.Exit(1) from exc
-    syntax = Syntax(content, "markdown", theme="monokai", line_numbers=False)
-    console.print(syntax)
+    console.out(content, end="")
 
 
 @app.command()
@@ -754,6 +756,8 @@ def integrate(
         token_path = Path.home() / ".morpheus" / f"{service}_token.txt"
         cache_path = Path.home() / ".morpheus" / f"{service}_cache.json"
         path_error = integration_token_path_error(token_path, service_label)
+        if path_error is None:
+            path_error = integration_cache_path_error(cache_path, service_label)
         if path_error:
             console.print(f"[red]{path_error}[/red]")
             raise typer.Exit(1)
@@ -857,18 +861,21 @@ def eval_command(
 @app.command("model-smoke")
 def model_smoke_command(
     base_model: str = typer.Option(
-        "qwen2.5:0.5b",
+        DEFAULT_MODEL_SMOKE_MODEL,
         "--base-model",
         help="Ollama model to smoke-test",
     ),
     prompt: str = typer.Option(
-        "Reply with one short sentence confirming Morpheus model smoke test is working.",
+        DEFAULT_MODEL_SMOKE_PROMPT,
         "--prompt",
         help="Prompt to send to the model",
     ),
 ):
     """Run a direct Ollama smoke test through Morpheus."""
     from morpheus.training.eval import query_model
+
+    base_model = base_model.strip() or DEFAULT_MODEL_SMOKE_MODEL
+    prompt = prompt.strip() or DEFAULT_MODEL_SMOKE_PROMPT
 
     answer = query_model(prompt, base_model=base_model)
     if answer.startswith("Error:"):
@@ -957,11 +964,23 @@ def serve(
 
 
 @app.command()
-def version():
+def version(
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON"),
+):
     """Show morpheus version."""
     from morpheus import __version__
+
+    if json_output:
+        console.print(json.dumps({"service": "morpheus", "version": __version__}))
+        return
+
     console.print(f"Morpheus AI v{__version__}")
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """Run the Morpheus CLI application."""
     app()
+
+
+if __name__ == "__main__":
+    main()

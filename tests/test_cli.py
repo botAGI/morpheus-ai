@@ -3,6 +3,7 @@ Tests for morpheus.cli.
 """
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,6 +14,31 @@ from typer.testing import CliRunner
 import morpheus.cli as cli_module
 from morpheus.cli import app
 from morpheus.core.provenance import build_receipt, compute_sha256_file, receipt_file_name
+
+
+def test_package_module_entrypoint_runs_cli_version():
+    project_root = Path(__file__).resolve().parents[1]
+
+    result = subprocess.run(
+        [sys.executable, "-m", "morpheus", "version"],
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Morpheus AI v0.1.0" in result.stdout
+
+
+def test_version_json_outputs_machine_readable_payload():
+    result = CliRunner().invoke(app, ["version", "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output) == {
+        "service": "morpheus",
+        "version": "0.1.0",
+    }
 
 
 def write_out_of_filename_order_receipt_chain(morpheus_dir: Path):
@@ -1220,6 +1246,21 @@ def test_wake_reports_unreadable_wake_file_without_traceback(tmp_path):
         assert "WAKE.md unreadable" in result.output
 
 
+def test_wake_prints_copyable_raw_markdown(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        init_result = runner.invoke(app, ["init"])
+        assert init_result.exit_code == 0, init_result.output
+        wake_content = "# WAKE\n\n- " + ("copyable raw markdown " * 12) + "\n"
+        (Path.cwd() / ".morpheus" / "WAKE.md").write_text(wake_content)
+
+        result = runner.invoke(app, ["wake"])
+
+        assert result.exit_code == 0, result.output
+        assert result.output == wake_content
+
+
 def test_wake_rejects_symlinked_wake_file_without_reading_target(tmp_path):
     runner = CliRunner()
 
@@ -1368,6 +1409,48 @@ def test_model_smoke_command_queries_model(monkeypatch):
     assert calls == [
         {
             "prompt": "ping",
+            "base_model": "qwen2.5:0.5b",
+            "adapter_path": None,
+            "kwargs": {},
+        }
+    ]
+
+
+def test_model_smoke_command_defaults_blank_options(monkeypatch):
+    runner = CliRunner()
+    calls = []
+
+    def fake_query_model(prompt, base_model="qwen2.5:7b", adapter_path=None, **kwargs):
+        calls.append(
+            {
+                "prompt": prompt,
+                "base_model": base_model,
+                "adapter_path": adapter_path,
+                "kwargs": kwargs,
+            }
+        )
+        return "default answer"
+
+    import morpheus.training.eval as eval_module
+
+    monkeypatch.setattr(eval_module, "query_model", fake_query_model)
+
+    result = runner.invoke(
+        app,
+        [
+            "model-smoke",
+            "--base-model",
+            "   ",
+            "--prompt",
+            "   ",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "default answer" in result.output
+    assert calls == [
+        {
+            "prompt": "Reply with one short sentence confirming Morpheus model smoke test is working.",
             "base_model": "qwen2.5:0.5b",
             "adapter_path": None,
             "kwargs": {},
@@ -1557,6 +1640,19 @@ def test_integrate_linear_prints_cache_setup(monkeypatch, tmp_path):
     assert (tmp_path / ".morpheus").is_dir()
     assert "Linear cache supported" in result.output
     assert "linear_cache.json" in result.output
+
+
+def test_integrate_slack_rejects_cache_directory(monkeypatch, tmp_path):
+    runner = CliRunner()
+    cache_path = tmp_path / ".morpheus" / "slack_cache.json"
+    cache_path.mkdir(parents=True)
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    result = runner.invoke(app, ["integrate", "slack"])
+
+    assert result.exit_code == 1
+    assert "Slack cache path is not a file" in result.output
+    assert "Slack cache supported" not in result.output
 
 
 def test_integrate_github_rejects_token_directory(monkeypatch, tmp_path):

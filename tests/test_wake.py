@@ -129,6 +129,173 @@ def test_generate_wake_md_empty_project():
     assert "## Evidence Summary" in wake
 
 
+def test_generate_wake_md_only_lists_active_claims_in_current_state():
+    claims = [
+        Claim(
+            id="clm_001",
+            source_id="src_001",
+            line_start=1,
+            line_end=1,
+            excerpt="TODO: ship this",
+            category="task",
+            status="active",
+            created_at=datetime.now(timezone.utc),
+        ),
+        Claim(
+            id="clm_002",
+            source_id="src_001",
+            line_start=2,
+            line_end=2,
+            excerpt="TODO: obsolete task",
+            category="task",
+            status="resolved",
+            created_at=datetime.now(timezone.utc),
+        ),
+    ]
+    state = ProjectState(
+        sources=[],
+        claims=claims,
+        evidence=[],
+        compiled_at=datetime.now(timezone.utc),
+        receipt_id="rcpt_active",
+    )
+
+    wake = generate_wake_md(state, "rcpt_active")
+
+    assert "TODO: ship this" in wake
+    assert "TODO: obsolete task" not in wake
+    assert "- 1 active claim from 0 sources" in wake.splitlines()
+
+
+def test_generate_wake_md_lists_sources_referenced_by_active_claims():
+    sources = [
+        Source(
+            id="src_001",
+            path="README.md",
+            kind="markdown",
+            sha256="abc123",
+            size_bytes=100,
+            line_count=10,
+            modified_at=datetime.now(timezone.utc),
+        ),
+        Source(
+            id="src_002",
+            path="docs/archive.md",
+            kind="markdown",
+            sha256="def456",
+            size_bytes=200,
+            line_count=20,
+            modified_at=datetime.now(timezone.utc),
+        ),
+    ]
+    claims = [
+        Claim(
+            id="clm_001",
+            source_id="src_001",
+            line_start=5,
+            line_end=5,
+            excerpt="TODO: document source references",
+            category="task",
+            status="active",
+            created_at=datetime.now(timezone.utc),
+        ),
+        Claim(
+            id="clm_002",
+            source_id="src_002",
+            line_start=3,
+            line_end=3,
+            excerpt="TODO: archived task",
+            category="task",
+            status="resolved",
+            created_at=datetime.now(timezone.utc),
+        ),
+    ]
+    state = ProjectState(
+        sources=sources,
+        claims=claims,
+        evidence=[],
+        compiled_at=datetime.now(timezone.utc),
+        receipt_id="rcpt_sources",
+    )
+
+    wake = generate_wake_md(state, "rcpt_sources")
+
+    assert "## Source References" in wake
+    assert "- src_001: `README.md`" in wake.splitlines()
+    assert "src_002" not in wake
+    assert "docs/archive.md" not in wake
+
+
+def test_generate_wake_md_pluralizes_evidence_summary_counts():
+    source = Source(
+        id="src_001",
+        path="README.md",
+        kind="markdown",
+        sha256="abc123",
+        size_bytes=100,
+        line_count=10,
+        modified_at=datetime.now(timezone.utc),
+    )
+    claims = [
+        Claim(
+            id="clm_001",
+            source_id="src_001",
+            line_start=1,
+            line_end=1,
+            excerpt="TODO: first task",
+            category="task",
+            created_at=datetime.now(timezone.utc),
+        ),
+        Claim(
+            id="clm_002",
+            source_id="src_001",
+            line_start=2,
+            line_end=2,
+            excerpt="TODO: second task",
+            category="task",
+            created_at=datetime.now(timezone.utc),
+        ),
+    ]
+    state = ProjectState(
+        sources=[source],
+        claims=claims,
+        evidence=[],
+        compiled_at=datetime.now(timezone.utc),
+        receipt_id="rcpt_plural",
+    )
+
+    wake = generate_wake_md(state, "rcpt_plural")
+
+    assert "- 2 active claims from 1 source" in wake.splitlines()
+
+
+def test_generate_wake_md_renders_multiline_claims_as_single_bullets():
+    claim = Claim(
+        id="clm_001",
+        source_id="src_001",
+        line_start=1,
+        line_end=2,
+        excerpt="DECISION: keep receipts signed\nTODO: document the verification flow",
+        category="decision",
+        created_at=datetime.now(timezone.utc),
+    )
+    state = ProjectState(
+        sources=[],
+        claims=[claim],
+        evidence=[],
+        compiled_at=datetime.now(timezone.utc),
+        receipt_id="rcpt_multiline",
+    )
+
+    wake = generate_wake_md(state, "rcpt_multiline")
+
+    assert (
+        "- DECISION: keep receipts signed TODO: document the verification flow "
+        "*(src:src_001:1)*"
+    ) in wake
+    assert "\nTODO: document the verification flow" not in wake
+
+
 def test_generate_wake_md_formats_aware_compiled_time_as_utc_z():
     state = ProjectState(
         sources=[],

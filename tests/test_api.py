@@ -188,6 +188,27 @@ def test_mcp_initialize_returns_tools_capability():
     assert payload["result"]["serverInfo"]["name"] == "morpheus"
 
 
+def test_mcp_initialize_rejects_non_object_params():
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": "bad-params",
+            "method": "initialize",
+            "params": [],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["jsonrpc"] == "2.0"
+    assert payload["id"] == "bad-params"
+    assert payload["error"]["code"] == -32602
+    assert payload["error"]["message"] == "MCP params must be a JSON object"
+
+
 def test_mcp_tools_list_exposes_morpheus_tools():
     client = api_client(raise_server_exceptions=False)
 
