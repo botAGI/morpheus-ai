@@ -159,6 +159,8 @@ def test_ui_exposes_context_sources_and_faq():
         "FAQ",
         "How do I connect Morpheus to a project?",
         "How do I include several folders or projects?",
+        "Should WAKE.md be committed?",
+        "Is Morpheus a model trainer?",
     ]
     for snippet in required_snippets:
         assert snippet in html

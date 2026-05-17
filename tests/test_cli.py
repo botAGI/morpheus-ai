@@ -1292,6 +1292,76 @@ def test_wake_rejects_morpheus_state_file_without_missing_wake_message(tmp_path)
         assert "No WAKE.md found" not in result.output
 
 
+def test_wake_project_initializes_compiles_verifies_and_writes_root_wake(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        Path("README.md").write_text("# Demo\n\nDECISION: The public primitive is WAKE.md.\n")
+
+        result = runner.invoke(app, ["wake", "."])
+
+        assert result.exit_code == 0, result.output
+        root_wake = Path("WAKE.md")
+        private_wake = Path(".morpheus") / "WAKE.md"
+        assert root_wake.is_file()
+        assert private_wake.is_file()
+        assert "DECISION: The public primitive is WAKE.md." in root_wake.read_text()
+        assert "Receipt chain valid" in result.output
+        assert "Agent handoff prompt" in result.output
+
+
+def test_wake_project_private_keeps_wake_inside_morpheus(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        Path("README.md").write_text("# Demo\n\nDECISION: Private projects keep WAKE.md local.\n")
+
+        result = runner.invoke(app, ["wake", ".", "--private"])
+
+        assert result.exit_code == 0, result.output
+        assert not Path("WAKE.md").exists()
+        assert (Path(".morpheus") / "WAKE.md").is_file()
+        assert "Private WAKE.md" in result.output
+
+
+def test_stale_reports_known_outdated_positioning_claims(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        Path("SPEC.md").write_text(
+            "# Spec\n\n"
+            "Morpheus AI is an open-source personal AI agent.\n"
+            "Daily training = weights-as-memory.\n"
+            "EU AI Act compliant by design.\n"
+        )
+
+        result = runner.invoke(app, ["stale", "."])
+
+        assert result.exit_code == 0, result.output
+        assert "Outdated claims" in result.output
+        assert "SPEC.md:3" in result.output
+        assert "personal AI agent" in result.output
+        assert "Agent State Compiler" in result.output
+        assert "LoRA is experimental" in result.output
+        assert "Designed for provenance" in result.output
+
+
+def test_stale_json_reports_machine_readable_findings(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        Path("README.md").write_text("Local-first memory compiler for AI agents.\n")
+
+        result = runner.invoke(app, ["stale", ".", "--json"])
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["project_root"] == str(Path.cwd())
+        assert payload["findings"][0]["path"] == "README.md"
+        assert payload["findings"][0]["rule_id"] == "memory_compiler_pitch"
+        assert "WAKE.md for AI agents" in payload["findings"][0]["suggested_replacement"]
+
+
 def test_train_dry_run_skips_cli_dependency_check(tmp_path, monkeypatch):
     runner = CliRunner()
 

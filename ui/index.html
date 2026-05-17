@@ -1176,7 +1176,7 @@
               <h4>FAQ</h4>
               <details open>
                 <summary>How do I connect Morpheus to a project?</summary>
-                <p>Set Project root, keep Context Sources as <code>.</code> for the whole project, then click Prepare Agent. Morpheus initializes local state, compiles WAKE.md, verifies the receipt chain, and prepares AGENTS.md for other agents.</p>
+                <p>Set Project root, keep Context Sources as <code>.</code> for the whole project, then click Prepare Agent. Morpheus initializes local state, compiles <code>WAKE.md</code>, verifies the receipt chain, and prepares <code>AGENTS.md</code> for other agents.</p>
               </details>
               <details>
                 <summary>How do I include several folders or projects?</summary>
@@ -1184,11 +1184,19 @@
               </details>
               <details>
                 <summary>What should another agent do?</summary>
-                <p>Give the agent the Agent Connect URL or run <code>morpheus prepare-agent</code>. The manifest tells it the next action, where WAKE.md lives, and which commands must run before and after edits.</p>
+                <p>Give the agent the Agent Connect URL or run <code>morpheus prepare-agent</code>. The manifest tells it the next action, where <code>WAKE.md</code> lives, and which commands must run before and after edits.</p>
               </details>
               <details>
                 <summary>What is WAKE.md?</summary>
-                <p>WAKE.md is the compiled working memory: sources, tasks, decisions, notes, and receipt metadata. Agents should read it before changing the project.</p>
+                <p><code>WAKE.md</code> is the compiled project state: current decisions, tasks, notes, source references, and receipt metadata. Agents should read it before changing the project.</p>
+              </details>
+              <details>
+                <summary>Should WAKE.md be committed?</summary>
+                <p>Public repositories can commit a curated root <code>WAKE.md</code> as a showcase. Private workspaces should keep generated state inside <code>.morpheus/</code> with <code>morpheus wake . --private</code>.</p>
+              </details>
+              <details>
+                <summary>Is Morpheus a model trainer?</summary>
+                <p>No. The default path is compile, cite evidence, hand off state, and verify receipts. Local adapter training is experimental and should only use reviewed, intentionally prepared datasets.</p>
               </details>
             </div>
           </div>

@@ -22,7 +22,6 @@ dist/
 
 # Morpheus local runtime artifacts
 .morpheus/
-WAKE.md
 dataset.jsonl
 reports/
 morpheus_adapters/

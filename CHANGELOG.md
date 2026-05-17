@@ -6,6 +6,9 @@ All notable changes to Morpheus will be documented in this file.
 
 ### Added
 
+- `WAKE.md` launch framing with root showcase file and `docs/WHY_WAKE.md`.
+- `morpheus wake .` one-command project wake flow with public and private modes.
+- `morpheus stale .` scan for stale launch-positioning claims.
 - A2A Agent Card discovery for agent-to-agent connection metadata.
 - MCP Streamable HTTP endpoint with read-only Morpheus tools.
 - Quickstart launchpad for humans and agents in the HTTP API and UI.

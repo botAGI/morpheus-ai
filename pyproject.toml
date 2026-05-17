@@ -1,14 +1,22 @@
 [project]
 name = "morpheus-ai"
 version = "0.1.0"
-description = "Agent State Compiler with verifiable provenance"
+description = "WAKE.md for AI agents: compile project state so agents stop starting cold"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
     {name = "Morpheus Team", email = "team@morpheus.ai"}
 ]
-keywords = ["ai", "agent", "provenance", "memory", "lora"]
+keywords = [
+    "ai-agents",
+    "agent-state",
+    "wake-md",
+    "mcp",
+    "context-engineering",
+    "provenance",
+    "coding-agents",
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "License :: OSI Approved :: MIT License",

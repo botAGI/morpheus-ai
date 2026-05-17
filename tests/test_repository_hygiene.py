@@ -20,7 +20,13 @@ def tracked_files() -> set[str]:
 def test_public_docs_include_bilingual_readme_and_testing_checklist():
     assert Path("README.md").is_file()
     assert Path("README.ru.md").is_file()
+    assert Path("WAKE.md").is_file()
+    assert Path("docs/WHY_WAKE.md").is_file()
     assert Path("docs/TESTING.md").is_file()
+
+
+def test_public_wake_is_tracked_as_showcase_artifact():
+    assert "WAKE.md" in tracked_files()
 
 
 def test_public_git_index_excludes_local_agent_artifacts():

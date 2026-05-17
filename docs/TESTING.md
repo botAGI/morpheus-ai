@@ -17,6 +17,7 @@ Run before every commit:
 Run after meaningful source, docs, API, CLI, or UI changes:
 
 ```bash
+.venv/bin/morpheus stale .
 .venv/bin/morpheus compile
 .venv/bin/morpheus verify --all
 .venv/bin/morpheus diagnostics --json
@@ -25,10 +26,32 @@ Run after meaningful source, docs, API, CLI, or UI changes:
 
 Expected result:
 
+- stale reports no stale launch-positioning claims,
 - compile writes fresh local `.morpheus/` artifacts,
 - verify reports a valid receipt chain,
 - diagnostics returns a clear `next_action`,
 - agent-connect returns a machine-readable handoff manifest.
+
+## One-Command Wake Gate
+
+Run in a disposable copy or when you intentionally want to refresh root
+`WAKE.md`:
+
+```bash
+.venv/bin/morpheus wake .
+```
+
+For private workspaces, use:
+
+```bash
+.venv/bin/morpheus wake . --private
+```
+
+Expected result:
+
+- public mode writes root `WAKE.md`,
+- private mode keeps `WAKE.md` under `.morpheus/`,
+- both modes compile and verify before printing an agent handoff prompt.
 
 ## Public Repository Hygiene
 

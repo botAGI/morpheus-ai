@@ -6,7 +6,9 @@ Agent State Compiler with verifiable provenance.
 """
 import json
 import os
+import re
 import socket
+from fnmatch import fnmatch
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
@@ -20,7 +22,7 @@ from rich.table import Table
 from rich.panel import Panel
 
 from morpheus.core.config import MorpheusConfig
-from morpheus.core.compiler import compile_project
+from morpheus.core.compiler import DEFAULT_EXCLUDE_PATTERNS, compile_project
 from morpheus.core.wake import generate_wake_md
 from morpheus.core.provenance import (
     compute_sha256_file,
@@ -47,6 +49,67 @@ DEFAULT_MODEL_SMOKE_MODEL = "qwen2.5:0.5b"
 DEFAULT_MODEL_SMOKE_PROMPT = (
     "Reply with one short sentence confirming Morpheus model smoke test is working."
 )
+STALE_TEXT_SUFFIXES = {
+    ".md",
+    ".mdx",
+    ".txt",
+    ".rst",
+    ".toml",
+    ".yaml",
+    ".yml",
+    ".json",
+    ".py",
+    ".js",
+    ".ts",
+    ".tsx",
+    ".html",
+    ".css",
+}
+STALE_SCAN_ROOT_FILES = {
+    "AGENTS.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "README.md",
+    "README.ru.md",
+    "SECURITY.md",
+    "SPEC.md",
+    "pyproject.toml",
+}
+STALE_POSITIONING_RULES = [
+    {
+        "rule_id": "personal_ai_agent",
+        "pattern": re.compile(r"\bpersonal AI agent\b", re.IGNORECASE),
+        "suggested_replacement": (
+            "Morpheus is an Agent State Compiler that generates WAKE.md."
+        ),
+    },
+    {
+        "rule_id": "daily_lora_core",
+        "pattern": re.compile(
+            r"\b(daily training|daily memory consolidation|weights-as-memory)\b",
+            re.IGNORECASE,
+        ),
+        "suggested_replacement": (
+            "LoRA is experimental; compile, retrieve, cite evidence, and verify receipts "
+            "are the core path."
+        ),
+    },
+    {
+        "rule_id": "eu_ai_act_claim",
+        "pattern": re.compile(r"\bEU AI Act compliant by design\b", re.IGNORECASE),
+        "suggested_replacement": (
+            "Designed for provenance, local-first operation, source attribution, "
+            "and user-controlled state export."
+        ),
+    },
+    {
+        "rule_id": "memory_compiler_pitch",
+        "pattern": re.compile(r"\bLocal-first memory compiler for AI agents\b", re.IGNORECASE),
+        "suggested_replacement": (
+            "WAKE.md for AI agents — compile project state so agents stop starting cold."
+        ),
+    },
+]
 
 
 class QuietHTTPRequestHandler(SimpleHTTPRequestHandler):
@@ -249,6 +312,130 @@ def request_context(api_base: str):
         base_url=clean_api_base + "/",
         embedded_agent_api_base=clean_api_base,
     )
+
+
+def ensure_project_initialized(project_root: Path) -> tuple[Path, bool]:
+    """Initialize .morpheus for a chosen project root when needed."""
+    if project_root.is_symlink():
+        raise ValueError(f"Project root must not be a symlink: {project_root}")
+    reject_symlink_components(project_root, "Project root")
+    project_root = project_root.resolve()
+    if not project_root.is_dir():
+        raise ValueError(f"Project root is not a directory: {project_root}")
+
+    morpheus_dir = project_root / ".morpheus"
+    if morpheus_dir.is_symlink():
+        raise ValueError(".morpheus path must not be a symlink")
+    if morpheus_dir.exists() and not morpheus_dir.is_dir():
+        raise ValueError(".morpheus path is not a directory")
+    initialized = not morpheus_dir.exists()
+    MorpheusConfig(project_root=project_root).init_default()
+    return morpheus_dir, initialized
+
+
+def copy_public_wake(project_root: Path, morpheus_dir: Path) -> Path:
+    """Copy the compiled private WAKE.md to the project root for public handoff."""
+    private_wake = morpheus_dir / "WAKE.md"
+    public_wake = project_root / "WAKE.md"
+    reject_symlink_paths([private_wake, public_wake], "WAKE.md")
+    if public_wake.exists() and not public_wake.is_file():
+        raise ValueError(f"WAKE.md path is not a file: {public_wake}")
+    public_wake.write_text(private_wake.read_text())
+    return public_wake
+
+
+def wake_handoff_prompt() -> str:
+    """Return the short prompt printed by the one-command wake flow."""
+    return (
+        "Read WAKE.md before editing. Treat it as current project state, then run "
+        "`morpheus compile` and `morpheus verify --all` after meaningful changes."
+    )
+
+
+def find_stale_positioning_claims(project_root: Path) -> list[dict[str, object]]:
+    """Find launch-positioning claims that conflict with the WAKE.md framing."""
+    if project_root.is_symlink():
+        raise ValueError(f"Project root must not be a symlink: {project_root}")
+    reject_symlink_components(project_root, "Project root")
+    project_root = project_root.resolve()
+    if not project_root.is_dir():
+        raise ValueError(f"Project root is not a directory: {project_root}")
+
+    findings = []
+    for path in sorted(project_root.rglob("*"), key=lambda item: item.as_posix()):
+        if path.is_symlink() or not path.is_file():
+            continue
+        if path.suffix.lower() not in STALE_TEXT_SUFFIXES:
+            continue
+        if stale_scan_path_excluded(path, project_root):
+            continue
+        if not stale_scan_path_is_launch_surface(path, project_root):
+            continue
+
+        try:
+            lines = path.read_text(errors="ignore").splitlines()
+        except OSError:
+            continue
+
+        for line_number, line in enumerate(lines, 1):
+            if stale_line_is_negated_or_safe(line):
+                continue
+            for rule in STALE_POSITIONING_RULES:
+                match = rule["pattern"].search(line)
+                if not match:
+                    continue
+                findings.append(
+                    {
+                        "rule_id": rule["rule_id"],
+                        "path": path.relative_to(project_root).as_posix(),
+                        "line": line_number,
+                        "excerpt": line.strip(),
+                        "matched": match.group(0),
+                        "suggested_replacement": rule["suggested_replacement"],
+                    }
+                )
+    return findings
+
+
+def stale_scan_path_excluded(path: Path, project_root: Path) -> bool:
+    """Return true when a file should not be scanned by `morpheus stale`."""
+    try:
+        rel_path = path.relative_to(project_root)
+    except ValueError:
+        return True
+    rel_text = rel_path.as_posix()
+    for pattern in DEFAULT_EXCLUDE_PATTERNS:
+        if any(part == pattern for part in rel_path.parts):
+            return True
+        if fnmatch(rel_text, pattern) or fnmatch(rel_path.name, pattern):
+            return True
+    return False
+
+
+def stale_scan_path_is_launch_surface(path: Path, project_root: Path) -> bool:
+    """Limit default stale scans to public positioning surfaces, not tests/code."""
+    try:
+        rel_path = path.relative_to(project_root)
+    except ValueError:
+        return False
+    if len(rel_path.parts) == 1:
+        return rel_path.name in STALE_SCAN_ROOT_FILES
+    return rel_path.parts[0] == "docs" and path.suffix.lower() in {".md", ".mdx"}
+
+
+def stale_line_is_negated_or_safe(line: str) -> bool:
+    """Avoid reporting lines that intentionally reject the stale claim."""
+    folded = line.casefold()
+    safe_phrases = [
+        "not a personal ai agent",
+        "not a memory layer",
+        "not a lora trainer",
+        "lora is experimental",
+        "lora/training is experimental",
+        "not the core product path",
+        "not the core launch path",
+    ]
+    return any(phrase in folded for phrase in safe_phrases)
 
 
 @app.command()
@@ -669,8 +856,50 @@ def bootstrap_agent(
 
 
 @app.command()
-def wake():
-    """Print WAKE.md to stdout."""
+def wake(
+    project: Path | None = typer.Argument(
+        None,
+        help="Optional project path to initialize, compile, verify, and write root WAKE.md",
+    ),
+    private: bool = typer.Option(
+        False,
+        "--private",
+        help="Keep the compiled WAKE.md inside .morpheus/ instead of writing root WAKE.md",
+    ),
+):
+    """Print WAKE.md, or run the one-command project wake flow."""
+    if project is not None:
+        original_cwd = Path.cwd()
+        try:
+            project_root = project.expanduser()
+            if not project_root.is_absolute():
+                project_root = original_cwd / project_root
+            morpheus_dir, initialized = ensure_project_initialized(project_root)
+            os.chdir(project_root)
+            if initialized:
+                console.print("[green]✓ Initialized .morpheus/[/green]")
+            compile(verbose=False)
+            verify(all=True)
+
+            if private:
+                wake_path = morpheus_dir / "WAKE.md"
+                console.print(f"[green]✓ Private WAKE.md:[/green] {wake_path}")
+            else:
+                wake_path = copy_public_wake(project_root, morpheus_dir)
+                console.print(f"[green]✓ Public WAKE.md:[/green] {wake_path}")
+
+            console.print(Panel.fit(
+                f"Agent handoff prompt:\n{wake_handoff_prompt()}",
+                title="Morpheus Wake",
+                border_style="green",
+            ))
+        except (OSError, ValueError) as exc:
+            console.print(f"[red]Wake failed:[/red] {exc}")
+            raise typer.Exit(1) from exc
+        finally:
+            os.chdir(original_cwd)
+        return
+
     morpheus_dir = ensure_initialized()
     wake_path = morpheus_dir / "WAKE.md"
     
@@ -685,6 +914,44 @@ def wake():
         console.print(f"[red]WAKE.md unreadable:[/red] {exc}")
         raise typer.Exit(1) from exc
     console.out(content, end="")
+
+
+@app.command()
+def stale(
+    project: Path = typer.Argument(Path("."), help="Project path to scan"),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON"),
+):
+    """Report stale launch-positioning claims that conflict with WAKE.md framing."""
+    original_cwd = Path.cwd()
+    project_root = project.expanduser()
+    if not project_root.is_absolute():
+        project_root = original_cwd / project_root
+
+    try:
+        findings = find_stale_positioning_claims(project_root)
+    except ValueError as exc:
+        console.print(f"[red]Stale scan failed:[/red] {exc}")
+        raise typer.Exit(1) from exc
+
+    payload = {
+        "project_root": str(project_root.resolve()),
+        "findings": findings,
+    }
+    if json_output:
+        console.out(json.dumps(payload, indent=2))
+        return
+
+    if not findings:
+        console.print("[green]No stale launch-positioning claims found.[/green]")
+        return
+
+    console.print("Outdated claims:")
+    for index, finding in enumerate(findings, 1):
+        console.print(
+            f"{index}. {finding['path']}:{finding['line']} says "
+            f"\"{finding['excerpt']}\""
+        )
+        console.print(f"   Suggested replacement: {finding['suggested_replacement']}")
 
 
 @app.command()
