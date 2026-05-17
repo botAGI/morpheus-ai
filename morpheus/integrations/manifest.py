@@ -3,33 +3,35 @@ Machine-readable integration manifest for CLI, API, UI, and agents.
 """
 from pathlib import Path
 
+from morpheus.core.safe_io import reject_symlink_components
+
 
 INTEGRATION_DEFINITIONS = [
     {
         "id": "github",
         "label": "GitHub",
-        "auth": "PAT",
-        "source": "issues, pull requests, commits",
+        "auth": "cache + PAT",
+        "source": "cached or live issues, pull requests, commits",
         "token_file": "github_token.txt",
-        "cache_file": None,
+        "cache_file": "github_cache.json",
         "setup_command": "morpheus integrate github",
     },
     {
         "id": "gmail",
         "label": "Gmail",
-        "auth": "OAuth2",
+        "auth": "cache + OAuth2",
         "source": "email cache/OAuth placeholder",
         "token_file": None,
-        "cache_file": None,
+        "cache_file": "gmail_cache.json",
         "setup_command": "morpheus integrate gmail",
     },
     {
         "id": "calendar",
         "label": "Calendar",
-        "auth": "OAuth2",
+        "auth": "cache + OAuth2",
         "source": "calendar cache/OAuth placeholder",
         "token_file": None,
-        "cache_file": None,
+        "cache_file": "calendar_cache.json",
         "setup_command": "morpheus integrate calendar",
     },
     {
@@ -63,6 +65,10 @@ def integration_token_path_error(token_path: Path, service_label: str) -> str | 
         return f"{service_label} token path must not be a symlink: {token_path}"
     if token_path.exists() and not token_path.is_file():
         return f"{service_label} token path is not a file: {token_path}"
+    try:
+        reject_symlink_components(token_path, f"{service_label} token path")
+    except ValueError as exc:
+        return str(exc)
     return None
 
 
@@ -76,6 +82,10 @@ def integration_cache_path_error(cache_path: Path, service_label: str) -> str | 
         return f"{service_label} cache path must not be a symlink: {cache_path}"
     if cache_path.exists() and not cache_path.is_file():
         return f"{service_label} cache path is not a file: {cache_path}"
+    try:
+        reject_symlink_components(cache_path, f"{service_label} cache path")
+    except ValueError as exc:
+        return str(exc)
     return None
 
 
@@ -144,4 +154,3 @@ def integration_service_entry(definition: dict, morpheus_home: Path) -> dict:
     if cache_path:
         entry["cache_path"] = str(cache_path)
     return entry
-

@@ -323,7 +323,8 @@ def test_integrations_endpoint_reports_services_for_agents(monkeypatch, tmp_path
     assert services["linear"]["status"] == "cache_ready"
     assert services["linear"]["setup_command"] == "morpheus integrate linear"
     assert services["slack"]["status"] == "not_configured"
-    assert services["github"]["auth"] == "PAT"
+    assert services["github"]["auth"] == "cache + PAT"
+    assert services["github"]["cache_path"] == str(morpheus_home / "github_cache.json")
 
 
 def test_model_smoke_endpoint_queries_configured_model(monkeypatch):
