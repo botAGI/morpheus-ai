@@ -4,6 +4,11 @@ This folder contains a safe terminal demo scaffold for the first public launch.
 It does not call cloud APIs and does not require a GPU, Obsidian, OpenClaw, or
 Hermes.
 
+The committed visual demo is:
+
+- `morpheus-demo.cast` - asciicast source
+- `morpheus-demo.gif` - rendered GIF used by the README files
+
 ## Record
 
 Install `asciinema`, then record:

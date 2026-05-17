@@ -18,6 +18,7 @@ instead of starting cold every session.
 - `AGENTS.md` tells agents how to work.
 - `WAKE.md` tells agents where the project is now.
 - Provenance receipts are a core differentiator.
+- The README files include a visual terminal demo.
 - LoRA/training is experimental and not the core launch path.
 - Private projects can keep generated state under `.morpheus/`.
 
@@ -51,10 +52,10 @@ instead of starting cold every session.
 
 ## Next Product Work
 
-- Add visual before/after demo.
 - Publish v0.1.0.
 - Add review-gated semantic compilation.
 - Add richer stale-claim detection.
+- Split large CLI/API modules after launch.
 
 ## Verification
 

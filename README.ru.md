@@ -15,6 +15,8 @@
 > A2A-style discovery и cache-backed интеграции уже usable. LoRA/training
 > экспериментален и не является core launch path.
 
+![Morpheus terminal demo](demo/morpheus-demo.gif)
+
 ## Зачем
 
 Каждый AI-агент стартует холодным.
@@ -88,7 +90,7 @@ User: Read WAKE.md. What changed yesterday?
 Agent: Morpheus moved from "memory compiler" to "Agent State Compiler".
        Outdated: LoRA as the core product path.
        Current: WAKE.md with provenance receipts.
-       Next action: publish v0.1.0, add the visual demo, then start semantic compile mode.
+       Next action: publish v0.1.0, then start semantic compile mode.
 ```
 
 ## Почему Не Просто Memory?

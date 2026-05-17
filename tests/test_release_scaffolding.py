@@ -184,6 +184,7 @@ def test_v010_release_notes_cover_launch_highlights():
             "Public/private WAKE modes",
             "Verifiable provenance receipts",
             "Agent handoff",
+            "Visual terminal demo in the README",
             "MCP/A2A-style local interop",
             "UI launchpad",
             "Cache-backed integrations",
@@ -195,13 +196,33 @@ def test_v010_release_notes_cover_launch_highlights():
 def test_demo_scaffold_is_safe_and_self_contained():
     demo_readme = read_project_file("demo/README.md")
     transcript = read_project_file("demo/transcript.md")
+    cast = read_project_file("demo/morpheus-demo.cast")
     script_path = ROOT / "demo/record_demo.sh"
     script = read_project_file("demo/record_demo.sh")
+    gif_path = ROOT / "demo/morpheus-demo.gif"
 
     assert os.access(script_path, os.X_OK), "demo/record_demo.sh should be executable"
+    assert gif_path.is_file(), "demo/morpheus-demo.gif should be committed for README"
+    assert gif_path.stat().st_size > 10_000, "demo GIF should not be empty"
     assert_contains_all(
         demo_readme,
-        ["asciinema", "agg", "demo.cast", "demo.gif", "morpheus wake ."],
+        [
+            "asciinema",
+            "agg",
+            "demo.cast",
+            "demo.gif",
+            "morpheus-demo.cast",
+            "morpheus-demo.gif",
+            "morpheus wake .",
+        ],
+    )
+    assert_contains_all(
+        cast,
+        [
+            "uvx --from morpheus-wake morpheus wake .",
+            "Read WAKE.md and continue.",
+            "Agent State Compiler",
+        ],
     )
     assert_contains_all(
         transcript,
