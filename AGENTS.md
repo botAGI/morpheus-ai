@@ -5,7 +5,7 @@
 
 Fetch the Morpheus manifest before making changes:
 
-- Connect manifest: `http://127.0.0.1:8000/agent/connect?project_root=%2FUsers%2Ftestbot%2F.openclaw%2Fworkspace%2Fmorpheus-ai`
+- Connect manifest: `http://127.0.0.1:8000/agent/connect?project_root=%2FUsers%2Ftestbot%2Fprojects%2Fmorpheus-ai`
 - One-command prepare: `morpheus prepare-agent`.
 - Local handoff bundle: `morpheus handoff`.
 - Local CLI manifest: `morpheus agent-connect --json`.
