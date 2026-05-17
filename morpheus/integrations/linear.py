@@ -6,20 +6,12 @@ from pathlib import Path
 from typing import Optional
 
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
+from morpheus.integrations.cache import cache_rows, load_cache_payload
 from morpheus.integrations.dates import parse_cache_datetime
+from morpheus.integrations.evidence import INTEGRATION_EVIDENCE_KEYWORDS, matched_keyword_excerpts
 
 
-LINEAR_EVIDENCE_KEYWORDS = (
-    "DECISION:",
-    "DECIDED:",
-    "TODO:",
-    "FIXME:",
-    "NOTE:",
-    "ACTION:",
-    "WILL:",
-    "COMMIT:",
-    "AGREED:",
-)
+LINEAR_EVIDENCE_KEYWORDS = INTEGRATION_EVIDENCE_KEYWORDS
 
 
 class LinearIntegration:
@@ -46,20 +38,21 @@ class LinearIntegration:
         return []
 
     def _load_from_cache(self, cache_path: Path, days: int) -> list[dict]:
-        import json
-
         try:
             reject_symlink_paths([cache_path], "Linear cache path")
             reject_symlink_components(cache_path, "Linear cache path")
-            data = json.loads(cache_path.read_text())
-        except (OSError, ValueError, json.JSONDecodeError):
+            data = load_cache_payload(cache_path)
+        except ValueError:
             return []
-        if not isinstance(data, list):
+        if data is None:
+            return []
+        rows = cache_rows(data, "issues", "items", "data")
+        if not rows:
             return []
 
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         dated_issues = []
-        for issue in data:
+        for issue in rows:
             if not isinstance(issue, dict):
                 continue
             updated_at = _parse_cache_datetime(
@@ -81,7 +74,6 @@ class LinearIntegration:
         text = f"{description}\n{title}".strip()
         if not isinstance(text, str):
             text = str(text)
-        upper_text = text.upper()
         return [
             {
                 "type": "linear_claim",
@@ -89,11 +81,10 @@ class LinearIntegration:
                 "issue_id": issue.get("id"),
                 "identifier": issue.get("identifier"),
                 "keyword": keyword,
-                "excerpt": text[:500],
+                "excerpt": excerpt,
                 "url": issue.get("url"),
             }
-            for keyword in LINEAR_EVIDENCE_KEYWORDS
-            if keyword in upper_text
+            for keyword, excerpt in matched_keyword_excerpts(text, keywords=LINEAR_EVIDENCE_KEYWORDS)
         ]
 
     def _get_token(self) -> Optional[str]:

@@ -1,6 +1,8 @@
 """
 Tests for external integrations.
 """
+import base64
+import gzip
 import json
 from datetime import datetime, timedelta, timezone
 
@@ -9,9 +11,13 @@ import pytest
 
 import morpheus.integrations.calendar as calendar_module
 import morpheus.integrations.gmail as gmail_module
+import morpheus.integrations.github as github_module
 from morpheus.integrations.calendar import CalendarIntegration
+from morpheus.integrations.cache import cache_rows, load_cache_payload, parse_cache_payload
 from morpheus.integrations.github import GitHubIntegration
 from morpheus.integrations.gmail import GmailIntegration
+from morpheus.integrations.evidence import matched_keyword_excerpts
+from morpheus.integrations.manifest import integration_manifest
 from morpheus.integrations.linear import LinearIntegration
 from morpheus.integrations.slack import SlackIntegration
 
@@ -54,6 +60,402 @@ def assert_github_pull_params(params, *, state: str = "all", per_page: int = 100
         "sort": "updated",
         "direction": "desc",
         "per_page": per_page,
+    }
+
+
+def test_github_datetime_accepts_lowercase_z_utc_suffix():
+    assert github_module._parse_github_datetime("2026-05-14T10:30:00z") == datetime(
+        2026, 5, 14, 10, 30, tzinfo=timezone.utc
+    )
+
+
+def test_github_datetime_normalizes_offset_timestamps_to_utc():
+    parsed = github_module._parse_github_datetime("2026-05-14T10:30:00+02:00")
+
+    assert parsed == datetime(2026, 5, 14, 8, 30, tzinfo=timezone.utc)
+    assert parsed.tzinfo is timezone.utc
+
+
+def test_cache_rows_unwraps_nested_export_collections():
+    payload = {
+        "exported_at": "2026-05-15T00:00:00Z",
+        "data": {
+            "messages": [
+                {"id": "m1", "text": "TODO: import nested export rows"},
+            ],
+        },
+    }
+
+    rows = cache_rows(payload, "messages", "items", "data")
+
+    assert rows == [{"id": "m1", "text": "TODO: import nested export rows"}]
+
+
+def test_cache_rows_unwraps_collections_below_export_envelopes():
+    payload = {
+        "exported_at": "2026-05-15T00:00:00Z",
+        "workspace": "prod",
+        "payload": {
+            "snapshot": {
+                "messages": [
+                    {"id": "m1", "text": "TODO: import envelope rows"},
+                ],
+            },
+        },
+    }
+
+    rows = cache_rows(payload, "messages", "items", "data")
+
+    assert rows == [{"id": "m1", "text": "TODO: import envelope rows"}]
+
+
+def test_cache_rows_unwraps_collections_inside_list_envelopes():
+    payload = {
+        "exported_at": "2026-05-15T00:00:00Z",
+        "exports": [
+            {
+                "workspace": "prod",
+                "snapshot": {
+                    "messages": [
+                        {"id": "m1", "text": "TODO: import list envelope rows"},
+                    ],
+                },
+            },
+        ],
+    }
+
+    rows = cache_rows(payload, "messages", "items", "data")
+
+    assert rows == [{"id": "m1", "text": "TODO: import list envelope rows"}]
+
+
+def test_cache_rows_unwraps_top_level_export_envelopes():
+    payload = [
+        {
+            "workspace": "prod-a",
+            "snapshot": {
+                "messages": [
+                    {"id": "m1", "text": "TODO: import first export chunk"},
+                ],
+            },
+        },
+        {
+            "workspace": "prod-b",
+            "snapshot": {
+                "messages": [
+                    {"id": "m2", "text": "TODO: import second export chunk"},
+                ],
+            },
+        },
+    ]
+
+    rows = cache_rows(payload, "messages", "items", "data")
+
+    assert rows == [
+        {"id": "m1", "text": "TODO: import first export chunk"},
+        {"id": "m2", "text": "TODO: import second export chunk"},
+    ]
+
+
+def test_cache_rows_flattens_collections_inside_named_export_lists():
+    payload = {
+        "data": [
+            {
+                "workspace": "prod-a",
+                "messages": [
+                    {"id": "m1", "text": "TODO: import data list export chunk"},
+                ],
+            },
+            {
+                "workspace": "prod-b",
+                "messages": [
+                    {"id": "m2", "text": "TODO: import second data chunk"},
+                ],
+            },
+        ],
+    }
+
+    rows = cache_rows(payload, "messages", "items", "data")
+
+    assert rows == [
+        {"id": "m1", "text": "TODO: import data list export chunk"},
+        {"id": "m2", "text": "TODO: import second data chunk"},
+    ]
+
+
+def test_cache_rows_preserves_raw_rows_while_flattening_wrapped_rows_in_named_lists():
+    payload = {
+        "data": [
+            {"id": "m1", "text": "TODO: import raw row"},
+            {
+                "workspace": "prod-b",
+                "messages": [
+                    {"id": "m2", "text": "TODO: import wrapped row"},
+                ],
+            },
+        ],
+    }
+
+    rows = cache_rows(payload, "messages", "items", "data")
+
+    assert rows == [
+        {"id": "m1", "text": "TODO: import raw row"},
+        {"id": "m2", "text": "TODO: import wrapped row"},
+    ]
+
+
+def test_cache_rows_matches_collection_keys_case_insensitively():
+    payload = {
+        "Export": {
+            "Messages": [
+                {"id": "m1", "text": "TODO: import mixed-case export rows"},
+            ],
+        },
+    }
+
+    rows = cache_rows(payload, "messages", "items", "data")
+
+    assert rows == [{"id": "m1", "text": "TODO: import mixed-case export rows"}]
+
+
+def test_cache_rows_preserves_raw_rows_with_incidental_graphql_field_names():
+    payload = [
+        {
+            "id": "row-1",
+            "text": "TODO: keep raw row with graph-shaped metadata",
+            "nodes": [{"id": "metadata-node"}],
+        },
+    ]
+
+    rows = cache_rows(payload, "messages", "items", "data")
+
+    assert rows == payload
+
+
+def test_cache_rows_prefers_named_collection_over_incidental_graphql_metadata():
+    payload = {
+        "nodes": [{"id": "metadata-node"}],
+        "messages": [
+            {"id": "m1", "text": "TODO: import explicit collection"},
+        ],
+    }
+
+    rows = cache_rows(payload, "messages", "items", "data")
+
+    assert rows == [{"id": "m1", "text": "TODO: import explicit collection"}]
+
+
+@pytest.mark.parametrize(
+    ("connection", "expected"),
+    [
+        (
+            {
+                "nodes": [
+                    {"number": 1, "text": "TODO: import GraphQL node rows"},
+                ]
+            },
+            [{"number": 1, "text": "TODO: import GraphQL node rows"}],
+        ),
+        (
+            {
+                "edges": [
+                    {
+                        "cursor": "cursor-1",
+                        "node": {"number": 2, "text": "TODO: import GraphQL edge rows"},
+                    },
+                    {"cursor": "cursor-empty", "node": None},
+                ]
+            },
+            [{"number": 2, "text": "TODO: import GraphQL edge rows"}],
+        ),
+    ],
+)
+def test_cache_rows_unwraps_graphql_connection_exports(connection, expected):
+    payload = {"data": {"repository": {"issues": connection}}}
+
+    rows = cache_rows(payload, "issues", "items", "data")
+
+    assert rows == expected
+
+
+def test_parse_cache_payload_keeps_valid_jsonl_rows_when_some_lines_are_malformed():
+    payload = parse_cache_payload(
+        "\n".join(
+            [
+                json.dumps({"id": "first", "text": "TODO: keep first"}),
+                "{not valid json",
+                json.dumps({"id": "second", "text": "TODO: keep second"}),
+            ]
+        )
+    )
+
+    assert payload == [
+        {"id": "first", "text": "TODO: keep first"},
+        {"id": "second", "text": "TODO: keep second"},
+    ]
+
+
+def test_parse_cache_payload_accepts_utf8_bom_for_json_and_jsonl():
+    json_payload = parse_cache_payload(
+        "\ufeff" + json.dumps([{"id": "first", "text": "TODO: keep BOM JSON"}])
+    )
+    jsonl_payload = parse_cache_payload(
+        "\n".join(
+            [
+                "\ufeff" + json.dumps({"id": "second", "text": "TODO: keep BOM JSONL"}),
+                json.dumps({"id": "third", "text": "TODO: keep following row"}),
+            ]
+        )
+    )
+
+    assert json_payload == [{"id": "first", "text": "TODO: keep BOM JSON"}]
+    assert jsonl_payload == [
+        {"id": "second", "text": "TODO: keep BOM JSONL"},
+        {"id": "third", "text": "TODO: keep following row"},
+    ]
+
+
+def test_parse_cache_payload_accepts_utf8_bom_on_each_jsonl_line():
+    payload = parse_cache_payload(
+        "\n".join(
+            [
+                "\ufeff" + json.dumps({"id": "first", "text": "TODO: keep first BOM row"}),
+                "\ufeff" + json.dumps({"id": "second", "text": "TODO: keep second BOM row"}),
+            ]
+        )
+    )
+
+    assert payload == [
+        {"id": "first", "text": "TODO: keep first BOM row"},
+        {"id": "second", "text": "TODO: keep second BOM row"},
+    ]
+
+
+def test_load_cache_payload_ignores_non_utf8_cache_files(tmp_path):
+    cache_path = tmp_path / "gmail_cache.json"
+    cache_path.write_bytes(b"\xff\xfe\x00not-json")
+
+    assert load_cache_payload(cache_path) is None
+
+
+def test_load_cache_payload_reads_gzipped_json_cache_files(tmp_path):
+    cache_path = tmp_path / "slack_cache.json.gz"
+    payload = [{"id": "m1", "text": "TODO: import compressed cache"}]
+    cache_path.write_bytes(gzip.compress(json.dumps(payload).encode()))
+
+    assert load_cache_payload(cache_path) == payload
+
+
+def test_load_cache_payload_reads_gzip_content_without_gz_suffix(tmp_path):
+    cache_path = tmp_path / "slack_cache.json"
+    payload = [{"id": "m1", "text": "TODO: import compressed standard cache"}]
+    cache_path.write_bytes(gzip.compress(json.dumps(payload).encode()))
+
+    assert load_cache_payload(cache_path) == payload
+
+
+def test_load_cache_payload_rejects_symlinked_cache_path(tmp_path):
+    external_cache = tmp_path / "external-cache.json"
+    external_cache.write_text(json.dumps([{"id": "secret"}]))
+    cache_path = tmp_path / "gmail_cache.json"
+    try:
+        cache_path.symlink_to(external_cache)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+
+    assert load_cache_payload(cache_path) is None
+
+
+def test_load_cache_payload_rejects_symlinked_cache_parent(tmp_path):
+    external_dir = tmp_path / "external-cache-dir"
+    external_dir.mkdir()
+    (external_dir / "gmail_cache.json").write_text(json.dumps([{"id": "secret"}]))
+    linked_dir = tmp_path / "linked-cache-dir"
+    try:
+        linked_dir.symlink_to(external_dir, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+
+    assert load_cache_payload(linked_dir / "gmail_cache.json") is None
+
+
+def test_manifest_reports_gmail_and_calendar_cache_ready(tmp_path):
+    morpheus_home = tmp_path / ".morpheus"
+    morpheus_home.mkdir()
+    (morpheus_home / "gmail_cache.json").write_text("[]")
+    (morpheus_home / "calendar_cache.json").write_text("[]")
+
+    services = {
+        service["id"]: service
+        for service in integration_manifest(home=tmp_path)["services"]
+    }
+
+    assert services["gmail"]["status"] == "cache_ready"
+    assert services["gmail"]["cache_path"] == str(morpheus_home / "gmail_cache.json")
+    assert services["calendar"]["status"] == "cache_ready"
+    assert services["calendar"]["cache_path"] == str(morpheus_home / "calendar_cache.json")
+
+
+def test_manifest_reports_github_cache_ready(tmp_path):
+    morpheus_home = tmp_path / ".morpheus"
+    morpheus_home.mkdir()
+    (morpheus_home / "github_cache.json").write_text("[]")
+
+    services = {
+        service["id"]: service
+        for service in integration_manifest(home=tmp_path)["services"]
+    }
+
+    assert services["github"]["status"] == "cache_ready"
+    assert services["github"]["auth"] == "cache + PAT"
+    assert services["github"]["cache_path"] == str(morpheus_home / "github_cache.json")
+
+
+def test_manifest_reports_invalid_symlinked_home_ancestor(tmp_path):
+    external_home = tmp_path / "external-home"
+    morpheus_home = external_home / ".morpheus"
+    morpheus_home.mkdir(parents=True)
+    (morpheus_home / "github_token.txt").write_text("secret")
+    (morpheus_home / "gmail_cache.json").write_text("[]")
+    linked_home = tmp_path / "linked-home"
+    try:
+        linked_home.symlink_to(external_home, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+
+    services = {
+        service["id"]: service
+        for service in integration_manifest(home=linked_home)["services"]
+    }
+
+    assert services["github"]["status"] == "invalid"
+    assert "must not contain a symlink" in services["github"]["detail"]
+    assert services["gmail"]["status"] == "invalid"
+    assert "must not contain a symlink" in services["gmail"]["detail"]
+
+
+def test_github_get_repo_uses_local_cache_without_token(monkeypatch, tmp_path):
+    (tmp_path / "github_cache.json").write_text(
+        json.dumps(
+            {
+                "repo": {
+                    "full_name": "owner/repo",
+                    "default_branch": "main",
+                }
+            }
+        )
+    )
+
+    def fail_request(*args, **kwargs):
+        raise AssertionError("GitHub repo metadata should load from cache without a token")
+
+    monkeypatch.setattr("httpx.get", fail_request)
+
+    repo = GitHubIntegration(token_path=tmp_path / "missing-token").get_repo("owner", "repo")
+
+    assert repo == {
+        "full_name": "owner/repo",
+        "default_branch": "main",
     }
 
 
@@ -200,6 +602,33 @@ def test_gmail_cache_loads_rfc3339_z_dates(tmp_path):
     assert [email["id"] for email in emails] == ["gmail-z"]
 
 
+def test_gmail_cache_loads_rfc2822_date_headers(tmp_path):
+    cache_path = tmp_path / "gmail_cache.json"
+    cache_path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "old-email-header",
+                    "date": "Mon, 01 Jan 2024 08:00:00 -0500",
+                    "snippet": "TODO: too old",
+                },
+                {
+                    "id": "new-email-header",
+                    "date": "Fri, 15 May 2026 10:30:00 -0400",
+                    "snippet": "TODO: import Gmail Date header",
+                },
+            ]
+        )
+    )
+
+    emails = GmailIntegration(token_path=tmp_path / "token.json")._load_from_cache(
+        cache_path,
+        days=30,
+    )
+
+    assert [email["id"] for email in emails] == ["new-email-header"]
+
+
 def test_gmail_cache_loads_epoch_date_values(tmp_path):
     now = datetime.now(timezone.utc)
     cache_path = tmp_path / "gmail_cache.json"
@@ -226,6 +655,131 @@ def test_gmail_cache_loads_epoch_date_values(tmp_path):
     )
 
     assert [email["id"] for email in emails] == ["new-epoch"]
+
+
+def test_gmail_cache_loads_epoch_millisecond_date_values(tmp_path):
+    now = datetime.now(timezone.utc)
+    cache_path = tmp_path / "gmail_cache.json"
+    cache_path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "old-ms-epoch",
+                    "date": int((now - timedelta(days=45)).timestamp() * 1000),
+                    "snippet": "TODO: too old",
+                },
+                {
+                    "id": "new-ms-epoch",
+                    "date": int(now.timestamp() * 1000),
+                    "snippet": "TODO: import Gmail millisecond timestamp",
+                },
+            ]
+        )
+    )
+
+    emails = GmailIntegration(token_path=tmp_path / "token.json")._load_from_cache(
+        cache_path,
+        days=30,
+    )
+
+    assert [email["id"] for email in emails] == ["new-ms-epoch"]
+
+
+def test_gmail_cache_loads_native_internal_date_values(tmp_path):
+    now = datetime.now(timezone.utc)
+    cache_path = tmp_path / "gmail_cache.json"
+    cache_path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "old-internal-date",
+                    "internalDate": str(int((now - timedelta(days=45)).timestamp() * 1000)),
+                    "snippet": "TODO: too old",
+                },
+                {
+                    "id": "new-internal-date",
+                    "internalDate": str(int(now.timestamp() * 1000)),
+                    "snippet": "TODO: import native Gmail internalDate",
+                },
+            ]
+        )
+    )
+
+    emails = GmailIntegration(token_path=tmp_path / "token.json")._load_from_cache(
+        cache_path,
+        days=30,
+    )
+
+    assert [email["id"] for email in emails] == ["new-internal-date"]
+
+
+def test_gmail_cache_loads_native_payload_date_header(tmp_path):
+    now = datetime.now(timezone.utc)
+    cache_path = tmp_path / "gmail_cache.json"
+    cache_path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "old-header-date",
+                    "payload": {
+                        "headers": [
+                            {
+                                "name": "Date",
+                                "value": (now - timedelta(days=45)).strftime(
+                                    "%a, %d %b %Y %H:%M:%S +0000"
+                                ),
+                            }
+                        ]
+                    },
+                    "snippet": "TODO: too old",
+                },
+                {
+                    "id": "new-header-date",
+                    "payload": {
+                        "headers": [
+                            {
+                                "name": "Date",
+                                "value": now.strftime("%a, %d %b %Y %H:%M:%S +0000"),
+                            }
+                        ]
+                    },
+                    "snippet": "TODO: import Gmail payload Date header",
+                },
+            ]
+        )
+    )
+
+    emails = GmailIntegration(token_path=tmp_path / "token.json")._load_from_cache(
+        cache_path,
+        days=30,
+    )
+
+    assert [email["id"] for email in emails] == ["new-header-date"]
+
+
+def test_gmail_cache_loads_wrapped_email_exports(tmp_path):
+    now = datetime.now(timezone.utc)
+    cache_path = tmp_path / "gmail_cache.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "emails": [
+                    {
+                        "id": "wrapped-email",
+                        "date": now.isoformat(),
+                        "snippet": "TODO: import wrapped Gmail cache",
+                    }
+                ]
+            }
+        )
+    )
+
+    emails = GmailIntegration(token_path=tmp_path / "token.json")._load_from_cache(
+        cache_path,
+        days=30,
+    )
+
+    assert [email["id"] for email in emails] == ["wrapped-email"]
 
 
 def test_gmail_cache_returns_newest_emails_first(tmp_path):
@@ -318,6 +872,64 @@ def test_slack_cache_loads_native_epoch_ts_values(tmp_path):
     assert [message["id"] for message in messages] == ["newest", "middle"]
 
 
+def test_slack_cache_loads_wrapped_message_exports(tmp_path):
+    now = datetime.now(timezone.utc)
+    cache_path = tmp_path / "slack_cache.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "messages": [
+                    {
+                        "id": "wrapped-message",
+                        "ts": now.isoformat(),
+                        "text": "TODO: import wrapped Slack cache",
+                    }
+                ]
+            }
+        )
+    )
+
+    messages = SlackIntegration(token_path=tmp_path / "token.txt")._load_from_cache(
+        cache_path,
+        days=30,
+    )
+
+    assert [message["id"] for message in messages] == ["wrapped-message"]
+
+
+def test_slack_cache_loads_jsonl_rows(tmp_path):
+    now = datetime.now(timezone.utc)
+    cache_path = tmp_path / "slack_cache.json"
+    cache_path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "id": "old-jsonl-message",
+                        "ts": (now - timedelta(days=45)).isoformat(),
+                        "text": "TODO: too old",
+                    }
+                ),
+                "",
+                json.dumps(
+                    {
+                        "id": "new-jsonl-message",
+                        "ts": now.isoformat(),
+                        "text": "TODO: import JSONL Slack cache",
+                    }
+                ),
+            ]
+        )
+    )
+
+    messages = SlackIntegration(token_path=tmp_path / "token.txt")._load_from_cache(
+        cache_path,
+        days=30,
+    )
+
+    assert [message["id"] for message in messages] == ["new-jsonl-message"]
+
+
 def test_slack_extract_evidence_from_message_text(tmp_path):
     evidence = SlackIntegration(token_path=tmp_path / "token.txt").extract_evidence(
         {
@@ -341,6 +953,146 @@ def test_slack_extract_evidence_from_message_text(tmp_path):
             "url": "https://slack.example/archives/C1/p1",
         }
     ]
+
+
+def test_slack_extract_evidence_keeps_late_marker_visible_in_excerpt(tmp_path):
+    long_preamble = "context " * 90
+    text = f"{long_preamble}\nTODO: preserve the matched marker in excerpts"
+
+    evidence = SlackIntegration(token_path=tmp_path / "token.txt").extract_evidence(
+        {"id": "m1", "text": text}
+    )
+
+    assert evidence[0]["keyword"] == "TODO:"
+    assert evidence[0]["excerpt"].startswith("TODO:")
+    assert len(evidence[0]["excerpt"]) <= 500
+
+
+def test_slack_extract_evidence_orders_markers_by_source_position(tmp_path):
+    evidence = SlackIntegration(token_path=tmp_path / "token.txt").extract_evidence(
+        {"id": "m1", "text": "TODO: ship this first\nDECISION: keep the order"}
+    )
+
+    assert [item["keyword"] for item in evidence] == ["TODO:", "DECISION:"]
+
+
+def test_slack_extract_evidence_reads_block_and_attachment_text(tmp_path):
+    evidence = SlackIntegration(token_path=tmp_path / "token.txt").extract_evidence(
+        {
+            "id": "m1",
+            "text": "",
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "DECISION: keep Block Kit evidence",
+                    },
+                },
+                {
+                    "type": "context",
+                    "elements": [
+                        {"type": "mrkdwn", "text": "NOTE: include context elements"},
+                    ],
+                },
+            ],
+            "attachments": [
+                {
+                    "fallback": "plain fallback",
+                    "fields": [
+                        {"title": "Follow-up", "value": "TODO: import attachment field text"},
+                    ],
+                }
+            ],
+        }
+    )
+
+    assert [(item["keyword"], item["excerpt"]) for item in evidence] == [
+        ("DECISION:", "DECISION: keep Block Kit evidence"),
+        ("NOTE:", "NOTE: include context elements"),
+        ("TODO:", "TODO: import attachment field text"),
+    ]
+
+
+def test_integration_evidence_markers_ignore_blank_and_duplicate_entries():
+    matches = matched_keyword_excerpts(
+        "TODO: keep one evidence row",
+        keywords=("  ", " TODO: ", "todo:"),
+    )
+
+    assert matches == [("TODO:", "TODO: keep one evidence row")]
+
+
+def test_integration_evidence_extracts_repeated_marker_occurrences():
+    matches = matched_keyword_excerpts(
+        "TODO: write docs\nplain context\nTODO: update runbook",
+    )
+
+    assert matches == [
+        ("TODO:", "TODO: write docs\nplain context\nTODO: update runbook"),
+        ("TODO:", "TODO: update runbook"),
+    ]
+
+
+def test_integration_evidence_keeps_marker_visible_after_unicode_case_expansion():
+    text = "Straße " + ("context " * 20) + "TODO: keep marker visible"
+
+    matches = matched_keyword_excerpts(text, max_length=30)
+
+    assert matches == [("TODO:", "TODO: keep marker visible")]
+
+
+def test_integration_evidence_ignores_markers_embedded_inside_words():
+    matches = matched_keyword_excerpts(
+        "freewill: is just a word\npreTODO: is not a marker\nWill: ship the release",
+        max_length=len("Will: ship the release"),
+    )
+
+    assert matches == [("WILL:", "Will: ship the release")]
+
+
+def test_external_integrations_extract_common_hack_and_xxx_markers(tmp_path):
+    marker_text = "HACK: keep compatibility\nXXX: revisit edge case"
+
+    gmail_keywords = [
+        item["keyword"]
+        for item in GmailIntegration(token_path=tmp_path / "gmail_token.json").extract_evidence(
+            {"id": "email-1", "snippet": marker_text}
+        )
+    ]
+    calendar_keywords = [
+        item["keyword"]
+        for item in CalendarIntegration(
+            token_path=tmp_path / "calendar_token.json"
+        ).extract_evidence(
+            {"id": "event-1", "summary": marker_text}
+        )
+    ]
+    slack_keywords = [
+        item["keyword"]
+        for item in SlackIntegration(token_path=tmp_path / "slack_token.txt").extract_evidence(
+            {"id": "message-1", "text": marker_text}
+        )
+    ]
+    linear_keywords = [
+        item["keyword"]
+        for item in LinearIntegration(token_path=tmp_path / "linear_token.txt").extract_evidence(
+            {"id": "issue-1", "title": marker_text}
+        )
+    ]
+    github_keywords = [
+        item["keyword"]
+        for item in GitHubIntegration(token_path=tmp_path / "github_token.txt").extract_evidence(
+            {"number": 42, "title": marker_text},
+            item_type="issue",
+        )
+    ]
+
+    assert gmail_keywords == ["HACK:", "XXX:"]
+    assert calendar_keywords == ["HACK:", "XXX:"]
+    assert slack_keywords == ["HACK:", "XXX:"]
+    assert linear_keywords == ["HACK:", "XXX:"]
+    assert github_keywords == ["HACK:", "XXX:"]
 
 
 def test_slack_authenticate_rejects_token_symlink(tmp_path):
@@ -450,6 +1202,31 @@ def test_linear_cache_loads_epoch_updated_values(tmp_path):
     assert [issue["id"] for issue in issues] == ["new-epoch"]
 
 
+def test_linear_cache_loads_wrapped_issue_exports(tmp_path):
+    now = datetime.now(timezone.utc)
+    cache_path = tmp_path / "linear_cache.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "issues": [
+                    {
+                        "id": "wrapped-issue",
+                        "updatedAt": now.isoformat(),
+                        "title": "TODO: import wrapped Linear cache",
+                    }
+                ]
+            }
+        )
+    )
+
+    issues = LinearIntegration(token_path=tmp_path / "token.txt")._load_from_cache(
+        cache_path,
+        days=30,
+    )
+
+    assert [issue["id"] for issue in issues] == ["wrapped-issue"]
+
+
 def test_linear_extract_evidence_from_issue_title_and_description(tmp_path):
     evidence = LinearIntegration(token_path=tmp_path / "token.txt").extract_evidence(
         {
@@ -481,6 +1258,34 @@ def test_gmail_parse_cache_datetime_normalizes_z_for_python310(monkeypatch):
     assert parsed == datetime(2026, 5, 14, 10, 30, tzinfo=timezone.utc)
 
 
+def test_cache_datetime_accepts_lowercase_z_utc_suffix():
+    assert gmail_module._parse_cache_datetime("2026-05-14T10:30:00z") == datetime(
+        2026, 5, 14, 10, 30, tzinfo=timezone.utc
+    )
+    assert calendar_module._parse_cache_datetime("2026-05-14T10:30:00z") == datetime(
+        2026, 5, 14, 10, 30, tzinfo=timezone.utc
+    )
+
+
+def test_cache_datetime_normalizes_offset_timestamps_to_utc():
+    parsed = gmail_module._parse_cache_datetime("2026-05-14T10:30:00+02:00")
+
+    assert parsed == datetime(2026, 5, 14, 8, 30, tzinfo=timezone.utc)
+    assert parsed.tzinfo is timezone.utc
+
+
+def test_cache_datetime_accepts_native_datetime_values():
+    naive = datetime(2026, 5, 14, 10, 30)
+    offset = datetime(2026, 5, 14, 10, 30, tzinfo=timezone(timedelta(hours=2)))
+
+    assert gmail_module._parse_cache_datetime(naive) == datetime(
+        2026, 5, 14, 10, 30, tzinfo=timezone.utc
+    )
+    assert calendar_module._parse_cache_datetime(offset) == datetime(
+        2026, 5, 14, 8, 30, tzinfo=timezone.utc
+    )
+
+
 def test_gmail_get_emails_respects_max_results_for_cache(tmp_path):
     now = datetime.now(timezone.utc)
     token_path = tmp_path / "gmail_token.json"
@@ -497,6 +1302,21 @@ def test_gmail_get_emails_respects_max_results_for_cache(tmp_path):
     emails = GmailIntegration(token_path=token_path).get_emails(days=30, max_results=1)
 
     assert [email["id"] for email in emails] == ["first"]
+
+
+def test_gmail_get_emails_uses_local_cache_without_token(tmp_path):
+    now = datetime.now(timezone.utc)
+    (tmp_path / "gmail_cache.json").write_text(
+        json.dumps(
+            [
+                {"id": "cached", "date": now.isoformat(), "snippet": "TODO: cached Gmail row"},
+            ]
+        )
+    )
+
+    emails = GmailIntegration(token_path=tmp_path / "missing-token.json").get_emails()
+
+    assert [email["id"] for email in emails] == ["cached"]
 
 
 def test_gmail_get_emails_returns_empty_list_for_non_positive_max_results(tmp_path):
@@ -613,6 +1433,105 @@ def test_gmail_extract_evidence_handles_null_snippet(tmp_path):
     assert evidence == []
 
 
+def test_gmail_extract_evidence_reads_subject_and_body(tmp_path):
+    evidence = GmailIntegration(token_path=tmp_path / "token.json").extract_evidence(
+        {
+            "id": "email-1",
+            "subject": "DECISION: keep signed handoffs",
+            "snippet": "plain preview",
+            "body": "TODO: document the agent bootstrap flow",
+        }
+    )
+
+    assert [item["keyword"] for item in evidence] == ["DECISION:", "TODO:"]
+    assert evidence[0]["email_id"] == "email-1"
+    assert evidence[0]["excerpt"] == (
+        "DECISION: keep signed handoffs\n"
+        "plain preview\n"
+        "TODO: document the agent bootstrap flow"
+    )
+
+
+def test_gmail_extract_evidence_reads_native_payload_subject_header(tmp_path):
+    evidence = GmailIntegration(token_path=tmp_path / "token.json").extract_evidence(
+        {
+            "id": "email-1",
+            "payload": {
+                "headers": [
+                    {"name": "From", "value": "ops@example.com"},
+                    {"name": "Subject", "value": "TODO: review native Gmail subject"},
+                ]
+            },
+            "snippet": "plain preview",
+        }
+    )
+
+    assert evidence == [
+        {
+            "type": "email_claim",
+            "source": "gmail",
+            "email_id": "email-1",
+            "keyword": "TODO:",
+            "excerpt": "TODO: review native Gmail subject\nplain preview",
+        }
+    ]
+
+
+def test_gmail_extract_evidence_reads_native_payload_text_body(tmp_path):
+    body = "TODO: document decoded Gmail payload"
+    encoded_body = base64.urlsafe_b64encode(body.encode()).decode().rstrip("=")
+
+    evidence = GmailIntegration(token_path=tmp_path / "token.json").extract_evidence(
+        {
+            "id": "email-1",
+            "payload": {
+                "mimeType": "text/plain",
+                "body": {"data": encoded_body},
+            },
+        }
+    )
+
+    assert evidence == [
+        {
+            "type": "email_claim",
+            "source": "gmail",
+            "email_id": "email-1",
+            "keyword": "TODO:",
+            "excerpt": body,
+        }
+    ]
+
+
+def test_gmail_extract_evidence_reads_native_payload_html_body(tmp_path):
+    html_body = (
+        "<html><body>"
+        "<p><strong>TODO:</strong> ship HTML-only Gmail evidence</p>"
+        "<p>Context from the rendered body.</p>"
+        "</body></html>"
+    )
+    encoded_body = base64.urlsafe_b64encode(html_body.encode()).decode().rstrip("=")
+
+    evidence = GmailIntegration(token_path=tmp_path / "token.json").extract_evidence(
+        {
+            "id": "email-1",
+            "payload": {
+                "mimeType": "text/html",
+                "body": {"data": encoded_body},
+            },
+        }
+    )
+
+    assert evidence == [
+        {
+            "type": "email_claim",
+            "source": "gmail",
+            "email_id": "email-1",
+            "keyword": "TODO:",
+            "excerpt": "TODO: ship HTML-only Gmail evidence\nContext from the rendered body.",
+        }
+    ]
+
+
 def test_gmail_extract_evidence_truncates_long_snippets(tmp_path):
     snippet = "TODO: " + ("x" * 600)
 
@@ -708,6 +1627,69 @@ def test_calendar_cache_loads_epoch_start_values(tmp_path):
     assert [event["id"] for event in events] == ["new-epoch"]
 
 
+def test_calendar_cache_loads_native_google_start_objects(tmp_path):
+    now = datetime.now(timezone.utc)
+    cache_path = tmp_path / "calendar_cache.json"
+    cache_path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "old-native",
+                    "start": {"dateTime": (now - timedelta(days=45)).isoformat()},
+                    "summary": "TODO: too old",
+                },
+                {
+                    "id": "new-native-date-time",
+                    "start": {"dateTime": now.isoformat()},
+                    "summary": "TODO: import native Calendar dateTime",
+                },
+                {
+                    "id": "new-native-date",
+                    "start": {"date": now.date().isoformat()},
+                    "summary": "TODO: import all-day Calendar date",
+                },
+                {
+                    "id": "bad-native",
+                    "start": {"dateTime": "not-a-date"},
+                    "summary": "TODO: skip invalid native Calendar start",
+                },
+            ]
+        )
+    )
+
+    events = CalendarIntegration(token_path=tmp_path / "calendar_token.json")._load_from_cache(
+        cache_path,
+        days=30,
+    )
+
+    assert [event["id"] for event in events] == ["new-native-date-time", "new-native-date"]
+
+
+def test_calendar_cache_loads_wrapped_event_exports(tmp_path):
+    now = datetime.now(timezone.utc)
+    cache_path = tmp_path / "calendar_cache.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "events": [
+                    {
+                        "id": "wrapped-event",
+                        "start": now.isoformat(),
+                        "summary": "TODO: import wrapped Calendar cache",
+                    }
+                ]
+            }
+        )
+    )
+
+    events = CalendarIntegration(token_path=tmp_path / "calendar_token.json")._load_from_cache(
+        cache_path,
+        days=30,
+    )
+
+    assert [event["id"] for event in events] == ["wrapped-event"]
+
+
 def test_calendar_cache_returns_newest_events_first(tmp_path):
     now = datetime.now(timezone.utc)
     cache_path = tmp_path / "calendar_cache.json"
@@ -760,6 +1742,21 @@ def test_calendar_get_events_respects_max_results_for_cache(tmp_path):
     events = CalendarIntegration(token_path=token_path).get_events(days=30, max_results=1)
 
     assert [event["id"] for event in events] == ["first"]
+
+
+def test_calendar_get_events_uses_local_cache_without_token(tmp_path):
+    now = datetime.now(timezone.utc)
+    (tmp_path / "calendar_cache.json").write_text(
+        json.dumps(
+            [
+                {"id": "cached", "start": now.isoformat(), "summary": "TODO: cached event"},
+            ]
+        )
+    )
+
+    events = CalendarIntegration(token_path=tmp_path / "missing-token.json").get_events()
+
+    assert [event["id"] for event in events] == ["cached"]
 
 
 def test_calendar_get_events_returns_empty_list_for_non_positive_max_results(tmp_path):
@@ -874,6 +1871,27 @@ def test_calendar_extract_evidence_handles_null_text_fields(tmp_path):
     )
 
     assert evidence == []
+
+
+def test_calendar_extract_evidence_includes_event_links(tmp_path):
+    evidence = CalendarIntegration(token_path=tmp_path / "token.json").extract_evidence(
+        {
+            "id": "event-1",
+            "summary": "DECISION: ship the agent handoff",
+            "htmlLink": "https://calendar.google.com/event?eid=event-1",
+        }
+    )
+
+    assert evidence == [
+        {
+            "type": "event_claim",
+            "source": "calendar",
+            "event_id": "event-1",
+            "keyword": "DECISION:",
+            "excerpt": "DECISION: ship the agent handoff",
+            "url": "https://calendar.google.com/event?eid=event-1",
+        }
+    ]
 
 
 def test_github_get_issues_filters_by_recent_update(monkeypatch, tmp_path):
@@ -1113,6 +2131,38 @@ def test_github_get_issues_stops_fetching_pages_at_max_results(monkeypatch, tmp_
         "repo",
         days=30,
         max_results=1,
+    )
+
+    assert [issue["number"] for issue in issues] == [1]
+
+
+def test_github_get_issues_uses_local_cache_without_token(monkeypatch, tmp_path):
+    now = datetime.now(timezone.utc)
+    (tmp_path / "github_cache.json").write_text(
+        json.dumps(
+            {
+                "issues": [
+                    {"number": 1, "updated_at": now.isoformat()},
+                    {
+                        "number": 2,
+                        "updated_at": now.isoformat(),
+                        "pull_request": {"url": "https://api.github.com/pulls/2"},
+                    },
+                    {"number": 3, "updated_at": (now - timedelta(days=45)).isoformat()},
+                ]
+            }
+        )
+    )
+
+    def fail_request(*args, **kwargs):
+        raise AssertionError("GitHub issues should load from cache without a token")
+
+    monkeypatch.setattr("httpx.get", fail_request)
+
+    issues = GitHubIntegration(token_path=tmp_path / "missing-token").get_issues(
+        "owner",
+        "repo",
+        days=30,
     )
 
     assert [issue["number"] for issue in issues] == [1]
@@ -1376,6 +2426,72 @@ def test_github_get_pulls_stops_fetching_pages_at_max_results(monkeypatch, tmp_p
     assert [pull["number"] for pull in pulls] == [1]
 
 
+def test_github_get_pulls_uses_local_cache_without_token(monkeypatch, tmp_path):
+    now = datetime.now(timezone.utc)
+    (tmp_path / "github_cache.json").write_text(
+        json.dumps(
+            {
+                "pull_requests": [
+                    {"number": 10, "updated_at": (now - timedelta(days=2)).isoformat()},
+                    {"number": 11, "updated_at": now.isoformat()},
+                    {"number": 12, "updated_at": (now - timedelta(days=45)).isoformat()},
+                ]
+            }
+        )
+    )
+
+    def fail_request(*args, **kwargs):
+        raise AssertionError("GitHub pulls should load from cache without a token")
+
+    monkeypatch.setattr("httpx.get", fail_request)
+
+    pulls = GitHubIntegration(token_path=tmp_path / "missing-token").get_pulls(
+        "owner",
+        "repo",
+        days=30,
+        max_results=1,
+    )
+
+    assert [pull["number"] for pull in pulls] == [11]
+
+
+def test_github_get_pulls_uses_graphql_pull_requests_cache_shape(monkeypatch, tmp_path):
+    now = datetime.now(timezone.utc)
+    (tmp_path / "github_cache.json").write_text(
+        json.dumps(
+            {
+                "data": {
+                    "repository": {
+                        "issues": {
+                            "nodes": [
+                                {"number": 1, "updated_at": now.isoformat()},
+                            ]
+                        },
+                        "pullRequests": {
+                            "nodes": [
+                                {"number": 2, "updatedAt": now.isoformat()},
+                            ]
+                        },
+                    }
+                }
+            }
+        )
+    )
+
+    def fail_request(*args, **kwargs):
+        raise AssertionError("GitHub pulls should load GraphQL cache exports without a token")
+
+    monkeypatch.setattr("httpx.get", fail_request)
+
+    pulls = GitHubIntegration(token_path=tmp_path / "missing-token").get_pulls(
+        "owner",
+        "repo",
+        days=30,
+    )
+
+    assert [pull["number"] for pull in pulls] == [2]
+
+
 def test_github_get_pulls_returns_empty_list_for_negative_days_without_request(
     monkeypatch,
     tmp_path,
@@ -1582,6 +2698,41 @@ def test_github_get_commits_stops_fetching_pages_at_max_results(monkeypatch, tmp
     )
 
     assert [commit["sha"] for commit in commits] == ["new-a"]
+
+
+def test_github_get_commits_uses_local_cache_without_token(monkeypatch, tmp_path):
+    now = datetime.now(timezone.utc)
+    (tmp_path / "github_cache.json").write_text(
+        json.dumps(
+            {
+                "commits": [
+                    {
+                        "sha": "old",
+                        "commit": {
+                            "committer": {"date": (now - timedelta(days=45)).isoformat()}
+                        },
+                    },
+                    {
+                        "sha": "cached",
+                        "commit": {"committer": {"date": now.isoformat()}},
+                    },
+                ]
+            }
+        )
+    )
+
+    def fail_request(*args, **kwargs):
+        raise AssertionError("GitHub commits should load from cache without a token")
+
+    monkeypatch.setattr("httpx.get", fail_request)
+
+    commits = GitHubIntegration(token_path=tmp_path / "missing-token").get_commits(
+        "owner",
+        "repo",
+        days=30,
+    )
+
+    assert [commit["sha"] for commit in commits] == ["cached"]
 
 
 def test_github_get_commits_returns_empty_list_for_non_positive_max_results(

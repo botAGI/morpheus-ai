@@ -6,20 +6,13 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
-from morpheus.core.safe_io import reject_symlink_components
+from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
+from morpheus.integrations.cache import cache_rows, load_cache_payload
+from morpheus.integrations.dates import parse_cache_datetime
+from morpheus.integrations.evidence import INTEGRATION_EVIDENCE_KEYWORDS, matched_keyword_excerpts
 
 MAX_GITHUB_PAGES = 10
-GITHUB_EVIDENCE_KEYWORDS = (
-    "DECISION:",
-    "DECIDED:",
-    "TODO:",
-    "FIXME:",
-    "NOTE:",
-    "ACTION:",
-    "WILL:",
-    "COMMIT:",
-    "AGREED:",
-)
+GITHUB_EVIDENCE_KEYWORDS = INTEGRATION_EVIDENCE_KEYWORDS
 
 
 class GitHubIntegration:
@@ -38,6 +31,12 @@ class GitHubIntegration:
     
     def get_repo(self, owner: str, repo: str) -> dict:
         """Get repo info"""
+        cache_path = self.token_path.parent / "github_cache.json"
+        if cache_path.exists():
+            cached_repo = self._load_repo_from_cache(cache_path, owner, repo)
+            if cached_repo:
+                return cached_repo
+
         token = self._get_token()
         headers = {"Authorization": f"token {token}"} if token else {}
         data = _github_get_json(f"{self.api_url}/repos/{owner}/{repo}", headers=headers)
@@ -54,6 +53,17 @@ class GitHubIntegration:
         """Get issues"""
         if days < 0 or max_results <= 0:
             return []
+
+        cache_path = self.token_path.parent / "github_cache.json"
+        if cache_path.exists():
+            return self._load_from_cache(
+                cache_path,
+                days,
+                ("issues", "items", "data"),
+                _github_issue_datetime,
+                item_filter=lambda issue: "pull_request" not in issue,
+            )[:max_results]
+
         token = self._get_token()
         headers = {"Authorization": f"token {token}"} if token else {}
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
@@ -94,6 +104,16 @@ class GitHubIntegration:
         """Get pull requests"""
         if days < 0 or max_results <= 0:
             return []
+
+        cache_path = self.token_path.parent / "github_cache.json"
+        if cache_path.exists():
+            return self._load_from_cache(
+                cache_path,
+                days,
+                ("pull_requests", "pulls", "items", "data"),
+                _github_issue_datetime,
+            )[:max_results]
+
         token = self._get_token()
         headers = {"Authorization": f"token {token}"} if token else {}
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
@@ -130,6 +150,16 @@ class GitHubIntegration:
         """Get recent commits"""
         if days < 0 or max_results <= 0:
             return []
+
+        cache_path = self.token_path.parent / "github_cache.json"
+        if cache_path.exists():
+            return self._load_from_cache(
+                cache_path,
+                days,
+                ("commits", "items", "data"),
+                _github_commit_datetime,
+            )[:max_results]
+
         token = self._get_token()
         headers = {"Authorization": f"token {token}"} if token else {}
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
@@ -159,7 +189,6 @@ class GitHubIntegration:
         if not text:
             return []
 
-        upper_text = text.upper()
         item_id = item.get("sha") if item_type == "commit" else item.get("number", item.get("id"))
         return [
             {
@@ -168,11 +197,10 @@ class GitHubIntegration:
                 "item_type": item_type,
                 "item_id": item_id,
                 "keyword": keyword,
-                "excerpt": text[:500],
+                "excerpt": excerpt,
                 "url": item.get("html_url"),
             }
-            for keyword in GITHUB_EVIDENCE_KEYWORDS
-            if keyword in upper_text
+            for keyword, excerpt in matched_keyword_excerpts(text, keywords=GITHUB_EVIDENCE_KEYWORDS)
         ]
     
     def _get_token(self) -> Optional[str]:
@@ -182,6 +210,48 @@ class GitHubIntegration:
             except OSError:
                 return None
         return None
+
+    def _load_from_cache(
+        self,
+        cache_path: Path,
+        days: int,
+        collection_keys: tuple[str, ...],
+        item_datetime,
+        *,
+        item_filter=None,
+    ) -> list[dict]:
+        try:
+            reject_symlink_paths([cache_path], "GitHub cache path")
+            reject_symlink_components(cache_path, "GitHub cache path")
+            data = load_cache_payload(cache_path)
+        except ValueError:
+            return []
+        if data is None:
+            return []
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        dated_items = []
+        for item in cache_rows(data, *collection_keys):
+            if not isinstance(item, dict):
+                continue
+            if item_filter is not None and not item_filter(item):
+                continue
+            timestamp = item_datetime(item)
+            if timestamp and timestamp > cutoff:
+                dated_items.append((timestamp, item))
+        dated_items.sort(key=lambda item: item[0], reverse=True)
+        return [item for _, item in dated_items]
+
+    def _load_repo_from_cache(self, cache_path: Path, owner: str, repo: str) -> dict:
+        try:
+            reject_symlink_paths([cache_path], "GitHub cache path")
+            reject_symlink_components(cache_path, "GitHub cache path")
+            data = load_cache_payload(cache_path)
+        except ValueError:
+            return {}
+        if data is None:
+            return {}
+        return _github_cached_repo(data, owner, repo)
 
 
 def _github_get_json(url: str, *, headers: dict, params: dict | None = None):
@@ -320,6 +390,34 @@ def _github_text_part(value) -> str:
     return str(value).strip()
 
 
+def _github_cached_repo(payload: object, owner: str, repo: str) -> dict:
+    full_name = f"{owner}/{repo}".casefold()
+    for candidate in _github_cached_repo_candidates(payload):
+        if not isinstance(candidate, dict):
+            continue
+        candidate_full_name = _github_text_part(candidate.get("full_name")).casefold()
+        if candidate_full_name and candidate_full_name == full_name:
+            return candidate
+    return {}
+
+
+def _github_cached_repo_candidates(payload: object) -> list:
+    candidates = []
+    if isinstance(payload, dict):
+        if "full_name" in payload:
+            candidates.append(payload)
+        for key in ("repo", "repository"):
+            value = payload.get(key)
+            if isinstance(value, dict):
+                candidates.append(value)
+    candidates.extend(cache_rows(payload, "repositories", "repos"))
+    return candidates
+
+
+def _github_issue_datetime(issue: dict) -> datetime | None:
+    return _parse_github_datetime(issue.get("updated_at") or issue.get("updatedAt"))
+
+
 def _github_recent_issue_count(items: list, cutoff: datetime) -> int:
     count = 0
     for issue in items:
@@ -356,13 +454,7 @@ def _github_recent_commit_count(items: list, cutoff: datetime) -> int:
 def _parse_github_datetime(value: str | None) -> datetime | None:
     if not value or not isinstance(value, str):
         return None
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed
+    return parse_cache_datetime(value)
 
 
 def _github_commit_datetime(commit: dict) -> datetime | None:

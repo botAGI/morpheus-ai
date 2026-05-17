@@ -5,7 +5,12 @@ from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
+from morpheus.integrations.cache import cache_rows, load_cache_payload
 from morpheus.integrations.dates import parse_cache_datetime
+from morpheus.integrations.evidence import matched_keyword_excerpts
+
+EVENT_EVIDENCE_TEXT_FIELDS = ("description", "summary")
+
 
 class CalendarIntegration:
     SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
@@ -31,29 +36,32 @@ class CalendarIntegration:
         """Fetch upcoming/recent events"""
         if days < 0 or max_results <= 0:
             return []
-        if not self.authenticate():
-            return []
-        
+
         cache_path = self.token_path.parent / "calendar_cache.json"
         if cache_path.exists():
             return self._load_from_cache(cache_path, days)[:max_results]
-        
+
+        if not self.authenticate():
+            return []
+
         return []
     
     def _load_from_cache(self, cache_path: Path, days: int) -> list[dict]:
-        import json
         try:
             reject_symlink_paths([cache_path], "Calendar cache path")
             reject_symlink_components(cache_path, "Calendar cache path")
-            data = json.loads(cache_path.read_text())
-        except (OSError, ValueError, json.JSONDecodeError):
+            data = load_cache_payload(cache_path)
+        except ValueError:
             return []
-        if not isinstance(data, list):
+        if data is None:
+            return []
+        rows = cache_rows(data, "events", "items", "data")
+        if not rows:
             return []
 
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         dated_events = []
-        for event in data:
+        for event in rows:
             if not isinstance(event, dict):
                 continue
             start = _parse_cache_datetime(event.get("start"))
@@ -65,20 +73,33 @@ class CalendarIntegration:
     def extract_evidence(self, event: dict) -> list[dict]:
         """Extract claim-like statements from event"""
         evidence = []
-        description = event.get("description") or ""
-        summary = event.get("summary") or ""
-        text = f"{description} {summary}"
-        for keyword in ["DECISION:", "AGREED:", "TODO:", "ACTION:", "WILL:"]:
-            if keyword in text.upper():
-                evidence.append({
-                    "type": "event_claim",
-                    "source": "calendar",
-                    "event_id": event.get("id"),
-                    "keyword": keyword,
-                    "excerpt": text[:500]
-                })
+        text = event_evidence_text(event)
+        for keyword, excerpt in matched_keyword_excerpts(text):
+            evidence.append({
+                "type": "event_claim",
+                "source": "calendar",
+                "event_id": event.get("id"),
+                "keyword": keyword,
+                "excerpt": excerpt,
+                "url": event.get("htmlLink") or event.get("url"),
+            })
         return evidence
 
 
-def _parse_cache_datetime(value: str | int | float | None) -> datetime | None:
+def event_evidence_text(event: dict) -> str:
+    """Return the human-visible calendar text fields used for claim extraction."""
+    parts = []
+    for field in EVENT_EVIDENCE_TEXT_FIELDS:
+        value = event.get(field)
+        if value is None:
+            continue
+        if not isinstance(value, str):
+            value = str(value)
+        value = value.strip()
+        if value:
+            parts.append(value)
+    return "\n".join(parts)
+
+
+def _parse_cache_datetime(value: object) -> datetime | None:
     return parse_cache_datetime(value, datetime_type=datetime)
