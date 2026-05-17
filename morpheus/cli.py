@@ -196,7 +196,9 @@ def resolve_ui_root_or_exit(ui_root: Path | None) -> Path:
         raise typer.Exit(1) from exc
 
     if not entrypoint.is_file():
-        console.print(f"[red]UI entrypoint not found:[/red] {entrypoint}")
+        console.print("[red]UI entrypoint not found[/red]")
+        console.print("Expected UI file: ui/index.html")
+        console.print(f"Expected path: {entrypoint}")
         raise typer.Exit(1)
     return root
 
@@ -1034,7 +1036,9 @@ def integrate(
             console.print(f"[red]{service_label} token directory cannot be created:[/red] {exc}")
             raise typer.Exit(1) from exc
         console.print(f"[green]{service_label} cache supported[/green]")
+        console.print(f"Cache file name: {cache_path.name}")
         console.print(f"Cache file: {cache_path}")
+        console.print(f"Optional token file name: {token_path.name}")
         console.print(f"Optional token file: {token_path}")
         console.print("Drop exported JSON rows there, then compile or call the integration directly.")
     else:

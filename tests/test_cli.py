@@ -213,6 +213,7 @@ def test_serve_with_ui_rejects_missing_ui_index(tmp_path, monkeypatch):
 
         assert result.exit_code == 1
         assert "UI entrypoint not found" in result.output
+        assert "Expected UI file: ui/index.html" in result.output
         assert "ui/index.html" in result.output
         assert uvicorn_calls == []
 
@@ -1697,6 +1698,7 @@ def test_integrate_slack_prints_cache_setup(monkeypatch, tmp_path):
     assert result.exit_code == 0, result.output
     assert (tmp_path / ".morpheus").is_dir()
     assert "Slack cache supported" in result.output
+    assert "Cache file name: slack_cache.json" in result.output
     assert "slack_cache.json" in result.output
 
 
@@ -1709,6 +1711,7 @@ def test_integrate_linear_prints_cache_setup(monkeypatch, tmp_path):
     assert result.exit_code == 0, result.output
     assert (tmp_path / ".morpheus").is_dir()
     assert "Linear cache supported" in result.output
+    assert "Cache file name: linear_cache.json" in result.output
     assert "linear_cache.json" in result.output
 
 
