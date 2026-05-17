@@ -55,6 +55,25 @@ def test_ui_exposes_direct_status_wake_and_chat_actions():
         assert snippet in html
 
 
+def test_sidebar_exposes_full_quick_action_set():
+    html = Path("ui/index.html").read_text()
+
+    required_snippets = [
+        'id="quick-init-btn"',
+        'id="quick-prepare-btn"',
+        'id="quick-diagnostics-btn"',
+        'id="quick-handoff-btn"',
+        "quickInitBtn.addEventListener('click'",
+        "quickPrepareBtn.addEventListener('click'",
+        "quickDiagnosticsBtn.addEventListener('click'",
+        "quickHandoffBtn.addEventListener('click'",
+        "openPanel('start')",
+        "buildAgentHandoff({ silent: false })",
+    ]
+    for snippet in required_snippets:
+        assert snippet in html
+
+
 def test_settings_integrations_panel_uses_real_manifest_controls():
     html = Path("ui/index.html").read_text()
 

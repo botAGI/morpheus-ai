@@ -845,7 +845,13 @@ def mcp_payload(request: Request, payload: dict) -> dict | None:
         return mcp_error(request_id, -32600, "Invalid JSON-RPC request")
 
     method = payload.get("method")
-    params = payload.get("params") or {}
+    raw_params = payload.get("params")
+    if raw_params is None:
+        params = {}
+    elif isinstance(raw_params, dict):
+        params = raw_params
+    else:
+        return mcp_error(request_id, -32602, "MCP params must be a JSON object")
     if method == "notifications/initialized":
         return None
     if method == "initialize":

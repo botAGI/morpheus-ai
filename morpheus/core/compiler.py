@@ -213,9 +213,8 @@ def _extract_claims(
     markers = _normalized_markers(evidence_markers)
 
     for i, line in enumerate(lines, 1):
-        folded_line = line.casefold()
         for marker in markers:
-            if marker.casefold() in folded_line:
+            if _line_contains_marker(line, marker):
                 claim_id_counter += 1
                 evidence_id_counter += 1
                 cid = f"clm_{claim_id_counter:04d}"
@@ -248,6 +247,11 @@ def _extract_claims(
                 )
                 evidence.append(ev)
     return claims, evidence
+
+
+def _line_contains_marker(line: str, marker: str) -> bool:
+    """Return true when marker is not embedded inside a larger word."""
+    return re.search(rf"(?<!\w){re.escape(marker)}", line, re.IGNORECASE) is not None
 
 
 def _normalized_markers(evidence_markers: list[str] | None) -> list[str]:

@@ -376,6 +376,24 @@ def test_compile_project_matches_markers_case_insensitively():
         ]
 
 
+def test_compile_project_ignores_markers_embedded_inside_words():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        (tmppath / "notes.md").write_text(
+            "preTODO: is not a task\n# TODO: keep comment markers\n"
+        )
+
+        state = compile_project(tmppath)
+
+        assert [claim.excerpt for claim in state.claims] == [
+            "# TODO: keep comment markers"
+        ]
+        assert [claim.category for claim in state.claims] == ["task"]
+        assert [evidence.excerpt for evidence in state.evidence] == [
+            "# TODO: keep comment markers"
+        ]
+
+
 def test_compile_project_empty():
     with tempfile.TemporaryDirectory() as tmpdir:
         tmppath = Path(tmpdir)

@@ -260,8 +260,12 @@ def _verify_receipt_signature(
     if signature.get("algo") != "ed25519":
         return f"unsupported signature algorithm '{signature.get('algo', 'unknown')}'"
 
+    signature_value = signature.get("signature_b64")
+    if not isinstance(signature_value, str):
+        return "signature_b64 must be string"
+
     try:
-        signature_bytes = base64.b64decode(signature["signature_b64"], validate=True)
+        signature_bytes = base64.b64decode(signature_value, validate=True)
     except (KeyError, ValueError, binascii.Error) as exc:
         return f"invalid base64 signature ({exc})"
 

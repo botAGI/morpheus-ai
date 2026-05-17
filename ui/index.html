@@ -924,6 +924,10 @@
           <div class="sidebar-section">
             <h3>Quick Actions</h3>
             <nav>
+              <div class="nav-item" id="quick-init-btn">Initialize</div>
+              <div class="nav-item" id="quick-prepare-btn">Prepare Agent</div>
+              <div class="nav-item" id="quick-diagnostics-btn">Diagnostics</div>
+              <div class="nav-item" id="quick-handoff-btn">Agent Handoff</div>
               <div class="nav-item" id="compile-btn">🔄 Compile</div>
               <div class="nav-item" id="verify-btn">✅ Verify</div>
             </nav>
@@ -1347,6 +1351,10 @@
       const startInitBtn = document.getElementById('start-init-btn');
       const startCompileBtn = document.getElementById('start-compile-btn');
       const startVerifyBtn = document.getElementById('start-verify-btn');
+      const quickInitBtn = document.getElementById('quick-init-btn');
+      const quickPrepareBtn = document.getElementById('quick-prepare-btn');
+      const quickDiagnosticsBtn = document.getElementById('quick-diagnostics-btn');
+      const quickHandoffBtn = document.getElementById('quick-handoff-btn');
       const refreshStatusBtn = document.getElementById('refresh-status-btn');
       const statusDiagnosticsBtn = document.getElementById('status-diagnostics-btn');
       const refreshWakeBtn = document.getElementById('refresh-wake-btn');
@@ -2505,6 +2513,20 @@
       startInitBtn.addEventListener('click', runInit);
       startCompileBtn.addEventListener('click', runCompile);
       startVerifyBtn.addEventListener('click', runVerify);
+      quickInitBtn.addEventListener('click', () => {
+        openPanel('start');
+        runInit();
+      });
+      quickPrepareBtn.addEventListener('click', () => {
+        openPanel('start');
+        prepareAgent();
+      });
+      quickDiagnosticsBtn.addEventListener('click', () => {
+        runDiagnostics({ silent: false });
+      });
+      quickHandoffBtn.addEventListener('click', () => {
+        buildAgentHandoff({ silent: false });
+      });
       refreshStatusBtn.addEventListener('click', () => {
         refreshStatus({ silent: false });
       });
