@@ -3,13 +3,13 @@
 <!-- MORPHEUS:BEGIN -->
 ## Morpheus Bootstrap
 
-Fetch the Morpheus manifest before making changes:
+Prepare Morpheus before making changes:
 
-- Connect manifest: `http://127.0.0.1:8000/agent/connect?project_root=%2FUsers%2Ftestbot%2Fprojects%2Fmorpheus-ai`
 - One-command prepare: `morpheus prepare-agent`.
 - Local handoff bundle: `morpheus handoff`.
 - Local CLI manifest: `morpheus agent-connect --json`.
 - Local diagnostics: `morpheus diagnostics --json`.
+- HTTP manifest: start the API/UI, then fetch `/agent/connect?project_root=<absolute-project-root>`.
 - Read `WAKE.md` before edits.
 - Run compile and verify after meaningful changes.
 - If the API/UI are unavailable, start them with `morpheus serve --ui --host 0.0.0.0 --port 8000 --ui-port 5173`.

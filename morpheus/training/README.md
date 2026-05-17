@@ -1,6 +1,11 @@
 # Morpheus Training Pipeline
 
-Phase 3: Daily LoRA fine-tuning for "weights-as-memory" effect.
+Experimental Phase 3: optional LoRA fine-tuning for stable, reviewed memory.
+
+Training is not the core Morpheus memory path. The default path is compile,
+retrieve, cite evidence, and verify receipts. Use LoRA only for distilled
+preferences, durable project conventions, and stable behavior patterns that you
+are comfortable baking into an adapter.
 
 ## Quick Start
 
@@ -33,9 +38,9 @@ sessions/*.jsonl  →  consolidate.py  →  dataset.jsonl
 2. **Train**: QLoRA fine-tuning via LlamaFactory (4-bit, DoRA)
 3. **Eval**: Tests adapter on held-out questions
 
-## Daily Automation
+## Scheduled Automation
 
-Add to crontab for end-of-day training:
+Add to crontab only after you have reviewed the generated dataset:
 
 ```bash
 # Edit crontab
@@ -58,3 +63,11 @@ launchctl load ~/Library/LaunchAgents/com.morpheus.daily.plist
 - llamafactory-cli: `pip install llamafactory`
 - Ollama with qwen2.5:7b model
 - GPU with 8GB+ VRAM (for 7B model training)
+
+## Safety Notes
+
+- Do not train directly on a whole private vault or raw chat log.
+- Review `dataset.jsonl` before training.
+- Keep generated datasets and adapters out of git.
+- Prefer retrieval with source links for volatile facts, secrets, and current
+  project state.

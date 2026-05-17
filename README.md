@@ -1,184 +1,227 @@
 # Morpheus AI
 
-**Agent State Compiler with verifiable provenance.**
+**Local-first memory compiler for AI agents, with verifiable provenance.**
 
-Stop starting AI agents from scratch. Morpheus generates `WAKE.md` — a compiled project state with a verifiable provenance trail.
+Morpheus turns project files, notes, decisions, tasks, and optional integration
+exports into a compact handoff (`WAKE.md`) that humans and agents can trust. It
+does not ask agents to start cold: it gives them current state, evidence, and a
+receipt chain that proves where the state came from.
+
+[Русская версия](README.ru.md)
+
+> Status: alpha. The compiler, receipts, CLI, API, UI launchpad, MCP endpoint,
+> and cache-backed integrations are usable. Scheduled LoRA training is
+> experimental and should be treated as an advanced memory layer, not the core
+> product path.
+
+## Why Morpheus Exists
+
+Modern agents lose context between sessions. RAG can retrieve text, but it often
+cannot explain which facts are current, which source they came from, or what the
+next agent should do first.
+
+Morpheus is built around a stricter loop:
+
+```text
+sources -> compile -> WAKE.md -> signed receipt -> agent handoff -> verify
+```
+
+That makes it useful for:
+
+- handing a project from one agent to another,
+- compiling an Obsidian vault or project workspace into agent-readable memory,
+- keeping decisions, tasks, and evidence tied to source files,
+- exposing local state through CLI, HTTP, A2A-style discovery, and MCP tools,
+- testing whether a local model and integration caches are ready.
+
+## Core Features
+
+- **WAKE.md compiler**: scans watched paths and extracts marked decisions,
+  tasks, notes, fixes, and evidence.
+- **Verifiable provenance**: writes `state.json`, `evidence.jsonl`, and signed
+  ed25519 receipts with SHA-256 hashes.
+- **Agent handoff**: produces copyable instructions, diagnostics, and manifest
+  URLs for another coding agent.
+- **Local UI launchpad**: browser UI for setup, context sources, diagnostics,
+  integrations, model smoke tests, and handoff bundles.
+- **Agent interop**: native `/agent/connect`, A2A-compatible Agent Card, and
+  a minimal MCP Streamable HTTP endpoint.
+- **Context sources**: compile one project, a monorepo, a workspace, or a notes
+  vault by configuring watched paths.
+- **Integration cache readers**: GitHub, Gmail, Calendar, Slack, and Linear can
+  contribute evidence from local caches or token-backed adapters.
+- **Experimental training pipeline**: consolidate sessions into JSONL and train
+  LoRA adapters when you explicitly opt in.
+
+## Install
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e ".[dev]"
+```
 
 ## Quick Start
 
 ```bash
-# Install
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -e ".[dev]"
-
-# Initialize project
+# Initialize Morpheus state in the current project.
 morpheus init
 
-# Compile state + generate receipt
+# Compile watched sources into WAKE.md, state.json, evidence.jsonl, and receipt.
 morpheus compile
 
-# Verify chain integrity
+# Verify the receipt chain and latest compiled artifacts.
 morpheus verify --all
 
-# Show project status
-morpheus status
-
-# Inspect readiness and generate agent instructions
-morpheus prepare-agent
-morpheus prepare-agent --json
-morpheus handoff
-morpheus handoff --json
-morpheus agent-connect --json
-morpheus diagnostics --json
-morpheus bootstrap-agent --dry-run
-morpheus bootstrap-agent
-
-# Run backend + browser UI
-morpheus serve --ui --host 127.0.0.1 --port 8000
+# Print the current compiled memory.
+morpheus wake
 ```
 
-## UI Quick Start
+## UI Start
 
-Run the backend and browser UI with one command:
+Run the backend and static browser UI together:
+
+```bash
+morpheus serve --ui --host 127.0.0.1 --port 8000 --ui-port 5173
+```
+
+Open:
+
+```text
+http://127.0.0.1:5173/ui/index.html
+```
+
+For trusted LAN testing, use:
 
 ```bash
 morpheus serve --ui --host 0.0.0.0 --port 8000 --ui-port 5173
 ```
 
-Open `http://127.0.0.1:5173/ui/index.html` on the same machine, or
-`http://<machine-ip>:5173/ui/index.html` from another device on the same LAN.
+The Start screen lets you set a project root, configure watched paths, run
+diagnostics, prepare an agent, inspect integration status, probe MCP tools, and
+copy a complete handoff bundle.
 
-The first screen is the setup checklist:
+## Obsidian And Personal Notes
 
-1. Set the project root.
-2. Set **Context Sources**. Use `.` for the whole root, or one path per line
-   for a monorepo/workspace such as `frontend`, `backend`, and `docs`.
-3. Click **Prepare Agent**.
-4. Copy the Agent Connect URL, Agent Prompt, or Handoff for another agent.
+An Obsidian vault can be used as a Morpheus context source because it is just a
+folder of Markdown files. The recommended pattern is not to fine-tune directly
+on the whole vault. Compile and retrieve first, keep source links, and only
+promote stable, reviewed memories into any future training dataset.
 
-The Start screen also keeps recent project roots and includes **Diagnostics** for
-backend, initialization, WAKE, receipt readiness, and the recommended next
-action. The FAQ on the Start screen explains the main flows directly in the UI.
+Example:
 
-## Multiple Context Sources
+```bash
+cd ~/Obsidian
+morpheus init
+morpheus compile
+morpheus verify --all
+```
 
-Morpheus reads paths from `.morpheus/morpheus.toml`:
+For a workspace that contains several projects or vaults, set the parent folder
+as the project root and configure `.morpheus/morpheus.toml`:
 
 ```toml
-watch_dirs = ["frontend", "backend", "docs"]
+watch_dirs = ["project-a", "project-b", "vault"]
 ```
-
-All watched paths must stay inside the selected project root. To absorb several
-projects, choose their parent workspace as the project root and list each project
-folder in **Context Sources**.
-
-## Integrations
-
-List available integrations:
-
-```bash
-morpheus integrate --list
-```
-
-Current integration adapters:
-
-- `github`: GitHub issues, pull requests, and commits via PAT.
-- `gmail`: local Gmail cache/OAuth placeholder.
-- `calendar`: local Calendar cache/OAuth placeholder.
-- `slack`: local Slack message cache plus optional token file.
-- `linear`: local Linear issue cache plus optional token file.
-
-Agents and UI can read the same integration manifest:
-
-```bash
-morpheus integrate --list --json
-curl -s http://127.0.0.1:8000/integrations
-```
-
-Slack and Linear cache files live in `~/.morpheus/slack_cache.json` and
-`~/.morpheus/linear_cache.json`. They are useful for exports or agent-built
-sync jobs before full OAuth/API sync is configured.
 
 ## Agent Self-Connect
 
-Agents can discover Morpheus over HTTP without reading this README first:
+Agents can discover Morpheus without reading the README:
 
 ```bash
+morpheus prepare-agent
+morpheus agent-connect --json
+morpheus diagnostics --json
+morpheus handoff
+```
+
+With the HTTP API running:
+
+```bash
+curl -s "http://127.0.0.1:8000/agent/connect?project_root=$PWD"
+curl -s "http://127.0.0.1:8000/agent/handoff.md?project_root=$PWD"
 curl -s http://127.0.0.1:8000/.well-known/morpheus.json
-curl -s "http://127.0.0.1:8000/quickstart?project_root=$PWD"
 curl -s http://127.0.0.1:8000/.well-known/agent-card.json
 curl -s -X POST http://127.0.0.1:8000/mcp \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
-curl -s -X POST http://127.0.0.1:8000/agent/prepare \
-  -H 'Content-Type: application/json' \
-  -d "{\"project_root\":\"$PWD\"}"
-curl -s "http://127.0.0.1:8000/agent/handoff.md?project_root=$PWD"
-curl -s "http://127.0.0.1:8000/agent/handoff?project_root=$PWD"
-curl -s "http://127.0.0.1:8000/agent/connect?project_root=$PWD"
-curl -s "http://127.0.0.1:8000/diagnostics?project_root=$PWD"
-curl -s "http://127.0.0.1:8000/integrations"
-curl -s -X POST http://127.0.0.1:8000/models/smoke \
-  -H 'Content-Type: application/json' \
-  -d "{\"base_model\":\"qwen2.5:0.5b\"}"
-curl -s "http://127.0.0.1:8000/config?project_root=$PWD"
-curl -s -X POST http://127.0.0.1:8000/config \
-  -H 'Content-Type: application/json' \
-  -d "{\"project_root\":\"$PWD\",\"watch_dirs\":[\"frontend\",\"backend\",\"docs\"]}"
-curl -s -X POST http://127.0.0.1:8000/agent/bootstrap/preview \
-  -H 'Content-Type: application/json' \
-  -d "{\"project_root\":\"$PWD\"}"
-curl -s -X POST http://127.0.0.1:8000/agent/bootstrap \
-  -H 'Content-Type: application/json' \
-  -d "{\"project_root\":\"$PWD\"}"
 ```
 
-`/agent/connect` returns the project state, the recommended `next_action`, ordered
-request sequence, endpoint URLs, CLI equivalents, curl commands, and a
-ready-to-copy agent prompt. A new agent should:
+A new agent should:
 
-1. Fetch `/agent/connect`.
-2. Run `next_action` when it is `prepare_agent`.
-3. Read `WAKE.md` before making project changes.
-4. Run compile and verify after meaningful changes.
+1. Fetch `/agent/connect` or run `morpheus agent-connect --json`.
+2. Follow the returned `next_action`.
+3. Read `WAKE.md` before editing.
+4. Run `morpheus compile` and `morpheus verify --all` after meaningful changes.
 
-`/agent/bootstrap` creates or refreshes the Morpheus-managed section in
-`AGENTS.md` without overwriting existing project-specific instructions.
+## Integrations
 
-## Modern Agent Interop
-
-Morpheus exposes three local discovery surfaces:
-
-- `/quickstart`: install, run, and connect instructions for humans and agents.
-- `/.well-known/morpheus.json`: native Morpheus discovery.
-- `/.well-known/agent-card.json`: A2A-compatible Agent Card with Morpheus
-  skills and supported interfaces.
-- `/mcp`: minimal MCP Streamable HTTP endpoint exposing read-only tools:
-  `morpheus_status`, `morpheus_diagnostics`, `morpheus_integrations`, and
-  `morpheus_model_smoke`.
-
-For LAN testing, `morpheus serve --ui --host 0.0.0.0 --port 8000 --ui-port 5173`
-is convenient. For untrusted networks, prefer `127.0.0.1` and put authentication
-or a trusted tunnel in front of remote MCP/A2A access.
-
-Agents running locally can use the CLI equivalent without starting the HTTP API:
+List integration adapters:
 
 ```bash
-morpheus prepare-agent
-morpheus prepare-agent --json
-morpheus handoff
-morpheus handoff --json
-morpheus agent-connect --json
-morpheus diagnostics --json
-morpheus bootstrap-agent --dry-run
-morpheus bootstrap-agent --api-base http://127.0.0.1:8000
+morpheus integrate --list
+morpheus integrate --list --json
 ```
 
-## Development and Release
+Current adapters:
 
-Local verification:
+- `github`: GitHub issues, pull requests, commits, and cached metadata.
+- `gmail`: local Gmail cache and OAuth-oriented token path.
+- `calendar`: local Calendar cache and OAuth-oriented token path.
+- `slack`: local Slack export cache plus optional token file.
+- `linear`: local Linear issue cache plus optional token file.
+
+Local tokens and caches live outside the repository by default under
+`~/.morpheus/`.
+
+## Architecture
+
+```text
+morpheus/
+  core/          compiler, models, receipts, verification, safe IO
+  integrations/  filesystem and cache-backed external sources
+  api/           FastAPI, agent connect, diagnostics, MCP, A2A card
+  training/      experimental consolidation and LoRA training helpers
+ui/              static browser UI and Tauri shell
+tests/           pytest suite for compiler, API, CLI, integrations, training
+docs/            release and testing notes
+```
+
+Compile flow:
+
+```text
+morpheus compile
+  -> scans configured watch_dirs
+  -> extracts markers such as TODO:, DECISION:, FIXME:, NOTE:, HACK:, XXX:
+  -> writes state.json and evidence.jsonl
+  -> generates WAKE.md
+  -> signs a receipt with ed25519
+  -> links the receipt to the previous receipt hash
+```
+
+## CLI Reference
+
+| Command | Description |
+| --- | --- |
+| `morpheus init` | Initialize `.morpheus/` with config and keys |
+| `morpheus compile` | Compile sources into WAKE.md and a signed receipt |
+| `morpheus verify --all` | Verify receipt chain, signatures, and latest artifacts |
+| `morpheus status` | Show source, claim, and evidence counts |
+| `morpheus wake` | Print WAKE.md |
+| `morpheus prepare-agent` | Initialize, compile, bootstrap AGENTS.md, verify, and produce handoff |
+| `morpheus handoff` | Print a copyable markdown handoff |
+| `morpheus agent-connect --json` | Print the machine-readable agent manifest |
+| `morpheus diagnostics --json` | Print readiness checks and next action |
+| `morpheus bootstrap-agent` | Create or refresh Morpheus instructions in AGENTS.md |
+| `morpheus integrate --list` | Show integration setup state |
+| `morpheus consolidate` | Build a training dataset from sessions |
+| `morpheus train` | Train an experimental LoRA adapter |
+| `morpheus eval` | Evaluate an adapter on held-out questions |
+| `morpheus model-smoke` | Smoke-test a local Ollama model |
+| `morpheus serve --ui` | Run FastAPI backend and browser UI |
+
+## Development
 
 ```bash
 make install-dev
@@ -186,96 +229,15 @@ make verify
 make build
 ```
 
-Container smoke:
+For the full public-repo quality gate, see [docs/TESTING.md](docs/TESTING.md).
 
-```bash
-make docker-build
-make docker-run
-```
+## Security Notes
 
-Release automation lives in `.github/workflows/`. CI runs lint, tests, and
-package builds on pull requests and pushes. Tagged releases matching `v*.*.*`
-publish through PyPI Trusted Publishing after the `pypi` environment is
-configured on PyPI. See [docs/RELEASE.md](docs/RELEASE.md), [SECURITY.md](SECURITY.md),
-and [CONTRIBUTING.md](CONTRIBUTING.md).
+Morpheus is local-first. Keep `.morpheus/`, generated receipts, integration
+caches, model outputs, and token files out of git. Bind to `127.0.0.1` unless
+you are on a trusted LAN or behind an authenticated proxy.
 
-## CLI Reference
-
-| Command | Description |
-|---------|-------------|
-| `morpheus init` | Initialize .morpheus/ with keys |
-| `morpheus compile` | Compile sources → WAKE.md + receipt |
-| `morpheus verify` | Quick verify latest receipt |
-| `morpheus verify --all` | Full chain + signature verification |
-| `morpheus status` | Show sources/claims/evidence counts |
-| `morpheus wake` | Print WAKE.md to stdout |
-| `morpheus prepare-agent` | Initialize, compile, bootstrap AGENTS.md, verify, and print handoff |
-| `morpheus prepare-agent --json` | Run the full prepare flow and print machine-readable results |
-| `morpheus handoff` | Print a copyable markdown bundle for another agent |
-| `morpheus handoff --json` | Print full handoff bundle as machine-readable JSON |
-| `morpheus agent-connect --json` | Print full self-connect manifest for agents |
-| `morpheus diagnostics --json` | Print readiness checks for agents/tools |
-| `morpheus bootstrap-agent --dry-run` | Preview Morpheus instructions for AGENTS.md |
-| `morpheus bootstrap-agent` | Create/update Morpheus instructions in AGENTS.md |
-| `morpheus integrate --list` | Show available integrations |
-| `morpheus integrate --list --json` | Print machine-readable integration status |
-| `morpheus consolidate --days 7` | Sessions → training dataset |
-| `morpheus train --epochs 3` | QLoRA fine-tuning |
-| `morpheus eval --test-file eval_questions.jsonl` | Evaluate adapter quality |
-| `morpheus model-smoke --base-model qwen2.5:0.5b` | Smoke-test a local Ollama model |
-| `morpheus serve --port 8000` | Run FastAPI backend for the UI |
-| `morpheus serve --ui --ui-port 5173` | Run backend and static browser UI together |
-| `morpheus version` | Show version |
-
-## Training Pipeline (Phase 3)
-
-```bash
-# 1. Consolidate sessions
-morpheus consolidate --days 7 --min-pairs 10 --output dataset.jsonl --stats-output reports/consolidation.json
-
-# 2. Train adapter
-morpheus train --base-model qwen2.5:7b --dataset dataset.jsonl
-
-# 3. Evaluate
-morpheus eval --adapter-path morpheus_adapters/
-```
-
-## What is this?
-
-Morpheus compiles your project sources, decisions, tasks, and agent history into a portable state (`WAKE.md`) with cryptographic receipts proving where each claim came from.
-
-```
-README.md     → tells humans what this is
-AGENTS.md     → tells agents how to work here
-WAKE.md       → tells agents where we are now
-.morpheus/   → machine state, receipts, evidence
-```
-
-## Architecture
-
-```
-morpheus compile
-  → extracts sources from project files
-  → builds claims from markers (TODO:, DECISION:, FIXME:, NOTE:, HACK:, XXX:)
-  → generates evidence chain with SHA-256 hashes
-  → signs receipt with ed25519
-  → writes WAKE.md + state.json + receipt
-```
-
-## Project Structure
-
-```
-morpheus-ai/
-├── morpheus/
-│   ├── cli.py           # CLI commands
-│   ├── core/            # Compiler, provenance, models
-│   ├── integrations/     # Filesystem, Gmail, Calendar, GitHub, Slack, Linear
-│   ├── api/             # FastAPI server
-│   └── training/        # Phase 3: QLoRA pipeline
-├── ui/                  # Tauri desktop app
-├── tests/               # pytest suite
-└── scripts/             # Automation scripts
-```
+See [SECURITY.md](SECURITY.md).
 
 ## License
 

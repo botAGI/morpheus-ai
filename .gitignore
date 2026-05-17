@@ -27,6 +27,17 @@ dataset.jsonl
 reports/
 morpheus_adapters/
 
+# Local assistant memory and development handoff artifacts
+.openclaw/
+SOUL.md
+USER.md
+IDENTITY.md
+MEMORY.md
+memory/
+AGENT_*.md
+docs/superpowers/
+*.zip
+
 # Rust and Tauri build artifacts
 target/
 ui/target/
