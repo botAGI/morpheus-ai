@@ -87,7 +87,7 @@ User: Read WAKE.md. What changed yesterday?
 Agent: Morpheus moved from "memory compiler" to "Agent State Compiler".
        Outdated: LoRA as the core product path.
        Current: WAKE.md with provenance receipts.
-       Next action: update README, SPEC, and public repo metadata.
+       Next action: publish v0.1.0, add the visual demo, then start semantic compile mode.
 ```
 
 ## Why Not Just Use Memory?

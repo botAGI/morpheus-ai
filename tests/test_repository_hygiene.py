@@ -22,6 +22,8 @@ def test_public_docs_include_bilingual_readme_and_testing_checklist():
     assert Path("README.ru.md").is_file()
     assert Path("WAKE.md").is_file()
     assert Path("docs/WHY_WAKE.md").is_file()
+    assert Path("docs/RELEASE.md").is_file()
+    assert Path("docs/release-notes/v0.1.0.md").is_file()
     assert Path("docs/TESTING.md").is_file()
 
 
@@ -33,8 +35,25 @@ def test_root_wake_includes_source_references():
     wake = Path("WAKE.md").read_text()
 
     assert "## Source References" in wake
-    for source in ["README.md", "SPEC.md", "AGENTS.md", "docs/WHY_WAKE.md"]:
+    for source in [
+        "README.md",
+        "README.ru.md",
+        "SPEC.md",
+        "docs/WHY_WAKE.md",
+        "docs/RELEASE.md",
+        "CHANGELOG.md",
+    ]:
         assert source in wake
+
+
+def test_root_wake_next_work_is_launch_ordered():
+    wake = Path("WAKE.md").read_text()
+
+    visual = wake.index("- Add visual before/after demo.")
+    release = wake.index("- Publish v0.1.0.")
+    semantic = wake.index("- Add review-gated semantic compilation.")
+    stale = wake.index("- Add richer stale-claim detection.")
+    assert visual < release < semantic < stale
 
 
 def test_readme_first_screen_uses_wake_framing():
@@ -45,6 +64,25 @@ def test_readme_first_screen_uses_wake_framing():
     assert "Stop starting AI agents from scratch." in first_screen
     assert "Morpheus generates `WAKE.md`" in first_screen
     assert "`WAKE.md` tells agents where we are." in first_screen
+
+
+def test_readme_demo_points_to_current_launch_next_action():
+    expected = "publish v0.1.0, add the visual demo, then start semantic compile mode"
+
+    for path in [Path("README.md"), Path("README.ru.md")]:
+        content = path.read_text()
+        assert expected in content
+        assert "update README, SPEC, and public repo metadata" not in content
+
+
+def test_agents_bootstrap_uses_localhost_by_default():
+    agents = Path("AGENTS.md").read_text()
+
+    assert "--host 127.0.0.1" in agents
+    assert "0.0.0.0" in agents
+    assert "explicit user-approved trusted LAN" in agents
+    default_line = next(line for line in agents.splitlines() if "If the API/UI are unavailable" in line)
+    assert "--host 0.0.0.0" not in default_line
 
 
 def test_public_docs_do_not_regress_to_memory_layer_pitch():

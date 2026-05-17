@@ -4,6 +4,8 @@ All notable changes to Morpheus will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-05-17
+
 ### Added
 
 - `WAKE.md` launch framing with root showcase file and `docs/WHY_WAKE.md`.
@@ -23,3 +25,4 @@ All notable changes to Morpheus will be documented in this file.
 ### Fixed
 
 - Integration cache timestamp normalization across ISO strings and epoch values.
+- Stable CLI path output for CI environments with narrow terminal widths.

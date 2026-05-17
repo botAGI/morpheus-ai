@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -159,3 +160,70 @@ def test_project_has_release_security_and_contributor_docs():
     )
     assert_contains_all(changelog, ["## [Unreleased]", "A2A", "MCP", "Quickstart"])
     assert_contains_all(makefile, ["install-dev:", "lint:", "test:", "verify:", "build:", "serve:"])
+
+
+def test_changelog_has_v010_release_section():
+    changelog = read_project_file("CHANGELOG.md")
+
+    assert "## [Unreleased]\n\n## [0.1.0] - 2026-05-17" in changelog
+    assert "### Added" in changelog
+    assert "### Fixed" in changelog
+    assert "WAKE.md" in changelog
+    assert "morpheus-wake" in changelog
+
+
+def test_v010_release_notes_cover_launch_highlights():
+    notes = read_project_file("docs/release-notes/v0.1.0.md")
+
+    assert notes.startswith("# v0.1.0 — WAKE.md for AI agents\n")
+    assert_contains_all(
+        notes,
+        [
+            "Generate WAKE.md from project state",
+            "One-command `morpheus wake .` flow",
+            "Public/private WAKE modes",
+            "Verifiable provenance receipts",
+            "Agent handoff",
+            "MCP/A2A-style local interop",
+            "UI launchpad",
+            "Cache-backed integrations",
+            "Experimental training is explicitly not the core launch path",
+        ],
+    )
+
+
+def test_demo_scaffold_is_safe_and_self_contained():
+    demo_readme = read_project_file("demo/README.md")
+    transcript = read_project_file("demo/transcript.md")
+    script_path = ROOT / "demo/record_demo.sh"
+    script = read_project_file("demo/record_demo.sh")
+
+    assert os.access(script_path, os.X_OK), "demo/record_demo.sh should be executable"
+    assert_contains_all(
+        demo_readme,
+        ["asciinema", "agg", "demo.cast", "demo.gif", "morpheus wake ."],
+    )
+    assert_contains_all(
+        transcript,
+        [
+            "Without Morpheus",
+            "With Morpheus",
+            "Read WAKE.md and continue",
+        ],
+    )
+    assert_contains_all(
+        script,
+        [
+            "mktemp -d",
+            "DECISION:",
+            "TODO:",
+            "NOTE:",
+            "morpheus wake .",
+            "morpheus verify --all",
+            "morpheus stale .",
+            "Paste this into an agent: Read WAKE.md and continue.",
+        ],
+    )
+    forbidden = ["OPENAI_API_KEY", "OBSIDIAN", "OpenClaw", "Hermes", "curl http"]
+    for snippet in forbidden:
+        assert snippet not in script

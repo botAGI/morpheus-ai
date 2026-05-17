@@ -13,7 +13,8 @@ Prepare Morpheus before making changes:
 - HTTP manifest: start the API/UI, then fetch `/agent/connect?project_root=<absolute-project-root>`.
 - Read root `WAKE.md` before edits.
 - Run compile and verify after meaningful changes.
-- If the API/UI are unavailable, start them with `morpheus serve --ui --host 0.0.0.0 --port 8000 --ui-port 5173`.
+- If the API/UI are unavailable, start them with `morpheus serve --ui --host 127.0.0.1 --port 8000 --ui-port 5173`.
+- Use `0.0.0.0` only for explicit user-approved trusted LAN testing or authenticated proxy environments.
 
 Agent sequence:
 

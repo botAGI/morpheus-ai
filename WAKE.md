@@ -1,7 +1,7 @@
 # WAKE.md - Morpheus Project State
 
-This repository intentionally commits `WAKE.md` as a public example.
-Private projects can keep this file inside `.morpheus/`.
+This repository intentionally commits `WAKE.md` as a public showcase state file.
+Private projects can keep generated `WAKE.md` inside `.morpheus/`.
 
 ## Current State
 
@@ -45,14 +45,16 @@ instead of starting cold every session.
 - `SPEC.md` - product frame, architecture, non-goals, and release criteria.
 - `AGENTS.md` - agent bootstrap behavior.
 - `docs/WHY_WAKE.md` - category rationale for `WAKE.md`.
+- `docs/RELEASE.md` - release process and PyPI Trusted Publishing setup.
+- `CHANGELOG.md` - current launch delta.
 - `docs/TESTING.md` - local quality gate and release checks.
 
 ## Next Product Work
 
+- Add visual before/after demo.
+- Publish v0.1.0.
 - Add review-gated semantic compilation.
 - Add richer stale-claim detection.
-- Add a visual before/after demo.
-- Cut the first public release.
 
 ## Verification
 
