@@ -1,7 +1,7 @@
 [project]
 name = "morpheus-wake"
 version = "0.1.1"
-description = "WAKE.md for AI agents: compile project state so agents stop starting cold"
+description = "Source-grounded truth layer for coding agents: verify project claims, compile WAKE.md, and run local learning experiments"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}

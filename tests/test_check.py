@@ -1,9 +1,11 @@
 import json
+import sys
 from pathlib import Path
 
 from typer.testing import CliRunner
 
 from morpheus.cli import app
+from morpheus.cli import read_check_input
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -229,3 +231,16 @@ def test_check_without_input_prints_help_and_exits_two(tmp_path):
         assert result.exit_code == 2
         assert "Usage:" in result.output
         assert "morpheus check --input" in result.output
+
+
+def test_read_check_input_does_not_read_interactive_tty(monkeypatch):
+    class TtyStdin:
+        def isatty(self) -> bool:
+            return True
+
+        def read(self) -> str:
+            raise AssertionError("interactive stdin should not be read")
+
+    monkeypatch.setattr(sys, "stdin", TtyStdin())
+
+    assert read_check_input(None) == ""

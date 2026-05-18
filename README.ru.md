@@ -289,6 +289,16 @@ morpheus compile
 | --- | --- |
 | `morpheus wake .` | Init при необходимости, compile, verify и root `WAKE.md` |
 | `morpheus wake . --private` | Compile и verify, но `WAKE.md` остаётся в `.morpheus/` |
+| `morpheus check` | Проверить текст агента из stdin по локальному состоянию проекта |
+| `morpheus check --input FILE` | Проверить текст агента из файла |
+| `morpheus check --json` | Напечатать machine-readable check result |
+| `morpheus review list` | Показать semantic candidates для review |
+| `morpheus review apply` | Применить accepted candidates в active state и подписать receipt |
+| `morpheus learn lab .` | Запустить autonomous learning lab без activation adapters |
+| `morpheus learn dataset .` | Собрать dataset из accepted source-backed candidates |
+| `morpheus learn status` | Показать learning dataset и adapter status |
+| `morpheus learn train . --dry-run` | Сгенерировать training artifacts без обучения |
+| `morpheus learn eval .` | Запустить eval harness для latest dataset или planned adapter |
 | `morpheus stale .` | Найти устаревшие claims в публичном позиционировании |
 | `morpheus init` | Инициализировать `.morpheus/` с config и keys |
 | `morpheus compile` | Скомпилировать sources в `WAKE.md` и signed receipt |
@@ -297,6 +307,10 @@ morpheus compile
 | `morpheus prepare-agent` | Подготовить handoff для агента |
 | `morpheus agent-connect --json` | Напечатать machine-readable agent manifest |
 | `morpheus serve --ui` | Запустить FastAPI backend и browser UI |
+
+Default semantic alpha provider - локальный/offline heuristic extraction. Он
+никогда не вызывает cloud providers, если пользователь явно не настроил
+provider.
 
 ## Разработка
 

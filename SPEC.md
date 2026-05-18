@@ -46,7 +46,7 @@ sources -> WAKE.md -> check -> accepted dataset -> local adapter lab -> eval
   dataset for adapter experiments. Adapter output is not the source of truth;
   source spans and `morpheus check` remain the gate.
 
-## 3. Non-Goals For v0.1
+## 3. Non-Goals
 
 - Morpheus does not autonomously run as the agent.
 - Morpheus does not claim legal compliance as a product guarantee.
@@ -161,7 +161,7 @@ This is intentionally simple. It gives reproducible receipts and predictable
 evidence, but it will produce weak `WAKE.md` files for projects that never mark
 decisions or tasks explicitly.
 
-### Planned Semantic Compiler
+### Semantic Compiler Alpha
 
 `morpheus compile --semantic` should read high-signal sources such as README,
 SPEC, AGENTS, CHANGELOG, issues, and notes. It should create candidate claims
@@ -172,6 +172,10 @@ with one of these labels:
 - `needs_review`: useful but not safe to activate automatically.
 
 Only reviewed claims should become active state.
+
+The default semantic alpha provider is local/offline heuristic extraction. It is
+safe for deterministic dogfood and never calls cloud providers unless the user
+explicitly configures a provider such as Ollama or a future cloud backend.
 
 ## 8. CLI Commands
 

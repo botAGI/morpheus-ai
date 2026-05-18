@@ -288,6 +288,16 @@ morpheus compile
 | --- | --- |
 | `morpheus wake .` | Init if needed, compile, verify, and write root `WAKE.md` |
 | `morpheus wake . --private` | Compile and verify, keeping `WAKE.md` in `.morpheus/` |
+| `morpheus check` | Verify agent text from stdin against local project state |
+| `morpheus check --input FILE` | Verify agent text from a file |
+| `morpheus check --json` | Print a machine-readable check result |
+| `morpheus review list` | List semantic candidates awaiting review |
+| `morpheus review apply` | Apply accepted candidates into active state and sign a receipt |
+| `morpheus learn lab .` | Run the autonomous learning lab without activating adapters |
+| `morpheus learn dataset .` | Build a dataset from accepted source-backed candidates |
+| `morpheus learn status` | Show learning dataset and adapter status |
+| `morpheus learn train . --dry-run` | Generate local training artifacts without training |
+| `morpheus learn eval .` | Evaluate the latest dataset or planned adapter with the eval harness |
 | `morpheus stale .` | Find stale launch-positioning claims |
 | `morpheus init` | Initialize `.morpheus/` with config and keys |
 | `morpheus compile` | Compile sources into `WAKE.md` and a signed receipt |
@@ -300,6 +310,9 @@ morpheus compile
 | `morpheus diagnostics --json` | Print readiness checks and next action |
 | `morpheus model-smoke` | Smoke-test a local Ollama model |
 | `morpheus serve --ui` | Run FastAPI backend and browser UI |
+
+The default semantic alpha provider is local/offline heuristic extraction. It
+never calls cloud providers unless the user explicitly configures a provider.
 
 ## Development
 

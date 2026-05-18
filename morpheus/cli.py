@@ -1742,6 +1742,8 @@ def read_check_input(input_path: Path | None) -> str:
         if not input_path.is_file():
             raise ValueError(f"input file not found: {input_path}")
         return input_path.read_text()
+    if sys.stdin.isatty():
+        return ""
     return sys.stdin.read()
 
 

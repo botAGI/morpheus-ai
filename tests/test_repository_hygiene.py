@@ -1,6 +1,7 @@
 from pathlib import Path
 import shutil
 import subprocess
+import tomllib
 
 import pytest
 
@@ -79,6 +80,42 @@ def test_readme_demo_points_to_current_truth_layer_loop():
         assert "publish v0.1.0, then start semantic compile mode" not in content
         assert "publish v0.1.0, add the visual demo" not in content
         assert "update README, SPEC, and public repo metadata" not in content
+
+
+def test_readme_cli_reference_lists_v02a1_commands():
+    required = [
+        "morpheus check",
+        "morpheus check --input FILE",
+        "morpheus check --json",
+        "morpheus review list",
+        "morpheus review apply",
+        "morpheus learn lab .",
+        "morpheus learn dataset .",
+        "morpheus learn status",
+        "morpheus learn train . --dry-run",
+        "morpheus learn eval .",
+    ]
+    for path in [Path("README.md"), Path("README.ru.md")]:
+        content = path.read_text()
+        assert all(command in content for command in required)
+
+
+def test_package_description_matches_truth_layer_positioning():
+    pyproject = tomllib.loads(Path("pyproject.toml").read_text())
+
+    assert pyproject["project"]["description"] == (
+        "Source-grounded truth layer for coding agents: verify project claims, "
+        "compile WAKE.md, and run local learning experiments"
+    )
+
+
+def test_spec_headings_are_v02a1_current():
+    spec = Path("SPEC.md").read_text()
+
+    assert "## 3. Non-Goals\n" in spec
+    assert "### Semantic Compiler Alpha\n" in spec
+    assert "Non-Goals For v0.1" not in spec
+    assert "Planned Semantic Compiler" not in spec
 
 
 def test_agents_bootstrap_uses_localhost_by_default():
