@@ -9,13 +9,13 @@
 `AGENTS.md` tells agents how to work.
 `WAKE.md` tells agents where we are.
 
-[Русская версия](README.ru.md)
+[Русская версия](https://github.com/botAGI/morpheus-ai/blob/main/README.ru.md)
 
 > Status: v0.1.0 alpha. The compiler, receipts, CLI, API, UI launchpad, MCP
 > endpoint, A2A-style discovery, and cache-backed integrations are usable.
 > LoRA/training is experimental and not the core launch path.
 
-![Morpheus terminal demo](demo/morpheus-demo.gif)
+![Morpheus terminal demo](https://raw.githubusercontent.com/botAGI/morpheus-ai/main/demo/morpheus-demo.gif)
 
 ## Why
 
@@ -38,7 +38,9 @@ Morpheus is the Agent State Compiler.
 It generates `WAKE.md` - a project state file that tells agents where the
 project is now, backed by sources, evidence, and signed receipts.
 
-This repository intentionally commits [WAKE.md](WAKE.md) as a public example.
+This repository intentionally commits
+[WAKE.md](https://github.com/botAGI/morpheus-ai/blob/main/WAKE.md) as a public
+example.
 Private projects can keep `WAKE.md` inside `.morpheus/`.
 
 ## Quick Start

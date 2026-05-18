@@ -25,7 +25,7 @@ def generate_wake_md(state: ProjectState, receipt_id: str) -> str:
         "",
         f"**Compiled:** {compiled_at}",
         f"**Receipt:** {receipt_id}",
-        "**Morpheus:** v0.1.0",
+        "**Morpheus:** v0.1.1",
         "",
         "---",
         "",

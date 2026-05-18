@@ -64,14 +64,34 @@ def test_distribution_name_avoids_existing_pypi_project():
     pyproject = read_project_file("pyproject.toml")
 
     assert 'name = "morpheus-wake"' in pyproject
+    assert 'version = "0.1.1"' in pyproject
     assert 'name = "morpheus-ai"' not in pyproject
     assert 'morpheus = "morpheus.cli:app"' in pyproject
+    assert '"typer>=0.12.0"' in pyproject
+    assert "typer[all]" not in pyproject
+    assert_contains_all(
+        pyproject,
+        [
+            "[project.urls]",
+            'Homepage = "https://github.com/botAGI/morpheus-ai"',
+            'Repository = "https://github.com/botAGI/morpheus-ai"',
+            'Issues = "https://github.com/botAGI/morpheus-ai/issues"',
+            'Changelog = "https://github.com/botAGI/morpheus-ai/blob/main/CHANGELOG.md"',
+            'Release = "https://github.com/botAGI/morpheus-ai/releases/tag/v0.1.0"',
+        ],
+    )
 
 
 def test_quickstart_uses_distribution_name_and_morpheus_command():
     readme = read_project_file("README.md")
     readme_ru = read_project_file("README.ru.md")
 
+    assert "https://github.com/botAGI/morpheus-ai/blob/main/README.ru.md" in readme
+    assert "https://github.com/botAGI/morpheus-ai/blob/main/WAKE.md" in readme
+    assert "https://raw.githubusercontent.com/botAGI/morpheus-ai/main/demo/morpheus-demo.gif" in readme
+    assert "](README.ru.md)" not in readme
+    assert "](WAKE.md)" not in readme
+    assert "](demo/morpheus-demo.gif)" not in readme
     for content in [readme, readme_ru]:
         assert "uvx --from morpheus-wake morpheus wake ." in content
         assert "pipx run --spec morpheus-wake morpheus wake ." in content
@@ -162,12 +182,14 @@ def test_project_has_release_security_and_contributor_docs():
     assert_contains_all(makefile, ["install-dev:", "lint:", "test:", "verify:", "build:", "serve:"])
 
 
-def test_changelog_has_v010_release_section():
+def test_changelog_has_v011_and_v010_release_sections():
     changelog = read_project_file("CHANGELOG.md")
 
-    assert "## [Unreleased]\n\n## [0.1.0] - 2026-05-17" in changelog
+    assert "## [Unreleased]\n\n## [0.1.1] - 2026-05-18" in changelog
+    assert "## [0.1.0] - 2026-05-17" in changelog
     assert "### Added" in changelog
     assert "### Fixed" in changelog
+    assert "Removed local testbot path from public AGENTS.md." in changelog
     assert "WAKE.md" in changelog
     assert "morpheus-wake" in changelog
 

@@ -4,6 +4,15 @@ All notable changes to Morpheus will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-05-18
+
+### Fixed
+
+- Removed local testbot path from public AGENTS.md.
+- Fixed PyPI long-description links and demo image by using absolute GitHub URLs.
+- Removed obsolete Typer `all` extra warning.
+- Added project URLs to package metadata.
+
 ## [0.1.0] - 2026-05-17
 
 ### Added

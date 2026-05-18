@@ -48,7 +48,7 @@ def test_health_returns_version():
     response = client.get("/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.1.0"}
+    assert response.json() == {"status": "ok", "version": "0.1.1"}
 
 
 def test_cors_preflight_does_not_allow_credentials_for_wildcard_origins():
@@ -75,7 +75,7 @@ def test_well_known_morpheus_manifest_exposes_agent_connect_url():
     assert response.status_code == 200
     payload = response.json()
     assert payload["service"] == "morpheus"
-    assert payload["version"] == "0.1.0"
+    assert payload["version"] == "0.1.1"
     assert payload["connect_url"] == "http://testserver/agent/connect"
     assert payload["handoff_url"] == "http://testserver/agent/handoff"
     assert payload["handoff_markdown_url"] == "http://testserver/agent/handoff.md"
@@ -140,7 +140,7 @@ def test_a2a_agent_card_endpoint_describes_morpheus_interfaces():
     assert "max-age" in response.headers["cache-control"]
     payload = response.json()
     assert payload["name"] == "Morpheus AI"
-    assert payload["version"] == "0.1.0"
+    assert payload["version"] == "0.1.1"
     assert payload["capabilities"]["streaming"] is False
     assert payload["defaultInputModes"] == ["application/json", "text/plain"]
     assert payload["defaultOutputModes"] == ["application/json", "text/markdown", "text/plain"]
@@ -325,7 +325,7 @@ def test_agent_connect_guides_uninitialized_project(tmp_path):
     assert payload["cli"]["agent_connect"] == "morpheus agent-connect --json"
     assert (
         payload["cli"]["serve_ui"]
-        == "morpheus serve --ui --host 0.0.0.0 --port 8000 --ui-port 5173"
+        == "morpheus serve --ui --host 127.0.0.1 --port 8000 --ui-port 5173"
     )
     assert "Fetch the connect manifest" in payload["agent_prompt"]
 
@@ -461,10 +461,10 @@ def test_diagnostics_reports_project_setup_steps(tmp_path):
     assert payload["next_action"]["request"]["json"] == {"project_root": str(tmp_path)}
     assert payload["agent_connect_url"].endswith("/agent/connect?project_root=" + str(tmp_path).replace("/", "%2F"))
     assert payload["commands"]["agent_connect"] == "morpheus agent-connect --json"
-    assert payload["commands"]["serve"] == "morpheus serve --host 0.0.0.0 --port 8000"
+    assert payload["commands"]["serve"] == "morpheus serve --host 127.0.0.1 --port 8000"
     assert (
         payload["commands"]["serve_ui"]
-        == "morpheus serve --ui --host 0.0.0.0 --port 8000 --ui-port 5173"
+        == "morpheus serve --ui --host 127.0.0.1 --port 8000 --ui-port 5173"
     )
 
 
@@ -712,7 +712,7 @@ def test_agent_prepare_writes_stable_local_bootstrap_when_requested_through_lan(
     assert payload["bootstrapped"]["agent_connect_url"].startswith(
         "http://192.168.1.54:8000/agent/connect"
     )
-    assert "http://127.0.0.1:8000/agent/connect" in content
+    assert "/agent/connect?project_root=<PROJECT_ROOT>" in content
     assert "http://192.168.1.54:8000/agent/connect" not in content
 
 
@@ -723,7 +723,8 @@ def test_diagnostics_agent_bootstrap_is_not_tied_to_request_host(tmp_path):
         "<!-- MORPHEUS:BEGIN -->\n"
         "## Morpheus Bootstrap\n\n"
         "Fetch the Morpheus manifest before making changes:\n\n"
-        "- Connect manifest: `http://127.0.0.1:8000/agent/connect?project_root=x`\n"
+        "- Connect manifest: start the API/UI, then fetch "
+        "`/agent/connect?project_root=<PROJECT_ROOT>`.\n"
         "- One-command prepare: `morpheus prepare-agent`.\n"
         "- Local handoff bundle: `morpheus handoff`.\n"
         "- Local CLI manifest: `morpheus agent-connect --json`.\n"
@@ -767,7 +768,7 @@ def test_agent_bootstrap_creates_agents_md_without_initializing_project(tmp_path
     assert "<!-- MORPHEUS:BEGIN -->" in content
     assert "Fetch the Morpheus manifest before making changes" in content
     assert "morpheus handoff" in content
-    assert "http://127.0.0.1:8000/agent/connect" in content
+    assert "/agent/connect?project_root=<PROJECT_ROOT>" in content
     assert not (tmp_path / ".morpheus").exists()
 
 

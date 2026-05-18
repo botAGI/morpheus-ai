@@ -80,6 +80,8 @@ def test_readme_demo_points_to_current_launch_next_action():
 def test_agents_bootstrap_uses_localhost_by_default():
     agents = Path("AGENTS.md").read_text()
 
+    assert "/Users/testbot/projects/morpheus-ai" not in agents
+    assert "project_root=<PROJECT_ROOT>" in agents
     assert "--host 127.0.0.1" in agents
     assert "0.0.0.0" in agents
     assert "explicit user-approved trusted LAN" in agents

@@ -75,7 +75,7 @@ WILDCARD_HOSTS = {"0.0.0.0", "::", ""}
 app = FastAPI(
     title="Morpheus API",
     description="Agent State Compiler API",
-    version="0.1.0"
+    version="0.1.1"
 )
 
 app.add_middleware(
@@ -310,7 +310,7 @@ def project_config_payload(project_root: Path) -> dict:
 
     return {
         "service": "morpheus",
-        "version": "0.1.0",
+        "version": "0.1.1",
         "project_root": str(project_root),
         "initialized": initialized,
         "config_path": str(morpheus_dir / "morpheus.toml"),
@@ -387,7 +387,7 @@ def quickstart_payload(request: Request, project_root: Path) -> dict:
     mcp_url = f"{api_base}/mcp"
     return {
         "service": "morpheus",
-        "version": "0.1.0",
+        "version": "0.1.1",
         "project_root": str(project_root),
         "ui_url": ui_url,
         "commands": {
@@ -471,7 +471,7 @@ def a2a_agent_card_payload(request: Request) -> dict:
             {
                 "url": f"{api_base}/agent/connect",
                 "protocolBinding": "https://morpheus.ai/protocols/agent-connect/v1",
-                "protocolVersion": "0.1.0",
+                "protocolVersion": "0.1.1",
             },
             {
                 "url": f"{api_base}/mcp",
@@ -483,7 +483,7 @@ def a2a_agent_card_payload(request: Request) -> dict:
             "organization": "Morpheus AI",
             "url": api_base,
         },
-        "version": "0.1.0",
+        "version": "0.1.1",
         "documentationUrl": f"{api_base}/.well-known/morpheus.json",
         "capabilities": {
             "streaming": False,
@@ -662,7 +662,7 @@ def agent_connect_payload(request: Request, project_root: Path) -> dict:
         next_action = prepare_agent_action(api_base, project_root)
     return {
         "service": "morpheus",
-        "version": "0.1.0",
+        "version": "0.1.1",
         "api_base": api_base,
         "project_root": project_root_text,
         "state": state,
@@ -704,8 +704,8 @@ def agent_connect_payload(request: Request, project_root: Path) -> dict:
             "read_wake": "morpheus wake",
             "verify": "morpheus verify --all",
             "model_smoke": f"morpheus model-smoke --base-model {DEFAULT_MODEL_SMOKE_MODEL}",
-            "serve": "morpheus serve --host 0.0.0.0 --port 8000",
-            "serve_ui": "morpheus serve --ui --host 0.0.0.0 --port 8000 --ui-port 5173",
+            "serve": "morpheus serve --host 127.0.0.1 --port 8000",
+            "serve_ui": "morpheus serve --ui --host 127.0.0.1 --port 8000 --ui-port 5173",
         },
         "curl": {
             "connect": f"curl -s {shlex.quote(connect_url)}",
@@ -870,7 +870,7 @@ def mcp_payload(request: Request, payload: dict) -> dict | None:
                 "serverInfo": {
                     "name": "morpheus",
                     "title": "Morpheus AI",
-                    "version": "0.1.0",
+                    "version": "0.1.1",
                     "description": "Agent State Compiler with verifiable provenance.",
                 },
                 "instructions": (
@@ -1001,7 +1001,7 @@ def diagnostics_payload(request: Request, project_root: Path) -> dict:
 
     return {
         "service": "morpheus",
-        "version": "0.1.0",
+        "version": "0.1.1",
         "api_base": api_base,
         "project_root": str(project_root),
         "cwd": str(Path.cwd()),
@@ -1012,12 +1012,12 @@ def diagnostics_payload(request: Request, project_root: Path) -> dict:
         "commands": {
             "agent_connect": "morpheus agent-connect --json",
             "diagnostics": "morpheus diagnostics --json",
-            "serve": "morpheus serve --host 0.0.0.0 --port 8000",
+            "serve": "morpheus serve --host 127.0.0.1 --port 8000",
             "initialize": "morpheus init",
             "compile": "morpheus compile",
             "read_wake": "morpheus wake",
             "verify": "morpheus verify --all",
-            "serve_ui": "morpheus serve --ui --host 0.0.0.0 --port 8000 --ui-port 5173",
+            "serve_ui": "morpheus serve --ui --host 127.0.0.1 --port 8000 --ui-port 5173",
         },
     }
 
@@ -1102,11 +1102,11 @@ def agent_handoff_payload(request: Request, project_root: Path) -> dict:
         "compile": "morpheus compile",
         "read_wake": "morpheus wake",
         "verify": "morpheus verify --all",
-        "serve_ui": "morpheus serve --ui --host 0.0.0.0 --port 8000 --ui-port 5173",
+        "serve_ui": "morpheus serve --ui --host 127.0.0.1 --port 8000 --ui-port 5173",
     }
     payload = {
         "service": "morpheus",
-        "version": "0.1.0",
+        "version": "0.1.1",
         "api_base": api_base,
         "project_root": str(project_root),
         "manifest": agent_connect_payload(request, project_root),
@@ -1180,7 +1180,7 @@ def agent_prepare_payload(request: Request, project_root: Path) -> dict:
 
     return {
         "service": "morpheus",
-        "version": "0.1.0",
+        "version": "0.1.1",
         "api_base": api_base_url(request),
         "project_root": project_root_text,
         "steps": steps,
@@ -1193,18 +1193,14 @@ def agent_prepare_payload(request: Request, project_root: Path) -> dict:
 
 
 def morpheus_agent_section(request: Request, project_root: Path) -> str:
-    connect_url = endpoint_url(
-        embedded_agent_api_base_url(request),
-        "/agent/connect",
-        project_root,
-    )
     return "\n".join([
         MORPHEUS_AGENT_BEGIN,
         "## Morpheus Bootstrap",
         "",
         "Fetch the Morpheus manifest before making changes:",
         "",
-        f"- Connect manifest: `{connect_url}`",
+        "- Connect manifest: start the API/UI, then fetch "
+        "`/agent/connect?project_root=<PROJECT_ROOT>`.",
         "- One-command prepare: `morpheus prepare-agent`.",
         "- Local handoff bundle: `morpheus handoff`.",
         "- Local CLI manifest: `morpheus agent-connect --json`.",
@@ -1291,7 +1287,7 @@ def write_agent_bootstrap(request: Request, project_root: Path) -> AgentBootstra
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "0.1.0"}
+    return {"status": "ok", "version": "0.1.1"}
 
 
 @app.get("/.well-known/morpheus.json")
@@ -1300,7 +1296,7 @@ def well_known_morpheus(request: Request):
     api_base = api_base_url(request)
     return {
         "service": "morpheus",
-        "version": "0.1.0",
+        "version": "0.1.1",
         "description": "Agent State Compiler with verifiable provenance",
         "connect_url": f"{api_base}/agent/connect",
         "handoff_url": f"{api_base}/agent/handoff",

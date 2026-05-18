@@ -97,7 +97,7 @@ def integration_manifest(home: Path | None = None) -> dict:
     ]
     return {
         "service": "morpheus",
-        "version": "0.1.0",
+        "version": "0.1.1",
         "home": str(morpheus_home),
         "services": services,
     }
