@@ -34,7 +34,16 @@ from morpheus.core.provenance import (
     receipt_file_name,
 )
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
+from morpheus.core.semantic.review import (
+    ReviewStore,
+    apply_accepted_candidates,
+    run_semantic_review,
+)
 from morpheus.core.verify import verify_receipt_chain
+from morpheus.core.providers.fake import FakeProvider
+from morpheus.core.providers.local import LocalProvider
+from morpheus.core.providers.null import NullProvider
+from morpheus.core.providers.ollama import OllamaProvider
 from morpheus.integrations.manifest import integration_cache_path_error, integration_manifest
 from morpheus.training.consolidate import consolidate_sessions
 from morpheus.training.train import check_dependencies
@@ -43,6 +52,8 @@ app = typer.Typer(
     help="Morpheus AI — Agent State Compiler with verifiable provenance",
     add_completion=False
 )
+review_app = typer.Typer(help="Review semantic candidates before they become active state.")
+app.add_typer(review_app, name="review")
 console = Console()
 WILDCARD_HOSTS = {"0.0.0.0", "::", ""}
 DEFAULT_MODEL_SMOKE_MODEL = "qwen2.5:0.5b"
@@ -354,6 +365,39 @@ def wake_handoff_prompt() -> str:
     )
 
 
+def semantic_provider_from_env():
+    """Resolve the explicit semantic provider without making cloud calls."""
+    provider_name = os.getenv("MORPHEUS_SEMANTIC_PROVIDER", "local").strip().lower()
+    if provider_name in {"", "local"}:
+        return LocalProvider()
+    if provider_name == "fake":
+        return FakeProvider()
+    if provider_name == "null":
+        return NullProvider()
+    if provider_name == "ollama":
+        provider = OllamaProvider()
+        model = os.getenv("MORPHEUS_SEMANTIC_MODEL")
+        if model:
+            provider.model = model
+        return provider
+    raise ValueError(f"Unsupported semantic provider: {provider_name}")
+
+
+def run_semantic_review_or_exit(project_root: Path) -> dict:
+    try:
+        provider = semantic_provider_from_env()
+        report = run_semantic_review(project_root, provider=provider)
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]Semantic review failed:[/red] {exc}")
+        raise typer.Exit(1) from exc
+    console.print(
+        "[green]✓ Semantic review:[/green] "
+        f"{report['candidates_total']} candidates, "
+        f"{report['source_backed_total']} source-backed"
+    )
+    return report
+
+
 def find_stale_positioning_claims(project_root: Path) -> list[dict[str, object]]:
     """Find launch-positioning claims that conflict with the WAKE.md framing."""
     if project_root.is_symlink():
@@ -480,7 +524,9 @@ def init(
 
 @app.command()
 def compile(
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed output")
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed output"),
+    semantic: bool = typer.Option(False, "--semantic", help="Extract semantic review candidates"),
+    review: bool = typer.Option(False, "--review", help="Write semantic candidates for review"),
 ):
     """Compile sources → state.json + WAKE.md + signed receipt.
     
@@ -598,6 +644,12 @@ def compile(
     else:
         console.print(f"[green]✓ Compiled:[/green] {len(state.claims)} claims from {len(state.sources)} sources")
         console.print(f"[green]✓ Receipt:[/green] {receipt['receipt_id']}")
+
+    if semantic:
+        if not review:
+            console.print("[red]Semantic compile is review-gated. Pass --review.[/red]")
+            raise typer.Exit(2)
+        run_semantic_review_or_exit(project_root)
 
 
 @app.command()
@@ -868,6 +920,8 @@ def wake(
         "--private",
         help="Keep the compiled WAKE.md inside .morpheus/ instead of writing root WAKE.md",
     ),
+    semantic: bool = typer.Option(False, "--semantic", help="Extract semantic review candidates"),
+    review: bool = typer.Option(False, "--review", help="Write semantic candidates for review"),
 ):
     """Print WAKE.md, or run the one-command project wake flow."""
     if project is not None:
@@ -880,7 +934,7 @@ def wake(
             os.chdir(project_root)
             if initialized:
                 console.print("[green]✓ Initialized .morpheus/[/green]")
-            compile(verbose=False)
+            compile(verbose=False, semantic=semantic, review=review)
             verify(all=True)
 
             if private:
@@ -916,6 +970,113 @@ def wake(
         console.print(f"[red]WAKE.md unreadable:[/red] {exc}")
         raise typer.Exit(1) from exc
     console.out(content, end="")
+
+
+@review_app.command("list")
+def review_list(
+    kind: str | None = typer.Option(None, "--kind", help="Filter by candidate kind"),
+    label: str | None = typer.Option(None, "--label", help="Filter by candidate label"),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON"),
+):
+    """List semantic candidates waiting in the review store."""
+    candidates = ReviewStore(Path.cwd()).load_candidates()
+    if kind:
+        candidates = [candidate for candidate in candidates if candidate.kind == kind]
+    if label:
+        candidates = [candidate for candidate in candidates if candidate.label == label]
+    if json_output:
+        console.out(json.dumps([candidate.model_dump(mode="json") for candidate in candidates], indent=2))
+        return
+    table = Table(title="Semantic Review Candidates")
+    table.add_column("ID", style="cyan")
+    table.add_column("Status", style="green")
+    table.add_column("Label", style="yellow")
+    table.add_column("Source")
+    table.add_column("Claim")
+    for candidate in candidates:
+        table.add_row(
+            candidate.id,
+            candidate.status,
+            candidate.label,
+            f"{candidate.source_path}:{candidate.line_start}",
+            candidate.claim,
+        )
+    console.print(table)
+
+
+@review_app.command("show")
+def review_show(candidate_id: str = typer.Argument(..., help="Candidate id")):
+    """Show one semantic candidate."""
+    for candidate in ReviewStore(Path.cwd()).load_candidates():
+        if candidate.id == candidate_id:
+            console.print(Panel.fit(
+                f"{candidate.claim}\n\n"
+                f"Source: {candidate.source_path}:{candidate.line_start}-{candidate.line_end}\n"
+                f"Kind: {candidate.kind}\n"
+                f"Label: {candidate.label}\n"
+                f"Status: {candidate.status}\n\n"
+                f"{candidate.evidence_excerpt}",
+                title=candidate.id,
+                border_style="green",
+            ))
+            return
+    console.print(f"[red]Candidate not found:[/red] {candidate_id}")
+    raise typer.Exit(1)
+
+
+@review_app.command("accept")
+def review_accept(candidate_id: str = typer.Argument(..., help="Candidate id")):
+    """Accept one semantic candidate."""
+    try:
+        candidate = ReviewStore(Path.cwd()).accept(candidate_id)
+    except KeyError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+    console.print(f"[green]✓ Accepted:[/green] {candidate.id}")
+
+
+@review_app.command("reject")
+def review_reject(
+    candidate_id: str = typer.Argument(..., help="Candidate id"),
+    reason: str = typer.Option(..., "--reason", help="Reason for rejection"),
+):
+    """Reject one semantic candidate."""
+    try:
+        candidate = ReviewStore(Path.cwd()).reject(candidate_id, reason=reason)
+    except KeyError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+    console.print(f"[green]✓ Rejected:[/green] {candidate.id}")
+
+
+@review_app.command("diff")
+def review_diff(json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON")):
+    """Summarize pending review changes."""
+    diff = ReviewStore(Path.cwd()).diff()
+    if json_output:
+        console.out(json.dumps(diff, indent=2))
+        return
+    table = Table(title="Semantic Review Diff")
+    table.add_column("Status", style="cyan")
+    table.add_column("Count", style="green")
+    for key in ["pending", "accepted", "rejected"]:
+        table.add_row(key, str(diff[key]))
+    console.print(table)
+
+
+@review_app.command("apply")
+def review_apply():
+    """Promote accepted semantic candidates into active state and sign a receipt."""
+    try:
+        result = apply_accepted_candidates(Path.cwd())
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]Review apply failed:[/red] {exc}")
+        raise typer.Exit(1) from exc
+    console.print(
+        "[green]✓ Applied semantic review:[/green] "
+        f"{result['accepted_applied']} accepted candidates"
+    )
+    console.print(f"[green]✓ Receipt:[/green] {result['receipt_id']}")
 
 
 @app.command()

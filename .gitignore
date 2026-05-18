@@ -35,6 +35,7 @@ MEMORY.md
 memory/
 AGENT_*.md
 docs/superpowers/
+.worktrees/
 *.zip
 
 # Rust and Tauri build artifacts
