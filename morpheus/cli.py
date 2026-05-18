@@ -123,6 +123,22 @@ STALE_POSITIONING_RULES = [
 ]
 
 
+@app.callback(invoke_without_command=True)
+def root(
+    ctx: typer.Context,
+    version_option: bool = typer.Option(False, "--version", help="Show morpheus version"),
+):
+    """Run morpheus commands."""
+    if version_option:
+        from morpheus import __version__
+
+        console.print(f"Morpheus AI v{__version__}")
+        raise typer.Exit()
+    if ctx.invoked_subcommand is None:
+        console.print(ctx.get_help())
+        raise typer.Exit()
+
+
 class QuietHTTPRequestHandler(SimpleHTTPRequestHandler):
     """Static file handler that keeps CLI output focused on Morpheus URLs."""
 

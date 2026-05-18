@@ -9,13 +9,15 @@
 `AGENTS.md` говорит агентам, как работать.
 `WAKE.md` говорит агентам, где проект находится сейчас.
 
-[English version](README.md)
+[English version](https://github.com/botAGI/morpheus-ai/blob/main/README.md)
 
-> Статус: v0.1.0 alpha. Компилятор, receipts, CLI, API, UI launchpad, MCP
-> endpoint, A2A-style discovery и cache-backed интеграции уже usable.
-> LoRA/training экспериментален и не является core launch path.
+> Статус: alpha. Последний опубликованный package release: v0.1.1.
+> Deterministic compiler, receipts, CLI, API, UI launchpad, MCP endpoint,
+> A2A-style discovery и cache-backed интеграции уже usable. В main есть
+> review-gated v0.2 semantic alpha. LoRA/training экспериментален и не является
+> core launch path.
 
-![Morpheus terminal demo](demo/morpheus-demo.gif)
+![Morpheus terminal demo](https://raw.githubusercontent.com/botAGI/morpheus-ai/main/demo/morpheus-demo.gif)
 
 ## Зачем
 
@@ -39,8 +41,10 @@ Morpheus - это Agent State Compiler.
 проект сейчас, и связывает это состояние с источниками, evidence и подписанными
 receipts.
 
-Этот репозиторий намеренно коммитит [WAKE.md](WAKE.md) как публичный пример.
-Приватные проекты могут хранить `WAKE.md` внутри `.morpheus/`.
+Этот репозиторий намеренно коммитит
+[WAKE.md](https://github.com/botAGI/morpheus-ai/blob/main/WAKE.md) как
+публичный пример. Приватные проекты могут хранить `WAKE.md` внутри
+`.morpheus/`.
 
 ## Быстрый Старт
 
@@ -90,7 +94,7 @@ User: Read WAKE.md. What changed yesterday?
 Agent: Morpheus moved from "memory compiler" to "Agent State Compiler".
        Outdated: LoRA as the core product path.
        Current: WAKE.md with provenance receipts.
-       Next action: start review-gated semantic compile mode and richer stale-claim detection.
+       Next action: review semantic candidates and expand richer stale-claim detection.
 ```
 
 ## Почему Не Просто Memory?
@@ -124,7 +128,7 @@ Morpheus компилирует текущее состояние проекта
 - **Integration cache readers**: GitHub, Gmail, Calendar, Slack и Linear могут
   добавлять evidence из локальных cache или token-backed adapters.
 
-## Deterministic Сейчас, Semantic Дальше
+## Deterministic Core, Semantic Alpha
 
 v0.1 намеренно deterministic. Он извлекает явные маркеры:
 
@@ -134,10 +138,19 @@ TODO: DECISION: FIXME: NOTE: HACK: XXX:
 
 Это делает receipts воспроизводимыми и простыми для проверки.
 
-Следующий режим компилятора - `--semantic`: LLM-assisted извлечение состояния из
-README, SPEC, AGENTS, changelogs, issues и notes. Semantic claims должны быть
-review-gated и помечены как `source_backed`, `inferred` или `needs_review`,
-прежде чем стать active project state.
+В main есть alpha semantic review path:
+
+```bash
+morpheus wake . --semantic --review
+morpheus review list
+morpheus review accept <candidate-id>
+morpheus review apply
+```
+
+Semantic extraction остаётся review-gated. Candidates помечаются как
+`source_backed` или `needs_review`, source spans проверяются перед apply, а
+accepted claims становятся active только после `morpheus review apply` и нового
+подписанного receipt.
 
 ## Obsidian И Личная База
 

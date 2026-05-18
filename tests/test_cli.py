@@ -41,6 +41,13 @@ def test_version_json_outputs_machine_readable_payload():
     }
 
 
+def test_root_version_option_outputs_version():
+    result = CliRunner().invoke(app, ["--version"])
+
+    assert result.exit_code == 0, result.output
+    assert "Morpheus AI v0.1.1" in result.output
+
+
 def write_out_of_filename_order_receipt_chain(morpheus_dir: Path):
     private_key_path = morpheus_dir / "keys" / "local.key"
     receipts_dir = morpheus_dir / "receipts"

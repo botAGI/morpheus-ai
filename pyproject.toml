@@ -55,7 +55,7 @@ Homepage = "https://github.com/botAGI/morpheus-ai"
 Repository = "https://github.com/botAGI/morpheus-ai"
 Issues = "https://github.com/botAGI/morpheus-ai/issues"
 Changelog = "https://github.com/botAGI/morpheus-ai/blob/main/CHANGELOG.md"
-Release = "https://github.com/botAGI/morpheus-ai/releases/tag/v0.1.0"
+Release = "https://github.com/botAGI/morpheus-ai/releases"
 
 [build-system]
 requires = ["hatchling"]

@@ -11,9 +11,10 @@
 
 [Русская версия](https://github.com/botAGI/morpheus-ai/blob/main/README.ru.md)
 
-> Status: v0.1.0 alpha. The compiler, receipts, CLI, API, UI launchpad, MCP
-> endpoint, A2A-style discovery, and cache-backed integrations are usable.
-> LoRA/training is experimental and not the core launch path.
+> Status: alpha. Latest packaged release: v0.1.1. The deterministic compiler,
+> receipts, CLI, API, UI launchpad, MCP endpoint, A2A-style discovery, and
+> cache-backed integrations are usable. Main includes review-gated v0.2 semantic
+> alpha work. LoRA/training is experimental and not the core launch path.
 
 ![Morpheus terminal demo](https://raw.githubusercontent.com/botAGI/morpheus-ai/main/demo/morpheus-demo.gif)
 
@@ -91,7 +92,7 @@ User: Read WAKE.md. What changed yesterday?
 Agent: Morpheus moved from "memory compiler" to "Agent State Compiler".
        Outdated: LoRA as the core product path.
        Current: WAKE.md with provenance receipts.
-       Next action: start review-gated semantic compile mode and richer stale-claim detection.
+       Next action: review semantic candidates and expand richer stale-claim detection.
 ```
 
 ## Why Not Just Use Memory?
@@ -125,7 +126,7 @@ Morpheus compiles the current project state.
 - **Integration cache readers**: GitHub, Gmail, Calendar, Slack, and Linear can
   contribute evidence from local caches or token-backed adapters.
 
-## Deterministic Now, Semantic Next
+## Deterministic Core, Semantic Alpha
 
 v0.1 is deterministic by design. It extracts explicit markers:
 
@@ -135,10 +136,18 @@ TODO: DECISION: FIXME: NOTE: HACK: XXX:
 
 That makes receipts reproducible and easy to verify.
 
-The next compiler mode is `--semantic`: LLM-assisted state extraction from
-README, SPEC, AGENTS, changelogs, issues, and notes. Semantic claims should be
-review-gated and labeled as `source_backed`, `inferred`, or `needs_review`
-before they become active project state.
+Main includes an alpha semantic review path:
+
+```bash
+morpheus wake . --semantic --review
+morpheus review list
+morpheus review accept <candidate-id>
+morpheus review apply
+```
+
+Semantic extraction is review-gated. Candidates are labeled as `source_backed`
+or `needs_review`, source spans are verified before apply, and accepted claims
+become active only after `morpheus review apply` signs a new receipt.
 
 ## Obsidian And Personal Notes
 

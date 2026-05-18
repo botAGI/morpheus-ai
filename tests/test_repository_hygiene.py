@@ -67,7 +67,7 @@ def test_readme_first_screen_uses_wake_framing():
 
 
 def test_readme_demo_points_to_current_launch_next_action():
-    expected = "start review-gated semantic compile mode and richer stale-claim detection"
+    expected = "review semantic candidates and expand richer stale-claim detection"
 
     for path in [Path("README.md"), Path("README.ru.md")]:
         content = path.read_text()

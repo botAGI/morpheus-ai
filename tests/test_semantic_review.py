@@ -2,12 +2,18 @@ import json
 from pathlib import Path
 
 import httpx
+import pytest
 
+from morpheus.core.config import MorpheusConfig
 from morpheus.core.providers.fake import FakeProvider
 from morpheus.core.providers.local import LocalProvider
 from morpheus.core.providers.null import NullProvider
 from morpheus.core.providers.ollama import OllamaProvider
-from morpheus.core.semantic.review import ReviewStore, run_semantic_review
+from morpheus.core.semantic.review import (
+    ReviewStore,
+    apply_accepted_candidates,
+    run_semantic_review,
+)
 from morpheus.core.semantic.scanner import scan_semantic_sources
 
 
@@ -69,6 +75,33 @@ def test_ollama_provider_extracts_candidates_from_local_generate_response(tmp_pa
     assert len(candidates) == 1
     assert candidates[0].provider == {"name": "ollama", "model": "qwen-test"}
     assert candidates[0].source_path == "README.md"
+
+
+def test_ollama_provider_caps_source_content_sent_to_local_model(tmp_path):
+    long_tail = "secret-tail-should-not-be-sent"
+    write(
+        tmp_path / "README.md",
+        "Morpheus generates WAKE.md.\n" + ("A" * 20_000) + long_tail,
+    )
+    source = scan_semantic_sources(tmp_path)[0]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        assert len(payload["prompt"]) < 15_000
+        assert long_tail not in payload["prompt"]
+        return httpx.Response(200, json={"response": json.dumps({"candidates": []})})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    provider = OllamaProvider(client=client, base_url="http://127.0.0.1:11434")
+
+    candidates = provider.extract_candidates(
+        source,
+        run_id="semrun_test",
+        prompt_sha256="1" * 64,
+        source_revision="git:unknown",
+    )
+
+    assert candidates == []
 
 
 def test_fake_provider_extracts_fixture_candidates_with_source_spans(tmp_path):
@@ -208,9 +241,6 @@ def test_review_apply_rechecks_source_spans_before_promoting(tmp_path):
     store.accept(candidate.id, reviewed_by="tester")
     write(tmp_path / "README.md", "The source changed after review.\n")
 
-    from morpheus.core.config import MorpheusConfig
-    from morpheus.core.semantic.review import apply_accepted_candidates
-
     MorpheusConfig(project_root=tmp_path).init_default()
     result = apply_accepted_candidates(tmp_path)
     updated = store.load_candidates()[0]
@@ -219,3 +249,46 @@ def test_review_apply_rechecks_source_spans_before_promoting(tmp_path):
     assert updated.status == "pending"
     assert updated.label == "needs_review"
     assert updated.review_reason == "source span changed before apply"
+
+
+def test_run_semantic_review_rejects_symlinked_review_dir_without_writing_target(tmp_path):
+    write(tmp_path / "README.md", "Morpheus generates WAKE.md for AI agents.\n")
+    outside_review = tmp_path / "outside-review"
+    outside_review.mkdir()
+    (tmp_path / ".morpheus").mkdir()
+    try:
+        (tmp_path / ".morpheus" / "review").symlink_to(
+            outside_review,
+            target_is_directory=True,
+        )
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+
+    with pytest.raises(ValueError, match="Semantic review path must not be a symlink"):
+        run_semantic_review(tmp_path, provider=FakeProvider())
+
+    assert list(outside_review.iterdir()) == []
+
+
+def test_review_apply_rejects_symlinked_state_outputs_before_writing(tmp_path):
+    write(tmp_path / "README.md", "Morpheus generates WAKE.md for AI agents.\n")
+    MorpheusConfig(project_root=tmp_path).init_default()
+    run_semantic_review(tmp_path, provider=FakeProvider())
+    store = ReviewStore(tmp_path)
+    candidate = store.load_candidates()[0]
+    store.accept(candidate.id, reviewed_by="tester")
+    outside_state = tmp_path / "outside-state.json"
+    outside_state.write_text("do not modify")
+    state_path = tmp_path / ".morpheus" / "state.json"
+    if state_path.exists():
+        state_path.unlink()
+    try:
+        state_path.symlink_to(outside_state)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+
+    with pytest.raises(ValueError, match="Semantic output path must not be a symlink"):
+        apply_accepted_candidates(tmp_path)
+
+    assert outside_state.read_text() == "do not modify"
+    assert not list((tmp_path / ".morpheus" / "receipts").glob("receipt_*.json"))

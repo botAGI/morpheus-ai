@@ -77,7 +77,7 @@ def test_distribution_name_avoids_existing_pypi_project():
             'Repository = "https://github.com/botAGI/morpheus-ai"',
             'Issues = "https://github.com/botAGI/morpheus-ai/issues"',
             'Changelog = "https://github.com/botAGI/morpheus-ai/blob/main/CHANGELOG.md"',
-            'Release = "https://github.com/botAGI/morpheus-ai/releases/tag/v0.1.0"',
+            'Release = "https://github.com/botAGI/morpheus-ai/releases"',
         ],
     )
 
@@ -185,7 +185,9 @@ def test_project_has_release_security_and_contributor_docs():
 def test_changelog_has_v011_and_v010_release_sections():
     changelog = read_project_file("CHANGELOG.md")
 
-    assert "## [Unreleased]\n\n## [0.1.1] - 2026-05-18" in changelog
+    assert "## [Unreleased]" in changelog
+    assert "Review-gated semantic compile alpha" in changelog
+    assert "## [0.1.1] - 2026-05-18" in changelog
     assert "## [0.1.0] - 2026-05-17" in changelog
     assert "### Added" in changelog
     assert "### Fixed" in changelog

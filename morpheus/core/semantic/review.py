@@ -18,6 +18,7 @@ from morpheus.core.provenance import (
     receipt_file_name,
 )
 from morpheus.core.providers.base import SemanticProvider
+from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
 from morpheus.core.semantic.models import SemanticCandidate
 from morpheus.core.semantic.scanner import scan_semantic_sources
 from morpheus.core.semantic.verifier import verify_candidate_span
@@ -32,23 +33,26 @@ SEMANTIC_PROMPT = (
 
 class ReviewStore:
     def __init__(self, project_root: Path):
-        self.project_root = project_root.resolve()
+        self.project_root = project_root.expanduser().resolve()
         self.review_dir = self.project_root / ".morpheus" / "review"
         self.candidates_path = self.review_dir / "semantic_candidates.jsonl"
         self.draft_wake_path = self.review_dir / "WAKE.draft.md"
         self.report_path = self.review_dir / "semantic_report.json"
 
     def ensure(self) -> None:
-        self.review_dir.mkdir(parents=True, exist_ok=True)
+        _ensure_safe_directory(self.project_root / ".morpheus", ".morpheus path")
+        _ensure_safe_directory(self.review_dir, "Semantic review path")
 
     def save_candidates(self, candidates: list[SemanticCandidate]) -> None:
         self.ensure()
+        _reject_review_output(self.candidates_path)
         self.candidates_path.write_text(
             "\n".join(candidate.model_dump_json() for candidate in candidates)
             + ("\n" if candidates else "")
         )
 
     def load_candidates(self) -> list[SemanticCandidate]:
+        _reject_review_read_path(self.candidates_path)
         if not self.candidates_path.is_file():
             return []
         return [
@@ -59,10 +63,12 @@ class ReviewStore:
 
     def write_report(self, report: dict) -> None:
         self.ensure()
+        _reject_review_output(self.report_path)
         self.report_path.write_text(json.dumps(report, indent=2, default=str))
 
     def write_draft_wake(self, candidates: list[SemanticCandidate], report: dict) -> None:
         self.ensure()
+        _reject_review_output(self.draft_wake_path)
         self.draft_wake_path.write_text(render_wake_draft(candidates, report))
 
     def accept(self, candidate_id: str, *, reviewed_by: str = "local") -> SemanticCandidate:
@@ -106,7 +112,7 @@ class ReviewStore:
 
 
 def run_semantic_review(project_root: Path, *, provider: SemanticProvider) -> dict:
-    project_root = project_root.resolve()
+    project_root = _safe_project_root(project_root)
     store = ReviewStore(project_root)
     run_id = f"semrun_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
     prompt_sha256 = hashlib.sha256(SEMANTIC_PROMPT.encode()).hexdigest()
@@ -197,7 +203,7 @@ def render_wake_draft(candidates: list[SemanticCandidate], report: dict) -> str:
 
 def apply_accepted_candidates(project_root: Path) -> dict:
     """Promote accepted semantic candidates into active state and sign a receipt."""
-    project_root = project_root.resolve()
+    project_root = _safe_project_root(project_root)
     morpheus_dir = project_root / ".morpheus"
     store = ReviewStore(project_root)
     candidates = store.load_candidates()
@@ -267,7 +273,8 @@ def apply_accepted_candidates(project_root: Path) -> dict:
 
 def _write_state_receipt(project_root: Path, morpheus_dir: Path, state) -> dict:
     receipts_dir = morpheus_dir / "receipts"
-    receipts_dir.mkdir(parents=True, exist_ok=True)
+    _ensure_safe_directory(morpheus_dir, ".morpheus path")
+    _ensure_safe_directory(receipts_dir, "receipts path")
     prev_hash = None
     latest = latest_receipt_file(receipts_dir)
     if latest:
@@ -302,15 +309,60 @@ def _write_state_receipt(project_root: Path, morpheus_dir: Path, state) -> dict:
         state_json_sha=state_json_sha,
         evidence_jsonl_sha=evidence_jsonl_sha,
     )
-    (morpheus_dir / "WAKE.md").write_text(wake_md)
-    (morpheus_dir / "state.json").write_text(state_json)
-    (morpheus_dir / "evidence.jsonl").write_bytes(evidence_jsonl)
-    (receipts_dir / receipt_file_name(receipt["receipt_id"])).write_text(
-        json.dumps(receipt, indent=2, default=str)
+    wake_path = morpheus_dir / "WAKE.md"
+    state_path = morpheus_dir / "state.json"
+    evidence_path = morpheus_dir / "evidence.jsonl"
+    receipt_path = receipts_dir / receipt_file_name(receipt["receipt_id"])
+    audit_log = receipts_dir / "audit.log"
+    _reject_semantic_output_paths(
+        [wake_path, state_path, evidence_path, receipt_path, audit_log]
     )
-    with (receipts_dir / "audit.log").open("a") as file:
+
+    wake_path.write_text(wake_md)
+    state_path.write_text(state_json)
+    evidence_path.write_bytes(evidence_jsonl)
+    receipt_path.write_text(json.dumps(receipt, indent=2, default=str))
+    with audit_log.open("a") as file:
         file.write(f"{receipt['issued_at']} {receipt['receipt_id']}\n")
     return receipt
+
+
+def _safe_project_root(project_root: Path) -> Path:
+    project_root = project_root.expanduser()
+    if project_root.is_symlink():
+        raise ValueError(f"Project root must not be a symlink: {project_root}")
+    reject_symlink_components(project_root, "Project root")
+    return project_root.resolve()
+
+
+def _ensure_safe_directory(path: Path, label: str) -> None:
+    if path.is_symlink():
+        raise ValueError(f"{label} must not be a symlink: {path}")
+    reject_symlink_components(path, label)
+    if path.exists() and not path.is_dir():
+        raise ValueError(f"{label} is not a directory: {path}")
+    path.mkdir(exist_ok=True)
+    if path.is_symlink():
+        raise ValueError(f"{label} must not be a symlink: {path}")
+    reject_symlink_components(path, label)
+
+
+def _reject_review_output(path: Path) -> None:
+    reject_symlink_paths([path], "Semantic review output")
+    reject_symlink_components(path, "Semantic review output")
+    if path.exists() and not path.is_file():
+        raise ValueError(f"Semantic review output is not a file: {path}")
+
+
+def _reject_review_read_path(path: Path) -> None:
+    reject_symlink_paths([path], "Semantic review path")
+    reject_symlink_components(path, "Semantic review path")
+
+
+def _reject_semantic_output_paths(paths: list[Path]) -> None:
+    reject_symlink_paths(paths, "Semantic output path")
+    for path in paths:
+        reject_symlink_components(path, "Semantic output path")
 
 
 def _claim_category(kind: str) -> str:

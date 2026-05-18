@@ -112,7 +112,7 @@ morpheus-ai/
 
 **Compiled:** 2026-05-17T17:16:59Z
 **Receipt:** rcpt_20260517T171659Z_da4bf751
-**Morpheus:** v0.1.0
+**Morpheus:** v0.1.1
 
 ---
 
@@ -122,7 +122,7 @@ morpheus-ai/
 - DECISION: The public primitive is WAKE.md. *(src:src_001:12)*
 
 ### Open Tasks
-- TODO: Add semantic compile mode. *(src:src_002:8)*
+- TODO: Expand richer stale-claim detection. *(src:src_002:8)*
 
 ## Source References
 - src_001: `SPEC.md`
@@ -288,6 +288,6 @@ Local tokens and caches should stay outside the repository by default.
 - [x] `morpheus verify --all` validates receipt chain and artifacts.
 - [x] UI exposes setup, diagnostics, integrations, FAQ, MCP probe, and handoff.
 - [x] Public hygiene tests reject local assistant artifacts.
-- [ ] Semantic compiler mode is implemented and review-gated.
-- [ ] Before/after visual demo or GIF is published.
-- [ ] First GitHub release is cut.
+- [x] Semantic compiler mode is implemented and review-gated in v0.2 alpha.
+- [x] Before/after visual demo or GIF is published.
+- [x] First GitHub release is cut.

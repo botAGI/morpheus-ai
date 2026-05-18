@@ -4,6 +4,22 @@ All notable changes to Morpheus will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Review-gated semantic compile alpha for `morpheus compile --semantic --review`
+  and `morpheus wake . --semantic --review`.
+- Semantic review CLI for listing, accepting, rejecting, diffing, and applying
+  source-backed candidates.
+- Local, fake, null, and explicit local Ollama semantic providers.
+
+### Fixed
+
+- Hardened semantic review outputs and apply receipts against symlinked paths.
+- Capped local Ollama semantic prompt source content before sending it to the
+  local model endpoint.
+- Added root `morpheus --version` support.
+- Updated public docs and package URLs so main no longer reads like v0.1.0.
+
 ## [0.1.1] - 2026-05-18
 
 ### Fixed
