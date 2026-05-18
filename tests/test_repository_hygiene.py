@@ -118,6 +118,18 @@ def test_spec_headings_are_v02a1_current():
     assert "Planned Semantic Compiler" not in spec
 
 
+def test_public_docs_name_mcp_truth_tools():
+    required_tools = [
+        "morpheus_check_text",
+        "morpheus_get_active_state",
+        "morpheus_get_evidence_for_claim",
+        "morpheus_get_wake",
+    ]
+    for path in [Path("README.md"), Path("README.ru.md"), Path("SPEC.md")]:
+        content = path.read_text()
+        assert all(tool in content for tool in required_tools)
+
+
 def test_agents_bootstrap_uses_localhost_by_default():
     agents = Path("AGENTS.md").read_text()
 

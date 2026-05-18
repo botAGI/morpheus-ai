@@ -228,7 +228,19 @@ def test_mcp_tools_list_exposes_morpheus_tools():
         "morpheus_diagnostics",
         "morpheus_integrations",
         "morpheus_model_smoke",
+        "morpheus_check_text",
+        "morpheus_get_active_state",
+        "morpheus_get_evidence_for_claim",
+        "morpheus_get_wake",
     }
+
+
+def mcp_text_payload(response) -> dict:
+    payload = response.json()
+    assert payload["result"]["isError"] is False
+    content = payload["result"]["content"]
+    assert content[0]["type"] == "text"
+    return json.loads(content[0]["text"])
 
 
 def test_mcp_tools_call_returns_integration_manifest():
@@ -251,6 +263,128 @@ def test_mcp_tools_call_returns_integration_manifest():
     content = payload["result"]["content"]
     assert content[0]["type"] == "text"
     assert '"services"' in content[0]["text"]
+
+
+def test_mcp_truth_tools_check_text_and_get_state(tmp_path):
+    MorpheusConfig(project_root=tmp_path).init_default()
+    (tmp_path / "README.md").write_text(
+        "# Demo\nDECISION: Morpheus is the Agent State Compiler.\n"
+    )
+    client = api_client(raise_server_exceptions=False)
+    compile_response = client.post("/compile", json={"project_root": str(tmp_path)})
+    assert compile_response.status_code == 200
+
+    check_response = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": "check",
+            "method": "tools/call",
+            "params": {
+                "name": "morpheus_check_text",
+                "arguments": {
+                    "project_root": str(tmp_path),
+                    "text": "Morpheus is the Agent State Compiler.",
+                },
+            },
+        },
+    )
+    state_response = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": "state",
+            "method": "tools/call",
+            "params": {
+                "name": "morpheus_get_active_state",
+                "arguments": {"project_root": str(tmp_path)},
+            },
+        },
+    )
+
+    assert check_response.status_code == 200
+    check_payload = mcp_text_payload(check_response)
+    assert check_payload["modes_used"] == ["local"]
+    assert check_payload["claims_supported"] == 1
+    assert check_payload["claims_contradicted"] == 0
+    assert check_payload["results"][0]["status"] == "verified"
+    assert state_response.status_code == 200
+    state_payload = mcp_text_payload(state_response)
+    assert state_payload["project_root"] == str(tmp_path)
+    assert state_payload["claims_count"] == 1
+    assert state_payload["active_claims"][0]["id"] == "clm_0001"
+    assert state_payload["active_claims"][0]["evidence"]["path"] == "README.md"
+
+
+def test_mcp_truth_tools_get_evidence_and_wake(tmp_path):
+    MorpheusConfig(project_root=tmp_path).init_default()
+    (tmp_path / "README.md").write_text(
+        "# Demo\nDECISION: Morpheus is the Agent State Compiler.\n"
+    )
+    client = api_client(raise_server_exceptions=False)
+    compile_response = client.post("/compile", json={"project_root": str(tmp_path)})
+    assert compile_response.status_code == 200
+
+    evidence_response = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": "evidence",
+            "method": "tools/call",
+            "params": {
+                "name": "morpheus_get_evidence_for_claim",
+                "arguments": {
+                    "project_root": str(tmp_path),
+                    "claim": "Morpheus is the Agent State Compiler.",
+                },
+            },
+        },
+    )
+    wake_response = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": "wake",
+            "method": "tools/call",
+            "params": {
+                "name": "morpheus_get_wake",
+                "arguments": {"project_root": str(tmp_path)},
+            },
+        },
+    )
+
+    assert evidence_response.status_code == 200
+    evidence_payload = mcp_text_payload(evidence_response)
+    assert evidence_payload["match_count"] == 1
+    assert evidence_payload["matches"][0]["claim_id"] == "clm_0001"
+    assert evidence_payload["matches"][0]["evidence"]["path"] == "README.md"
+    assert wake_response.status_code == 200
+    wake_payload = mcp_text_payload(wake_response)
+    assert wake_payload["project_root"] == str(tmp_path)
+    assert wake_payload["path"] == ".morpheus/WAKE.md"
+    assert "Morpheus is the Agent State Compiler" in wake_payload["wake_md"]
+
+
+def test_mcp_check_text_requires_non_empty_text(tmp_path):
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": "missing-text",
+            "method": "tools/call",
+            "params": {
+                "name": "morpheus_check_text",
+                "arguments": {"project_root": str(tmp_path), "text": "   "},
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["error"]["code"] == -32602
+    assert payload["error"]["message"] == "morpheus_check_text requires non-empty text"
 
 
 def test_mcp_model_smoke_tool_uses_eval_query(monkeypatch):

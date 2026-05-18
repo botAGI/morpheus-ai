@@ -85,7 +85,7 @@ and user-controlled state export.
 │  - CLI handoff                                       │
 │  - HTTP /agent/connect                               │
 │  - A2A-style Agent Card                              │
-│  - MCP Streamable HTTP endpoint                      │
+│  - MCP truth tools over Streamable HTTP              │
 ├──────────────────────────────────────────────────────┤
 │  Optional Surfaces                                   │
 │  - Browser UI launchpad                              │
@@ -312,6 +312,9 @@ Local tokens and caches should stay outside the repository by default.
   paths, and sensitive state files.
 - MCP and A2A-style endpoints are automation surfaces and should be exposed only
   in trusted environments.
+- MCP truth tools are local and read-only by default:
+  `morpheus_check_text`, `morpheus_get_active_state`,
+  `morpheus_get_evidence_for_claim`, and `morpheus_get_wake`.
 
 ## 12. Launch Acceptance Criteria
 

@@ -1,8 +1,10 @@
 """
 Morpheus API Server
 """
+from difflib import SequenceMatcher
 import json
 import os
+import re
 import shlex
 from pathlib import Path
 from typing import Optional
@@ -56,6 +58,7 @@ except ModuleNotFoundError:
         pass
 
 from morpheus.core.config import MorpheusConfig
+from morpheus.core.check import check_text
 from morpheus.core.compiler import compile_project
 from morpheus.core.wake import generate_wake_md
 from morpheus.core.provenance import (
@@ -148,6 +151,8 @@ DEFAULT_MODEL_SMOKE_PROMPT = (
     "Reply with one short sentence confirming Morpheus model smoke test is working."
 )
 MCP_PROTOCOL_VERSION = "2025-11-25"
+TRUTH_WORD_RE = re.compile(r"[a-z0-9][a-z0-9_.-]*")
+TRUTH_MARKER_RE = re.compile(r"^(TODO|DECISION|FIXME|NOTE|HACK|XXX):\s*", re.IGNORECASE)
 
 
 def latest_receipt_or_http_error(receipts_dir: Path) -> Path | None:
@@ -168,6 +173,27 @@ def load_json_object_or_http_error(path: Path, label: str) -> dict:
     if not isinstance(data, dict):
         raise HTTPException(status_code=400, detail=f"{label} invalid: expected JSON object")
     return data
+
+
+def load_jsonl_rows_or_value_error(path: Path, label: str) -> list[dict]:
+    """Load local JSONL rows for MCP truth tools."""
+    try:
+        reject_symlink_paths([path], label)
+        reject_symlink_components(path, label)
+        lines = path.read_text().splitlines()
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"{label} invalid: {exc}") from exc
+    rows = []
+    for line_number, line in enumerate(lines, 1):
+        if not line.strip():
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"{label}:{line_number} invalid JSON: {exc.msg}") from exc
+        if isinstance(payload, dict):
+            rows.append(payload)
+    return rows
 
 
 def _list_count(value) -> int:
@@ -749,6 +775,38 @@ def mcp_tool_definitions() -> list[dict]:
         },
         "additionalProperties": False,
     }
+    check_text_schema = {
+        "type": "object",
+        "properties": {
+            "project_root": project_root_schema["properties"]["project_root"],
+            "text": {
+                "type": "string",
+                "description": "Agent-written project claim text to verify locally.",
+            },
+            "fail_on_unknown": {
+                "type": "boolean",
+                "description": "Treat unknown claims as failures in the returned payload.",
+                "default": False,
+            },
+        },
+        "required": ["text"],
+        "additionalProperties": False,
+    }
+    evidence_schema = {
+        "type": "object",
+        "properties": {
+            "project_root": project_root_schema["properties"]["project_root"],
+            "claim": {
+                "type": "string",
+                "description": "Claim text to match against active source-backed state.",
+            },
+            "claim_id": {
+                "type": "string",
+                "description": "Exact Morpheus claim id such as clm_0001.",
+            },
+        },
+        "additionalProperties": False,
+    }
     return [
         {
             "name": "morpheus_status",
@@ -789,6 +847,30 @@ def mcp_tool_definitions() -> list[dict]:
                 "additionalProperties": False,
             },
         },
+        {
+            "name": "morpheus_check_text",
+            "title": "Morpheus Check Text",
+            "description": "Verify agent text against local source-backed project state.",
+            "inputSchema": check_text_schema,
+        },
+        {
+            "name": "morpheus_get_active_state",
+            "title": "Morpheus Active State",
+            "description": "Return active source-backed claims and evidence spans.",
+            "inputSchema": project_root_schema,
+        },
+        {
+            "name": "morpheus_get_evidence_for_claim",
+            "title": "Morpheus Evidence For Claim",
+            "description": "Return source evidence spans for a claim id or claim text.",
+            "inputSchema": evidence_schema,
+        },
+        {
+            "name": "morpheus_get_wake",
+            "title": "Morpheus WAKE.md",
+            "description": "Return the compiled local WAKE.md state artifact.",
+            "inputSchema": project_root_schema,
+        },
     ]
 
 
@@ -821,6 +903,160 @@ def mcp_project_root(arguments: dict) -> Path:
     return Path(value) if value else Path.cwd()
 
 
+def mcp_truth_paths(project_root: Path) -> dict[str, Path]:
+    if not _is_real_directory(project_root):
+        raise ValueError("Project root is missing or unsafe")
+    morpheus_dir = project_root / ".morpheus"
+    if not _is_real_directory(morpheus_dir):
+        raise ValueError("Morpheus state not found. Run: morpheus wake .")
+    return {
+        "morpheus_dir": morpheus_dir,
+        "state": morpheus_dir / "state.json",
+        "evidence": morpheus_dir / "evidence.jsonl",
+        "wake": morpheus_dir / "WAKE.md",
+    }
+
+
+def mcp_load_truth_state(project_root: Path) -> tuple[dict, list[dict]]:
+    paths = mcp_truth_paths(project_root)
+    try:
+        state = load_json_object_or_http_error(paths["state"], "state.json")
+    except HTTPException as exc:
+        raise ValueError(str(exc.detail)) from exc
+    evidence_rows = load_jsonl_rows_or_value_error(paths["evidence"], "evidence.jsonl")
+    return state, evidence_rows
+
+
+def mcp_claim_text(claim: dict) -> str:
+    return TRUTH_MARKER_RE.sub("", str(claim.get("excerpt") or "")).strip()
+
+
+def mcp_evidence_span(evidence: dict | None) -> dict | None:
+    if not evidence:
+        return None
+    line_start = int(evidence.get("line_start") or 1)
+    return {
+        "path": str(evidence.get("path") or "evidence.jsonl"),
+        "line_start": line_start,
+        "line_end": int(evidence.get("line_end") or line_start),
+        "excerpt": str(evidence.get("excerpt") or ""),
+        "claim_id": str(evidence.get("claim_id") or ""),
+        "source_sha256": evidence.get("source_sha256"),
+        "excerpt_sha256": evidence.get("excerpt_sha256"),
+    }
+
+
+def mcp_active_claims(project_root: Path) -> list[dict]:
+    state, evidence_rows = mcp_load_truth_state(project_root)
+    evidence_by_claim = {
+        str(row.get("claim_id")): row
+        for row in evidence_rows
+        if isinstance(row, dict) and row.get("claim_id")
+    }
+    active_claims = []
+    for claim in state.get("claims", []):
+        if not isinstance(claim, dict):
+            continue
+        if claim.get("category") == "outdated" or claim.get("status") in {"outdated", "superseded"}:
+            continue
+        if claim.get("status", "active") != "active":
+            continue
+        claim_id = str(claim.get("id") or "")
+        evidence = mcp_evidence_span(evidence_by_claim.get(claim_id))
+        active_claims.append({
+            "id": claim_id,
+            "claim_id": claim_id,
+            "text": mcp_claim_text(claim),
+            "status": claim.get("status", "active"),
+            "category": claim.get("category"),
+            "source_id": claim.get("source_id"),
+            "line_start": claim.get("line_start"),
+            "line_end": claim.get("line_end"),
+            "evidence": evidence,
+        })
+    return active_claims
+
+
+def mcp_normalize_claim(text: str) -> str:
+    text = TRUTH_MARKER_RE.sub("", text).casefold()
+    return " ".join(TRUTH_WORD_RE.findall(text))
+
+
+def mcp_claim_score(query: str, candidate: str) -> float:
+    query_norm = mcp_normalize_claim(query)
+    candidate_norm = mcp_normalize_claim(candidate)
+    if not query_norm or not candidate_norm:
+        return 0.0
+    if query_norm in candidate_norm or candidate_norm in query_norm:
+        return 1.0
+    query_tokens = set(query_norm.split())
+    candidate_tokens = set(candidate_norm.split())
+    token_score = 0.0
+    if query_tokens and candidate_tokens:
+        token_score = len(query_tokens & candidate_tokens) / len(query_tokens | candidate_tokens)
+    return max(SequenceMatcher(None, query_norm, candidate_norm).ratio(), token_score)
+
+
+def mcp_check_text_payload(arguments: dict) -> dict:
+    text = str(arguments.get("text") or "").strip()
+    if not text:
+        raise ValueError("morpheus_check_text requires non-empty text")
+    return check_text(
+        text,
+        project_root=mcp_project_root(arguments),
+        fail_on_unknown=bool(arguments.get("fail_on_unknown", False)),
+    )
+
+
+def mcp_active_state_payload(project_root: Path) -> dict:
+    state, _evidence_rows = mcp_load_truth_state(project_root)
+    claims = mcp_active_claims(project_root)
+    return {
+        "project_root": str(project_root),
+        "receipt_id": state.get("receipt_id"),
+        "compiled_at": state.get("compiled_at"),
+        "claims_count": len(claims),
+        "active_claims": claims,
+    }
+
+
+def mcp_evidence_for_claim_payload(arguments: dict) -> dict:
+    project_root = mcp_project_root(arguments)
+    claim_id = str(arguments.get("claim_id") or "").strip()
+    claim_text = str(arguments.get("claim") or "").strip()
+    if not claim_id and not claim_text:
+        raise ValueError("morpheus_get_evidence_for_claim requires claim or claim_id")
+    matches = []
+    for claim in mcp_active_claims(project_root):
+        if claim_id and claim["id"] == claim_id:
+            matches.append(claim)
+            continue
+        if claim_text and mcp_claim_score(claim_text, claim["text"]) >= 0.72:
+            matches.append(claim)
+    return {
+        "project_root": str(project_root),
+        "query": {"claim": claim_text or None, "claim_id": claim_id or None},
+        "match_count": len(matches),
+        "matches": matches,
+    }
+
+
+def mcp_wake_payload(project_root: Path) -> dict:
+    paths = mcp_truth_paths(project_root)
+    wake_path = paths["wake"]
+    try:
+        reject_symlink_paths([wake_path], "WAKE.md")
+        reject_symlink_components(wake_path, "WAKE.md")
+        wake_md = wake_path.read_text()
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"WAKE.md unreadable: {exc}") from exc
+    return {
+        "project_root": str(project_root),
+        "path": wake_path.relative_to(project_root).as_posix(),
+        "wake_md": wake_md,
+    }
+
+
 def mcp_call_tool(request: Request, name: str, arguments: dict) -> dict:
     if name == "morpheus_status":
         return mcp_tool_result(project_status_payload(mcp_project_root(arguments)))
@@ -831,6 +1067,14 @@ def mcp_call_tool(request: Request, name: str, arguments: dict) -> dict:
     if name == "morpheus_model_smoke":
         payload = model_smoke_payload(ModelSmokeRequest(**(arguments or {}))).model_dump()
         return mcp_tool_result(payload)
+    if name == "morpheus_check_text":
+        return mcp_tool_result(mcp_check_text_payload(arguments))
+    if name == "morpheus_get_active_state":
+        return mcp_tool_result(mcp_active_state_payload(mcp_project_root(arguments)))
+    if name == "morpheus_get_evidence_for_claim":
+        return mcp_tool_result(mcp_evidence_for_claim_payload(arguments))
+    if name == "morpheus_get_wake":
+        return mcp_tool_result(mcp_wake_payload(mcp_project_root(arguments)))
     raise ValueError(f"Unknown MCP tool: {name}")
 
 

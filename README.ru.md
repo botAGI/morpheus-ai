@@ -147,7 +147,7 @@ Morpheus проверяет текущие project claims перед любым 
 - **Локальный UI launchpad**: setup, context sources, diagnostics, integrations,
   model smoke tests и handoff bundles.
 - **Agent interop**: native `/agent/connect`, A2A-compatible Agent Card и
-  минимальный MCP Streamable HTTP endpoint.
+  MCP truth tools для локального claim checking и evidence lookup.
 - **Context sources**: можно компилировать проект, monorepo, workspace или vault
   с заметками.
 - **Integration cache readers**: GitHub, Gmail, Calendar, Slack и Linear могут
@@ -234,6 +234,11 @@ curl -s -X POST http://127.0.0.1:8000/mcp \
   -H 'Accept: application/json, text/event-stream' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
+
+MCP endpoint отдаёт локальные truth-layer tools: `morpheus_check_text`,
+`morpheus_get_active_state`, `morpheus_get_evidence_for_claim` и
+`morpheus_get_wake`. Эти tools читают локальное состояние Morpheus и по
+умолчанию не вызывают cloud providers.
 
 Новый агент должен:
 

@@ -147,7 +147,7 @@ Morpheus verifies current project claims before any learning experiment.
 - **Local UI launchpad**: browser UI for setup, context sources, diagnostics,
   integrations, model smoke tests, and handoff bundles.
 - **Agent interop**: native `/agent/connect`, A2A-compatible Agent Card, and
-  a minimal MCP Streamable HTTP endpoint.
+  MCP truth tools for local claim checking and evidence lookup.
 - **Context sources**: compile one project, a monorepo, a workspace, or a notes
   vault by configuring watched paths.
 - **Integration cache readers**: GitHub, Gmail, Calendar, Slack, and Linear can
@@ -233,6 +233,11 @@ curl -s -X POST http://127.0.0.1:8000/mcp \
   -H 'Accept: application/json, text/event-stream' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
+
+The MCP endpoint exposes the local truth-layer tools `morpheus_check_text`,
+`morpheus_get_active_state`, `morpheus_get_evidence_for_claim`, and
+`morpheus_get_wake`. These tools read local Morpheus state and do not call cloud
+providers by default.
 
 A new agent should:
 
