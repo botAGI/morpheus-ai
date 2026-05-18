@@ -52,10 +52,10 @@ instead of starting cold every session.
 
 ## Next Product Work
 
-- Publish v0.1.0.
-- Add review-gated semantic compilation.
-- Add richer stale-claim detection.
-- Split large CLI/API modules after launch.
+1. Review-gated semantic compilation.
+2. Richer stale-claim detection.
+3. CLI/API file split after v0.1.0.
+4. More integration examples.
 
 ## Verification
 

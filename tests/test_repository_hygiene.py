@@ -49,11 +49,11 @@ def test_root_wake_includes_source_references():
 def test_root_wake_next_work_is_launch_ordered():
     wake = Path("WAKE.md").read_text()
 
-    release = wake.index("- Publish v0.1.0.")
-    semantic = wake.index("- Add review-gated semantic compilation.")
-    stale = wake.index("- Add richer stale-claim detection.")
-    split = wake.index("- Split large CLI/API modules after launch.")
-    assert release < semantic < stale < split
+    semantic = wake.index("1. Review-gated semantic compilation.")
+    stale = wake.index("2. Richer stale-claim detection.")
+    split = wake.index("3. CLI/API file split after v0.1.0.")
+    integrations = wake.index("4. More integration examples.")
+    assert semantic < stale < split < integrations
 
 
 def test_readme_first_screen_uses_wake_framing():
@@ -67,11 +67,12 @@ def test_readme_first_screen_uses_wake_framing():
 
 
 def test_readme_demo_points_to_current_launch_next_action():
-    expected = "publish v0.1.0, then start semantic compile mode"
+    expected = "start review-gated semantic compile mode and richer stale-claim detection"
 
     for path in [Path("README.md"), Path("README.ru.md")]:
         content = path.read_text()
         assert expected in content
+        assert "publish v0.1.0, then start semantic compile mode" not in content
         assert "publish v0.1.0, add the visual demo" not in content
         assert "update README, SPEC, and public repo metadata" not in content
 

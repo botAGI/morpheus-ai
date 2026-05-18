@@ -11,9 +11,9 @@
 
 [English version](README.md)
 
-> Статус: alpha. Компилятор, receipts, CLI, API, UI launchpad, MCP endpoint,
-> A2A-style discovery и cache-backed интеграции уже usable. LoRA/training
-> экспериментален и не является core launch path.
+> Статус: v0.1.0 alpha. Компилятор, receipts, CLI, API, UI launchpad, MCP
+> endpoint, A2A-style discovery и cache-backed интеграции уже usable.
+> LoRA/training экспериментален и не является core launch path.
 
 ![Morpheus terminal demo](demo/morpheus-demo.gif)
 
@@ -44,7 +44,7 @@ receipts.
 
 ## Быстрый Старт
 
-После первого PyPI release:
+Установка:
 
 ```bash
 uvx --from morpheus-wake morpheus wake .
@@ -90,7 +90,7 @@ User: Read WAKE.md. What changed yesterday?
 Agent: Morpheus moved from "memory compiler" to "Agent State Compiler".
        Outdated: LoRA as the core product path.
        Current: WAKE.md with provenance receipts.
-       Next action: publish v0.1.0, then start semantic compile mode.
+       Next action: start review-gated semantic compile mode and richer stale-claim detection.
 ```
 
 ## Почему Не Просто Memory?
