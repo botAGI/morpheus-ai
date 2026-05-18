@@ -5,10 +5,33 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from morpheus.cli import app
+from morpheus.cli import semantic_provider_from_env
+from morpheus.core.providers.local import LocalProvider
+from morpheus.core.providers.null import NullProvider
 from morpheus.core.semantic.review import ReviewStore
 
 
 PROMPT_SHA = "b" * 64
+
+
+def test_semantic_provider_default_is_offline_local(monkeypatch):
+    monkeypatch.delenv("MORPHEUS_SEMANTIC_PROVIDER", raising=False)
+
+    provider = semantic_provider_from_env()
+
+    assert isinstance(provider, LocalProvider)
+    assert provider.name == "local"
+    assert provider.model == "heuristic"
+
+
+def test_semantic_provider_null_env_is_explicit_noop(monkeypatch):
+    monkeypatch.setenv("MORPHEUS_SEMANTIC_PROVIDER", "null")
+
+    provider = semantic_provider_from_env()
+
+    assert isinstance(provider, NullProvider)
+    assert provider.name == "null"
+    assert provider.model == "none"
 
 
 def write_candidate_fixture(project_root: Path) -> list[dict]:
@@ -120,11 +143,36 @@ def test_compile_semantic_review_writes_review_artifacts(tmp_path):
         assert init_result.exit_code == 0, init_result.output
         assert result.exit_code == 0, result.output
         assert "Semantic review" in result.output
+        assert "Semantic provider: local (offline heuristic)" in result.output
         assert Path(".morpheus/review/semantic_candidates.jsonl").is_file()
         assert Path(".morpheus/review/WAKE.draft.md").is_file()
         report = json.loads(Path(".morpheus/review/semantic_report.json").read_text())
         assert report["candidates_total"] == 2
         assert report["source_backed_total"] == 2
+
+
+def test_compile_semantic_review_with_null_provider_writes_zero_candidates(tmp_path):
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        Path("README.md").write_text(
+            "Morpheus generates WAKE.md for AI agents.\n"
+            "DECISION: Keep semantic compilation review-gated.\n"
+        )
+
+        init_result = runner.invoke(app, ["init"])
+        result = runner.invoke(
+            app,
+            ["compile", "--semantic", "--review"],
+            env={"MORPHEUS_SEMANTIC_PROVIDER": "null"},
+        )
+
+        assert init_result.exit_code == 0, init_result.output
+        assert result.exit_code == 0, result.output
+        assert "Semantic provider: null (no-op)" in result.output
+        report = json.loads(Path(".morpheus/review/semantic_report.json").read_text())
+        assert report["provider"] == {"name": "null", "model": "none"}
+        assert report["candidates_total"] == 0
+        assert report["source_backed_total"] == 0
 
 
 def test_wake_semantic_review_runs_one_command_flow(tmp_path):

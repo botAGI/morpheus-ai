@@ -313,9 +313,10 @@ morpheus compile
 | `morpheus agent-connect --json` | Напечатать machine-readable agent manifest |
 | `morpheus serve --ui` | Запустить FastAPI backend и browser UI |
 
-Default semantic alpha provider - локальный/offline heuristic extraction. Он
-никогда не вызывает cloud providers, если пользователь явно не настроил
-provider.
+Semantic provider modes явные. `MORPHEUS_SEMANTIC_PROVIDER=local` - default
+offline heuristic provider, `MORPHEUS_SEMANTIC_PROVIDER=null` - no-op review
+run, а `MORPHEUS_SEMANTIC_PROVIDER=ollama` - явный opt-in в локальную модель.
+Cloud providers по умолчанию никогда не вызываются.
 
 ## Разработка
 

@@ -173,9 +173,11 @@ with one of these labels:
 
 Only reviewed claims should become active state.
 
-The default semantic alpha provider is local/offline heuristic extraction. It is
-safe for deterministic dogfood and never calls cloud providers unless the user
-explicitly configures a provider such as Ollama or a future cloud backend.
+Semantic provider modes are explicit. `MORPHEUS_SEMANTIC_PROVIDER=local` is the
+default offline heuristic provider for deterministic dogfood,
+`MORPHEUS_SEMANTIC_PROVIDER=null` is a no-op review run, and
+`MORPHEUS_SEMANTIC_PROVIDER=ollama` is an explicit local model opt-in. No cloud
+provider may be called unless the user explicitly configures one.
 
 ## 8. CLI Commands
 

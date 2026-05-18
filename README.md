@@ -316,8 +316,10 @@ morpheus compile
 | `morpheus model-smoke` | Smoke-test a local Ollama model |
 | `morpheus serve --ui` | Run FastAPI backend and browser UI |
 
-The default semantic alpha provider is local/offline heuristic extraction. It
-never calls cloud providers unless the user explicitly configures a provider.
+Semantic provider modes are explicit. `MORPHEUS_SEMANTIC_PROVIDER=local` is the
+default offline heuristic provider, `MORPHEUS_SEMANTIC_PROVIDER=null` is a no-op
+review run, and `MORPHEUS_SEMANTIC_PROVIDER=ollama` is an explicit local model
+opt-in. Cloud providers are never called by default.
 
 ## Development
 

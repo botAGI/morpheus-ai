@@ -424,9 +424,22 @@ def semantic_provider_from_env():
     raise ValueError(f"Unsupported semantic provider: {provider_name}")
 
 
+def semantic_provider_display(provider) -> str:
+    if isinstance(provider, LocalProvider):
+        return "local (offline heuristic)"
+    if isinstance(provider, NullProvider):
+        return "null (no-op)"
+    if isinstance(provider, FakeProvider):
+        return "fake (test fixture)"
+    if isinstance(provider, OllamaProvider):
+        return f"ollama (explicit local model: {provider.model})"
+    return f"{provider.name} ({provider.model})"
+
+
 def run_semantic_review_or_exit(project_root: Path) -> dict:
     try:
         provider = semantic_provider_from_env()
+        console.print(f"[blue]Semantic provider:[/blue] {semantic_provider_display(provider)}")
         report = run_semantic_review(project_root, provider=provider)
     except (OSError, ValueError) as exc:
         console.print(f"[red]Semantic review failed:[/red] {exc}")

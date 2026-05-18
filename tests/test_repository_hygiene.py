@@ -130,6 +130,20 @@ def test_public_docs_name_mcp_truth_tools():
         assert all(tool in content for tool in required_tools)
 
 
+def test_public_docs_explain_semantic_provider_modes():
+    required = [
+        "MORPHEUS_SEMANTIC_PROVIDER",
+        "local",
+        "null",
+        "ollama",
+        "offline",
+        "cloud",
+    ]
+    for path in [Path("README.md"), Path("README.ru.md"), Path("SPEC.md")]:
+        content = path.read_text()
+        assert all(term in content for term in required)
+
+
 def test_agents_bootstrap_uses_localhost_by_default():
     agents = Path("AGENTS.md").read_text()
 
