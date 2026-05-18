@@ -913,7 +913,8 @@ def morpheus_agent_section_current(existing: str) -> bool:
         "morpheus handoff",
         "morpheus agent-connect --json",
         "morpheus diagnostics --json",
-        "morpheus serve --ui --host 0.0.0.0 --port 8000 --ui-port 5173",
+        "morpheus serve --ui --host 127.0.0.1 --port 8000 --ui-port 5173",
+        "Use `0.0.0.0` only for explicit user-approved trusted LAN testing",
         "Run compile and verify after meaningful changes",
     ]
     return all(snippet in existing for snippet in required)
@@ -1211,7 +1212,9 @@ def morpheus_agent_section(request: Request, project_root: Path) -> str:
         "- Read `WAKE.md` before edits.",
         "- Run compile and verify after meaningful changes.",
         "- If the API/UI are unavailable, start them with "
-        "`morpheus serve --ui --host 0.0.0.0 --port 8000 --ui-port 5173`.",
+        "`morpheus serve --ui --host 127.0.0.1 --port 8000 --ui-port 5173`.",
+        "- Use `0.0.0.0` only for explicit user-approved trusted LAN testing or "
+        "authenticated proxy environments.",
         "",
         "Agent sequence:",
         "",

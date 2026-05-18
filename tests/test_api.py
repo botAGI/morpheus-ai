@@ -731,7 +731,9 @@ def test_diagnostics_agent_bootstrap_is_not_tied_to_request_host(tmp_path):
         "- Read `WAKE.md` before edits.\n"
         "- Run compile and verify after meaningful changes.\n"
         "- If the API/UI are unavailable, start them with "
-        "`morpheus serve --ui --host 0.0.0.0 --port 8000 --ui-port 5173`.\n"
+        "`morpheus serve --ui --host 127.0.0.1 --port 8000 --ui-port 5173`.\n"
+        "- Use `0.0.0.0` only for explicit user-approved trusted LAN testing or "
+        "authenticated proxy environments.\n"
         "<!-- MORPHEUS:END -->\n"
     )
     client = api_client(raise_server_exceptions=False)
