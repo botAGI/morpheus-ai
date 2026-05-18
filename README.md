@@ -1,9 +1,12 @@
 # Morpheus
 
-> Stop starting AI agents from scratch.
+> Stop coding agents from hallucinating about your repo.
 >
-> Morpheus generates `WAKE.md` - a compiled project state file that lets any
-> agent continue where you left off.
+> First verify. Then learn.
+
+Morpheus checks what agents say against source-backed project state. Then it can
+run an autonomous learning lab to test whether stable project truth can be
+distilled into local model weights.
 
 `README.md` tells humans what this is.
 `AGENTS.md` tells agents how to work.
@@ -13,8 +16,10 @@
 
 > Status: alpha. Latest packaged release: v0.1.1. The deterministic compiler,
 > receipts, CLI, API, UI launchpad, MCP endpoint, A2A-style discovery, and
-> cache-backed integrations are usable. Main includes review-gated v0.2 semantic
-> alpha work. LoRA/training is experimental and not the core launch path.
+> cache-backed integrations are usable. Main includes review-gated v0.2
+> semantic/check work and an experimental autonomous learning lab. Local adapter
+> learning is experimental until eval passes; source spans remain the source of
+> truth.
 
 ![Morpheus terminal demo](https://raw.githubusercontent.com/botAGI/morpheus-ai/main/demo/morpheus-demo.gif)
 
@@ -22,22 +27,26 @@
 
 Every AI agent starts cold.
 
-You paste context. You repeat decisions. The agent suggests old ideas. It misses
-what changed yesterday.
+You paste context. You repeat decisions. The agent suggests old ideas. It claims
+features exist that do not exist.
 
-Morpheus compiles your current project state into `WAKE.md`, backed by sources,
-evidence, and signed receipts.
+Morpheus compiles project state, checks agent text against source-backed
+evidence, and can build an experimental local learning dataset only from
+accepted claims.
 
 ```text
-sources -> compile -> WAKE.md -> signed receipt -> agent handoff -> verify
+sources -> WAKE.md -> morpheus check -> reviewed dataset -> local adapter lab
 ```
 
 ## The Primitive
 
-Morpheus is the Agent State Compiler.
+Morpheus is a source-grounded truth layer with an experimental learning core.
 
 It generates `WAKE.md` - a project state file that tells agents where the
-project is now, backed by sources, evidence, and signed receipts.
+project is now. `morpheus check` verifies claims against local state, source
+spans, manifests, and evidence. `morpheus learn lab` runs an autonomous local
+experiment to test whether verified project truth can become useful adapter
+memory.
 
 This repository intentionally commits
 [WAKE.md](https://github.com/botAGI/morpheus-ai/blob/main/WAKE.md) as a public
@@ -66,6 +75,18 @@ uvx --from morpheus-wake morpheus wake . --private
 
 That keeps the compiled state at `.morpheus/WAKE.md`.
 
+Three-command alpha loop:
+
+```bash
+uvx --from morpheus-wake morpheus wake .
+gh pr view 42 --json body -q .body | morpheus check
+morpheus learn lab . --backend mlx
+```
+
+`morpheus learn lab` is experimental. It can use a strict autonomous benchmark
+lane, but it never activates adapters automatically and it does not use raw
+Markdown fine-tuning.
+
 Development install:
 
 ```bash
@@ -88,20 +109,19 @@ Agent: I do not have enough context.
 With Morpheus:
 
 ```text
-User: Read WAKE.md. What changed yesterday?
-Agent: Morpheus moved from "memory compiler" to "Agent State Compiler".
-       Outdated: LoRA as the core product path.
-       Current: WAKE.md with provenance receipts.
-       Next action: review semantic candidates and expand richer stale-claim detection.
+User: Check this agent answer before I merge it.
+Agent: stale: "Morpheus is mainly a LoRA trainer."
+       incorrect: "morpheus check sends text to cloud by default."
+       verified: "The package name is morpheus-wake."
 ```
 
 ## Why Not Just Use Memory?
 
 Memory tells an agent what happened.
-State tells an agent what is true now.
+Source-grounded state tells an agent what is supported now.
 
 RAG retrieves old fragments.
-Morpheus compiles the current project state.
+Morpheus verifies current project claims before any learning experiment.
 
 `README.md` is for humans.
 `AGENTS.md` is for agent instructions.
@@ -111,6 +131,13 @@ Morpheus compiles the current project state.
 
 - **WAKE.md compiler**: scans watched paths and extracts marked decisions,
   tasks, notes, fixes, and evidence.
+- **Local claim check**: `morpheus check` verifies agent text from a file or
+  stdin against local state and returns `verified`, `stale`, `incorrect`, or
+  `unknown`.
+- **Autonomous learning lab**: `morpheus learn lab` builds a strict benchmark
+  dataset from machine-verifiable source-backed claims, optionally runs local
+  MLX LoRA smoke training, and writes a pass/partial/fail report without
+  activating adapters.
 - **Verifiable provenance**: writes `state.json`, `evidence.jsonl`, and signed
   ed25519 receipts with SHA-256 hashes.
 - **Agent handoff**: produces copyable instructions, diagnostics, and manifest
@@ -126,7 +153,7 @@ Morpheus compiles the current project state.
 - **Integration cache readers**: GitHub, Gmail, Calendar, Slack, and Linear can
   contribute evidence from local caches or token-backed adapters.
 
-## Deterministic Core, Semantic Alpha
+## Deterministic Core, Check, And Learning Alpha
 
 v0.1 is deterministic by design. It extracts explicit markers:
 
@@ -135,6 +162,9 @@ TODO: DECISION: FIXME: NOTE: HACK: XXX:
 ```
 
 That makes receipts reproducible and easy to verify.
+
+`morpheus check` is local-only by default in the v0.2 alpha slice. It does not
+send agent text or project source excerpts to cloud providers.
 
 Main includes an alpha semantic review path:
 
@@ -148,6 +178,18 @@ morpheus review apply
 Semantic extraction is review-gated. Candidates are labeled as `source_backed`
 or `needs_review`, source spans are verified before apply, and accepted claims
 become active only after `morpheus review apply` signs a new receipt.
+
+The learning core sits behind that gate:
+
+```bash
+morpheus learn dataset . --from accepted
+morpheus learn train . --dry-run
+morpheus learn eval .
+morpheus learn lab . --no-train
+```
+
+No accepted source span means no training example. No eval pass means no adapter
+activation. No rollback means no production use.
 
 ## Obsidian And Personal Notes
 

@@ -5,21 +5,28 @@ Private projects can keep generated `WAKE.md` inside `.morpheus/`.
 
 ## Current State
 
-Morpheus is the Agent State Compiler.
+Morpheus is becoming a source-grounded truth layer with an autonomous learning
+lab.
 
-It generates `WAKE.md` so AI agents can continue from current project state
-instead of starting cold every session.
+It compiles `WAKE.md`, checks coding-agent claims against local source-backed
+state, and can run a local experiment that turns strictly accepted claims into a
+training dataset and adapter smoke test.
 
 ## Active Decisions
 
-- The public primitive is `WAKE.md`.
-- Morpheus is positioned as `WAKE.md for AI agents`.
+- Public framing is now: "First verify. Then learn."
+- `morpheus check` is the differentiator for stale and incorrect project claims.
+- `morpheus learn lab` is the autonomous experiment lane for source-backed
+  dataset and adapter testing.
+- The public primitive remains `WAKE.md`, but `WAKE.md` alone is no longer the
+  full product story.
 - `README.md` explains the project to humans.
 - `AGENTS.md` tells agents how to work.
 - `WAKE.md` tells agents where the project is now.
-- Provenance receipts are a core differentiator.
+- Source spans, check results, and receipts are the truth gate.
 - The README files include a visual terminal demo.
-- LoRA/training is experimental and not the core launch path.
+- Local adapter learning is experimental until eval passes.
+- Adapter output is not the source of truth.
 - Private projects can keep generated state under `.morpheus/`.
 
 ## Outdated Claims
@@ -27,6 +34,10 @@ instead of starting cold every session.
 - "Morpheus is mainly a personal AI agent." Outdated.
 - "Daily LoRA is the main differentiator." Outdated.
 - "Memory compiler" is too weak as public positioning.
+- "WAKE.md alone is the product." Outdated.
+- "LoRA trains on raw markdown." Outdated.
+- "Receipts are the main value." Outdated.
+- "Adapter output is source of truth." Outdated.
 - Broad legal compliance promises should be replaced with provenance,
   local-first operation, source attribution, and user-controlled export.
 
@@ -52,10 +63,10 @@ instead of starting cold every session.
 
 ## Next Product Work
 
-1. Review-gated semantic compilation.
-2. Richer stale-claim detection.
-3. CLI/API file split after v0.1.0.
-4. More integration examples.
+1. Run autonomous lab on fixture benchmark and dogfood candidates.
+2. Increase strict accepted source-backed candidates without human bypass.
+3. Improve eval quality for base vs adapter comparison.
+4. Keep CLI/API split and broader integrations behind core truth-layer work.
 
 ## Verification
 

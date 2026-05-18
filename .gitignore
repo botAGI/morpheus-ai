@@ -22,6 +22,11 @@ dist/
 
 # Morpheus local runtime artifacts
 .morpheus/
+!tests/fixtures/**/.morpheus/
+tests/fixtures/**/.morpheus/*
+!tests/fixtures/**/.morpheus/review/
+tests/fixtures/**/.morpheus/review/*
+!tests/fixtures/**/.morpheus/review/semantic_candidates.jsonl
 dataset.jsonl
 reports/
 morpheus_adapters/

@@ -24,6 +24,8 @@ def parse_cache_datetime(value: object, *, datetime_type: Any = datetime) -> dat
     normalized = value.strip()
     if not normalized:
         return None
+    if normalized.lstrip("+-").replace(".", "", 1).isdigit():
+        return _parse_epoch_seconds(normalized)
 
     try:
         parsed = datetime_type.fromisoformat(_normalize_utc_suffix(normalized))

@@ -25,6 +25,8 @@ def test_public_docs_include_bilingual_readme_and_testing_checklist():
     assert Path("docs/RELEASE.md").is_file()
     assert Path("docs/release-notes/v0.1.0.md").is_file()
     assert Path("docs/TESTING.md").is_file()
+    assert Path("docs/AUTONOMOUS_LAB.md").is_file()
+    assert Path("docs/LEARNING_CORE.md").is_file()
 
 
 def test_public_wake_is_tracked_as_showcase_artifact():
@@ -49,11 +51,11 @@ def test_root_wake_includes_source_references():
 def test_root_wake_next_work_is_launch_ordered():
     wake = Path("WAKE.md").read_text()
 
-    semantic = wake.index("1. Review-gated semantic compilation.")
-    stale = wake.index("2. Richer stale-claim detection.")
-    split = wake.index("3. CLI/API file split after v0.1.0.")
-    integrations = wake.index("4. More integration examples.")
-    assert semantic < stale < split < integrations
+    lab = wake.index("1. Run autonomous lab on fixture benchmark and dogfood candidates.")
+    accepted = wake.index("2. Increase strict accepted source-backed candidates")
+    eval_quality = wake.index("3. Improve eval quality")
+    split = wake.index("4. Keep CLI/API split")
+    assert lab < accepted < eval_quality < split
 
 
 def test_readme_first_screen_uses_wake_framing():
@@ -61,17 +63,19 @@ def test_readme_first_screen_uses_wake_framing():
     first_screen = "\n".join(readme.splitlines()[:18])
 
     assert readme.startswith("# Morpheus\n")
-    assert "Stop starting AI agents from scratch." in first_screen
-    assert "Morpheus generates `WAKE.md`" in first_screen
+    assert "Stop coding agents from hallucinating about your repo." in first_screen
+    assert "First verify. Then learn." in first_screen
     assert "`WAKE.md` tells agents where we are." in first_screen
 
 
-def test_readme_demo_points_to_current_launch_next_action():
-    expected = "review semantic candidates and expand richer stale-claim detection"
+def test_readme_demo_points_to_current_truth_layer_loop():
+    expected = "morpheus learn lab"
 
     for path in [Path("README.md"), Path("README.ru.md")]:
         content = path.read_text()
         assert expected in content
+        assert "morpheus check" in content
+        assert "First verify. Then learn." in content
         assert "publish v0.1.0, then start semantic compile mode" not in content
         assert "publish v0.1.0, add the visual demo" not in content
         assert "update README, SPEC, and public repo metadata" not in content

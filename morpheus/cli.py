@@ -2,12 +2,13 @@
 """
 Morpheus CLI - morpheus <command>
 
-Agent State Compiler with verifiable provenance.
+Source-grounded truth layer and local learning lab for coding agents.
 """
 import json
 import os
 import re
 import socket
+import sys
 from fnmatch import fnmatch
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -23,6 +24,21 @@ from rich.panel import Panel
 
 from morpheus.core.config import MorpheusConfig
 from morpheus.core.compiler import DEFAULT_EXCLUDE_PATTERNS, compile_project
+from morpheus.core.check import (
+    check_exit_code,
+    check_text,
+    ci_mode_from_env,
+    create_training_corrections,
+    discover_project_root,
+    render_check_annotated,
+    render_check_summary,
+)
+from morpheus.core.learning.adapters import activate_adapter, list_adapters, rollback_adapter
+from morpheus.core.learning.dataset import build_learning_dataset
+from morpheus.core.learning.eval import run_learning_eval
+from morpheus.core.learning.lab import lab_auto_accept, run_autonomous_lab
+from morpheus.core.learning.registry import learning_status
+from morpheus.core.learning.train import plan_training_run
 from morpheus.core.wake import generate_wake_md
 from morpheus.core.provenance import (
     compute_sha256_file,
@@ -37,7 +53,14 @@ from morpheus.core.safe_io import reject_symlink_components, reject_symlink_path
 from morpheus.core.semantic.review import (
     ReviewStore,
     apply_accepted_candidates,
+    export_review_pack,
+    propose_review_candidates,
     run_semantic_review,
+    strict_accept_suggestions,
+    trainable_candidate,
+    write_review_doctor,
+    write_review_proposal,
+    write_strict_accept_suggestions,
 )
 from morpheus.core.verify import verify_receipt_chain
 from morpheus.core.providers.fake import FakeProvider
@@ -49,11 +72,13 @@ from morpheus.training.consolidate import consolidate_sessions
 from morpheus.training.train import check_dependencies
 
 app = typer.Typer(
-    help="Morpheus AI — Agent State Compiler with verifiable provenance",
+    help="Morpheus AI — source-grounded truth layer with a local learning lab",
     add_completion=False
 )
 review_app = typer.Typer(help="Review semantic candidates before they become active state.")
 app.add_typer(review_app, name="review")
+learn_app = typer.Typer(help="Compile reviewed state into local learning artifacts.")
+app.add_typer(learn_app, name="learn")
 console = Console()
 WILDCARD_HOSTS = {"0.0.0.0", "::", ""}
 DEFAULT_MODEL_SMOKE_MODEL = "qwen2.5:0.5b"
@@ -992,6 +1017,8 @@ def wake(
 def review_list(
     kind: str | None = typer.Option(None, "--kind", help="Filter by candidate kind"),
     label: str | None = typer.Option(None, "--label", help="Filter by candidate label"),
+    source_backed: bool = typer.Option(False, "--source-backed", help="Show source-backed candidates only"),
+    trainable: bool = typer.Option(False, "--trainable", help="Show accepted trainable candidates only"),
     json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON"),
 ):
     """List semantic candidates waiting in the review store."""
@@ -1000,6 +1027,14 @@ def review_list(
         candidates = [candidate for candidate in candidates if candidate.kind == kind]
     if label:
         candidates = [candidate for candidate in candidates if candidate.label == label]
+    if source_backed:
+        candidates = [candidate for candidate in candidates if candidate.label == "source_backed"]
+    if trainable:
+        candidates = [
+            candidate
+            for candidate in candidates
+            if trainable_candidate(Path.cwd(), candidate)
+        ]
     if json_output:
         console.out(json.dumps([candidate.model_dump(mode="json") for candidate in candidates], indent=2))
         return
@@ -1040,6 +1075,21 @@ def review_show(candidate_id: str = typer.Argument(..., help="Candidate id")):
     raise typer.Exit(1)
 
 
+def _read_candidate_id_file(path: Path) -> list[str]:
+    reject_symlink_paths([path], "Review batch file")
+    reject_symlink_components(path, "Review batch file")
+    if not path.is_file():
+        raise ValueError(f"candidate id file not found: {path}")
+    candidate_ids = [
+        line.strip()
+        for line in path.read_text().splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    if not candidate_ids:
+        raise ValueError(f"candidate id file is empty: {path}")
+    return candidate_ids
+
+
 @review_app.command("accept")
 def review_accept(candidate_id: str = typer.Argument(..., help="Candidate id")):
     """Accept one semantic candidate."""
@@ -1063,6 +1113,188 @@ def review_reject(
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(1) from exc
     console.print(f"[green]✓ Rejected:[/green] {candidate.id}")
+
+
+@review_app.command("accept-batch")
+def review_accept_batch(
+    ids_file: Path = typer.Option(..., "--file", help="Text file with one candidate id per line"),
+):
+    """Accept semantic candidates listed in a file."""
+    try:
+        candidate_ids = _read_candidate_id_file(ids_file)
+        accepted = ReviewStore(Path.cwd()).accept_many(candidate_ids)
+    except (KeyError, OSError, ValueError) as exc:
+        console.print(f"[red]Batch accept failed:[/red] {exc}")
+        raise typer.Exit(1) from exc
+    console.print(f"[green]✓ Accepted batch:[/green] {len(accepted)} candidates")
+
+
+@review_app.command("reject-batch")
+def review_reject_batch(
+    ids_file: Path = typer.Option(..., "--file", help="Text file with one candidate id per line"),
+    reason: str = typer.Option(..., "--reason", help="Reason for rejection"),
+):
+    """Reject semantic candidates listed in a file."""
+    try:
+        candidate_ids = _read_candidate_id_file(ids_file)
+        rejected = ReviewStore(Path.cwd()).reject_many(candidate_ids, reason=reason)
+    except (KeyError, OSError, ValueError) as exc:
+        console.print(f"[red]Batch reject failed:[/red] {exc}")
+        raise typer.Exit(1) from exc
+    console.print(f"[green]✓ Rejected batch:[/green] {len(rejected)} candidates")
+
+
+@review_app.command("suggest-accept")
+def review_suggest_accept(
+    strict: bool = typer.Option(False, "--strict", help="Only suggest exact source-span low-risk candidates"),
+):
+    """Write suggested accept ids without changing candidate statuses."""
+    if not strict:
+        console.print("[red]Only --strict suggestions are supported.[/red]")
+        raise typer.Exit(2)
+    try:
+        path = write_strict_accept_suggestions(Path.cwd())
+        count = len(strict_accept_suggestions(Path.cwd()))
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]Suggest accept failed:[/red] {exc}")
+        raise typer.Exit(1) from exc
+    console.print(f"[green]✓ Suggested accepts:[/green] {count} ids -> {path}")
+
+
+@review_app.command("auto-accept")
+def review_auto_accept(
+    strict: bool = typer.Option(False, "--strict", help="Only accept strict machine-verifiable candidates"),
+    lab_only: bool = typer.Option(False, "--lab-only", help="Required safety flag for autonomous lab acceptance"),
+):
+    """Accept strict machine-verifiable candidates only for autonomous lab use."""
+    if not strict or not lab_only:
+        console.print("[red]auto-accept requires --strict --lab-only.[/red]")
+        raise typer.Exit(2)
+    try:
+        result = lab_auto_accept(Path.cwd())
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]Auto-accept failed:[/red] {exc}")
+        raise typer.Exit(1) from exc
+    console.out(json.dumps(result, indent=2, sort_keys=True))
+
+
+@review_app.command("doctor")
+def review_doctor():
+    """Explain why candidates can or cannot be safely suggested."""
+    try:
+        result = write_review_doctor(Path.cwd())
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]Review doctor failed:[/red] {exc}")
+        raise typer.Exit(1) from exc
+    console.print(f"[green]✓ Review doctor:[/green] {result['markdown_path']}")
+    console.print(f"[green]✓ Review doctor JSON:[/green] {result['json_path']}")
+
+
+@review_app.command("propose")
+def review_propose(
+    max_accepts: int = typer.Option(30, "--max", help="Maximum ACCEPT_SAFE ids to write"),
+    threshold: float = typer.Option(0.80, "--threshold", help="Minimum confidence for ACCEPT_SAFE"),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON"),
+):
+    """Write human review proposals without changing candidate statuses."""
+    try:
+        result = write_review_proposal(
+            Path.cwd(),
+            max_accepts=max_accepts,
+            threshold=threshold,
+        )
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]Review proposal failed:[/red] {exc}")
+        raise typer.Exit(1) from exc
+    if json_output:
+        console.out(json.dumps({
+            "counts": result["counts"],
+            "proposed_accept_ids": result["proposed_accept_ids"],
+            "proposed_reject_ids": result["proposed_reject_ids"],
+            "paths": result["paths"],
+        }, indent=2, sort_keys=True))
+        return
+    console.print(f"[green]✓ Proposed accepts:[/green] {len(result['proposed_accept_ids'])}")
+    console.print(f"[green]✓ Proposal report:[/green] {result['paths']['report_md']}")
+
+
+@review_app.command("interactive")
+def review_interactive(
+    source_backed: bool = typer.Option(False, "--source-backed", help="Review source-backed candidates only"),
+    proposed: bool = typer.Option(False, "--proposed", help="Review proposed ACCEPT_SAFE candidates first"),
+):
+    """Interactively write accept/reject id files without applying review changes."""
+    if not sys.stdin.isatty():
+        console.print("[red]Non-interactive terminal detected.[/red]")
+        console.print("Run `morpheus review propose` or use an interactive TTY.")
+        raise typer.Exit(2)
+    store = ReviewStore(Path.cwd())
+    candidates = store.load_candidates()
+    proposal_by_id = {}
+    if proposed:
+        proposal = propose_review_candidates(Path.cwd())
+        proposal_by_id = {item["id"]: item for item in proposal["proposals"]}
+        proposed_ids = set(proposal["proposed_accept_ids"])
+        candidates = [candidate for candidate in candidates if candidate.id in proposed_ids]
+    if source_backed:
+        candidates = [candidate for candidate in candidates if candidate.label == "source_backed"]
+
+    accept_path = store.review_dir / "accept_ids.txt"
+    reject_path = store.review_dir / "reject_ids.txt"
+    store.ensure()
+    accepted: list[str] = []
+    rejected: list[str] = []
+    for candidate in candidates:
+        item = proposal_by_id.get(candidate.id, {})
+        console.print(Panel.fit(
+            f"Kind: {candidate.kind}\n"
+            f"Claim: {candidate.claim}\n"
+            f"Source: {candidate.source_path}:{candidate.line_start}-{candidate.line_end}\n"
+            f"Evidence: {candidate.evidence_excerpt}\n"
+            f"Confidence: {candidate.confidence}\n"
+            f"Proposal: {item.get('category', 'unscored')}\n"
+            f"Reason: {', '.join(item.get('reasons', [])) or 'none'}",
+            title=candidate.id,
+            border_style="cyan",
+        ))
+        while True:
+            choice = input("[a]ccept / [r]eject / [s]kip / [v]iew source / [q]uit: ").strip().casefold()
+            if choice == "a":
+                accepted.append(candidate.id)
+                break
+            if choice == "r":
+                rejected.append(candidate.id)
+                break
+            if choice == "s":
+                break
+            if choice == "v":
+                console.print(candidate.evidence_excerpt)
+                continue
+            if choice == "q":
+                candidates = []
+                break
+        if not candidates:
+            break
+    accept_path.write_text("\n".join(accepted) + ("\n" if accepted else ""))
+    reject_path.write_text("\n".join(rejected) + ("\n" if rejected else ""))
+    console.print(f"[green]✓ Wrote accepts:[/green] {accept_path}")
+    console.print(f"[green]✓ Wrote rejects:[/green] {reject_path}")
+    console.print("Next commands:")
+    console.print("  morpheus review accept-batch --file .morpheus/review/accept_ids.txt")
+    console.print("  morpheus review reject-batch --file .morpheus/review/reject_ids.txt")
+    console.print("  morpheus review apply")
+    console.print("  morpheus learn dataset . --from accepted --format instruction")
+
+
+@review_app.command("export-pack")
+def review_export_pack():
+    """Write a human-reviewable semantic candidate pack."""
+    try:
+        path = export_review_pack(Path.cwd())
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]Review pack export failed:[/red] {exc}")
+        raise typer.Exit(1) from exc
+    console.print(f"[green]✓ Review pack:[/green] {path}")
 
 
 @review_app.command("diff")
@@ -1093,6 +1325,268 @@ def review_apply():
         f"{result['accepted_applied']} accepted candidates"
     )
     console.print(f"[green]✓ Receipt:[/green] {result['receipt_id']}")
+
+
+@learn_app.command("dataset")
+def learn_dataset(
+    project: Path = typer.Argument(Path("."), help="Project path"),
+    source: str = typer.Option(
+        "accepted",
+        "--from",
+        help="Dataset source: accepted or active-state",
+    ),
+    dataset_format: str = typer.Option(
+        "instruction",
+        "--format",
+        help="Dataset format: instruction or sharegpt",
+    ),
+    include_corrections: bool = typer.Option(
+        True,
+        "--include-corrections/--no-include-corrections",
+        help="Include accepted correction candidates as negative examples",
+    ),
+    include_refusals: bool = typer.Option(
+        True,
+        "--include-refusals/--no-include-refusals",
+        help="Include unsupported-claim refusal eval items",
+    ),
+    output: Path | None = typer.Option(None, "--output", help="Optional selected dataset output path"),
+):
+    """Build a local dataset from accepted source-backed semantic candidates."""
+    try:
+        result = build_learning_dataset(
+            project,
+            dataset_format=dataset_format,
+            source=source,
+            include_corrections=include_corrections,
+            include_refusals=include_refusals,
+            output=output,
+        )
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]Learning dataset failed:[/red] {exc}")
+        raise typer.Exit(2) from exc
+    try:
+        manifest = json.loads(Path(result["manifest_path"]).read_text())
+    except (OSError, KeyError, json.JSONDecodeError):
+        manifest = {}
+    if (
+        source == "accepted"
+        and (
+            int(manifest.get("trainable_candidate_count", 0)) < 20
+            or int(result.get("examples_count", 0)) < 100
+        )
+    ):
+        console.print("Training blocked: accepted candidates < 20 or examples < 100.")
+        console.print("Run:")
+        console.print("  morpheus review propose --max 30")
+        console.print("  morpheus review interactive --proposed")
+    console.out(json.dumps(result, indent=2, sort_keys=True))
+
+
+@learn_app.command("status")
+def learn_status(
+    project: Path = typer.Argument(Path("."), help="Project path"),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON"),
+):
+    """Show local learning dataset status."""
+    try:
+        status = learning_status(project)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        console.print(f"[red]Learning status failed:[/red] {exc}")
+        raise typer.Exit(2) from exc
+    if json_output:
+        console.out(json.dumps(status, indent=2, sort_keys=True))
+        return
+    if not status["has_datasets"]:
+        console.print("No learning datasets found.")
+        active = status.get("active_adapter")
+        if active:
+            console.print(f"active adapter: {active['adapter_id']} score={active.get('eval_score')}")
+        return
+    manifest = status["latest_manifest"]
+    active = status.get("active_adapter")
+    console.print(
+        "latest dataset: "
+        f"{manifest['dataset_id']} "
+        f"examples={manifest['examples_count']} "
+        f"skipped={manifest['skipped_count']}"
+    )
+    if active:
+        console.print(
+            "active adapter: "
+            f"{active['adapter_id']} "
+            f"score={active.get('eval_score')} "
+            f"created_at={active.get('created_at')}"
+        )
+    else:
+        console.print("active adapter: none")
+
+
+@learn_app.command("lab")
+def learn_lab(
+    project: Path = typer.Argument(Path("."), help="Project path"),
+    backend: str = typer.Option("fake", "--backend", help="Lab backend: fake or mlx"),
+    model: str = typer.Option(
+        "mlx-community/Qwen2.5-7B-Instruct-4bit",
+        "--model",
+        help="Model id for MLX training",
+    ),
+    no_train: bool = typer.Option(False, "--no-train", help="Build dataset/eval artifacts without training"),
+    fixture_only: bool = typer.Option(False, "--fixture-only", help="Use the autonomous benchmark fixture"),
+    dogfood: bool = typer.Option(False, "--dogfood", help="Require dogfood source mode"),
+    max_iters: int = typer.Option(50, "--max-iters", help="Maximum LoRA smoke-training iterations"),
+):
+    """Run an autonomous source-grounded learning lab without activating adapters."""
+    try:
+        result = run_autonomous_lab(
+            project,
+            backend=backend,
+            model=model,
+            no_train=no_train,
+            fixture_only=fixture_only,
+            dogfood=dogfood,
+            max_iters=max_iters,
+        )
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        console.print(f"[red]Learning lab failed:[/red] {exc}")
+        raise typer.Exit(2) from exc
+    console.out(json.dumps(result, indent=2, sort_keys=True))
+
+
+@learn_app.command("train")
+def learn_train(
+    project: Path = typer.Argument(Path("."), help="Project path"),
+    backend: str = typer.Option("llamafactory", "--backend", help="Training backend: llamafactory or peft"),
+    method: str = typer.Option("qlora", "--method", help="Training method: qlora or lora"),
+    base_model: str = typer.Option("Qwen/Qwen2.5-7B-Instruct", "--base-model", help="Base model id"),
+    rank: int = typer.Option(16, "--rank", help="LoRA rank"),
+    alpha: int = typer.Option(32, "--alpha", help="LoRA alpha"),
+    dropout: float = typer.Option(0.05, "--dropout", help="LoRA dropout"),
+    epochs: int = typer.Option(1, "--epochs", help="Training epochs"),
+    learning_rate: str = typer.Option("2e-4", "--learning-rate", help="Learning rate"),
+    max_seq_length: int = typer.Option(4096, "--max-seq-length", help="Maximum sequence length"),
+    dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Generate artifacts without training"),
+    execute: bool = typer.Option(False, "--execute", help="Actually run training after planning"),
+    confirm_execute: bool = typer.Option(
+        False,
+        "--yes-i-know-this-will-train",
+        help="Required with --execute",
+    ),
+):
+    """Plan a LoRA/QLoRA training run from the latest reviewed dataset."""
+    try:
+        result = plan_training_run(
+            project,
+            backend=backend,
+            method=method,
+            base_model=base_model,
+            rank=rank,
+            alpha=alpha,
+            dropout=dropout,
+            epochs=epochs,
+            learning_rate=learning_rate,
+            max_seq_length=max_seq_length,
+            dry_run=dry_run and not execute,
+            execute=execute,
+            confirm_execute=confirm_execute,
+        )
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        console.print(f"[red]Learning train failed:[/red] {exc}")
+        raise typer.Exit(2) from exc
+    for warning in result["warnings"]:
+        console.print(f"[yellow]warning:[/yellow] {warning}")
+    console.out(json.dumps(result, indent=2, sort_keys=True))
+
+
+@learn_app.command("eval")
+def learn_eval(
+    project: Path = typer.Argument(Path("."), help="Project path"),
+    base_only: bool = typer.Option(False, "--base-only", help="Evaluate the fake base model only"),
+    adapter_id: str | None = typer.Option(None, "--adapter", help="Adapter id to evaluate"),
+    dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Use deterministic fake inference"),
+):
+    """Evaluate a base model or planned adapter against the latest eval seed."""
+    try:
+        result = run_learning_eval(
+            project,
+            adapter_id=adapter_id,
+            base_only=base_only,
+            dry_run=dry_run,
+        )
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        console.print(f"[red]Learning eval failed:[/red] {exc}")
+        raise typer.Exit(2) from exc
+    console.out(json.dumps(result, indent=2, sort_keys=True))
+
+
+@learn_app.command("list-adapters")
+def learn_list_adapters(
+    project: Path = typer.Argument(Path("."), help="Project path"),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON"),
+):
+    """List planned, evaluated, and active learning adapters."""
+    try:
+        adapters = list_adapters(project)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        console.print(f"[red]Learning adapters failed:[/red] {exc}")
+        raise typer.Exit(2) from exc
+    if json_output:
+        console.out(json.dumps(adapters, indent=2, sort_keys=True))
+        return
+    if not adapters:
+        console.print("No learning adapters found.")
+        return
+    table = Table(title="Learning Adapters")
+    table.add_column("Adapter ID", style="cyan")
+    table.add_column("Status")
+    table.add_column("Backend")
+    table.add_column("Method")
+    table.add_column("Eval")
+    for adapter in adapters:
+        table.add_row(
+            adapter["adapter_id"],
+            str(adapter.get("status")),
+            str(adapter.get("backend")),
+            str(adapter.get("method")),
+            str(adapter.get("eval_score")),
+        )
+    console.print(table)
+
+
+@learn_app.command("activate")
+def learn_activate(
+    adapter_id: str = typer.Argument(..., help="Adapter id to activate"),
+    project: Path = typer.Option(Path("."), "--project", help="Project path"),
+    force: bool = typer.Option(False, "--force", help="Bypass eval gate"),
+    confirm_force: bool = typer.Option(
+        False,
+        "--yes-i-know-this-can-degrade",
+        help="Required with --force",
+    ),
+):
+    """Activate an adapter only after passing eval, unless explicitly forced."""
+    try:
+        result = activate_adapter(
+            project,
+            adapter_id,
+            force=force,
+            confirm_force=confirm_force,
+        )
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        console.print(f"[red]Learning activate failed:[/red] {exc}")
+        raise typer.Exit(2) from exc
+    console.out(json.dumps(result, indent=2, sort_keys=True))
+
+
+@learn_app.command("rollback")
+def learn_rollback(project: Path = typer.Option(Path("."), "--project", help="Project path")):
+    """Rollback to the previously active adapter."""
+    try:
+        result = rollback_adapter(project)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        console.print(f"[red]Learning rollback failed:[/red] {exc}")
+        raise typer.Exit(2) from exc
+    console.out(json.dumps(result, indent=2, sort_keys=True))
 
 
 @app.command()
@@ -1131,6 +1625,124 @@ def stale(
             f"\"{finding['excerpt']}\""
         )
         console.print(f"   Suggested replacement: {finding['suggested_replacement']}")
+
+
+@app.command()
+def check(
+    ctx: typer.Context,
+    input_path: Path | None = typer.Option(None, "--input", help="File containing agent text"),
+    project_root: Path | None = typer.Option(
+        None,
+        "--project-root",
+        help="Project root. Defaults to upward discovery from cwd.",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON"),
+    output_format: str = typer.Option(
+        "summary",
+        "--format",
+        help="Output format: summary, annotated, or json",
+    ),
+    semantic: bool = typer.Option(False, "--semantic", help="Use explicit semantic provider"),
+    local: bool = typer.Option(False, "--local", help="Force local checks"),
+    fail_on_unknown: bool = typer.Option(False, "--fail-on-unknown", help="Exit 1 on unknown claims"),
+    allow_stale_state: bool = typer.Option(
+        False,
+        "--allow-stale-state",
+        help="Allow stale source state in CI mode",
+    ),
+    create_corrections: bool = typer.Option(
+        False,
+        "--create-training-corrections",
+        help="Create pending review candidates for stale/incorrect claims",
+    ),
+    strict_freshness: bool = typer.Option(
+        False,
+        "--strict-freshness",
+        help="Exit 2 on unknown freshness in CI mode",
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show check configuration without input"),
+    offline: bool = typer.Option(False, "--offline", help="Require local/offline operation"),
+):
+    """Verify agent text against local source-grounded Morpheus state."""
+    root = project_root.expanduser() if project_root else discover_project_root(Path.cwd())
+    if dry_run:
+        payload = {
+            "project_root": str(root.resolve()),
+            "modes_used": ["local"],
+            "semantic_requested": semantic,
+            "local_forced": local or offline or not semantic,
+            "offline": offline,
+            "provider": None,
+            "api_keys_printed": False,
+        }
+        console.out(json.dumps(payload, indent=2))
+        return
+
+    if semantic:
+        console.print(
+            "[red]Semantic check provider is not available in v0.2.0a1.[/red] "
+            "Use local default or --local."
+        )
+        raise typer.Exit(2)
+
+    try:
+        input_text = read_check_input(input_path)
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]Check input failed:[/red] {exc}")
+        raise typer.Exit(2) from exc
+
+    if not input_text.strip():
+        console.print(ctx.get_help())
+        console.print("")
+        console.print("Examples:")
+        console.print("  morpheus check --input agent-output.md")
+        console.print("  gh pr view 42 --json body -q .body | morpheus check")
+        raise typer.Exit(2)
+
+    try:
+        result = check_text(input_text, project_root=root, fail_on_unknown=fail_on_unknown)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        console.print(f"[red]Check failed:[/red] {exc}")
+        raise typer.Exit(2) from exc
+    if create_corrections:
+        try:
+            corrections = create_training_corrections(root, result)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            console.print(f"[red]Training correction creation failed:[/red] {exc}")
+            raise typer.Exit(2) from exc
+        result["training_corrections_created"] = len(corrections)
+        result["training_correction_ids"] = [candidate.id for candidate in corrections]
+
+    effective_format = "json" if json_output else output_format
+    if effective_format not in {"summary", "annotated", "json"}:
+        console.print("[red]Invalid format:[/red] use summary, annotated, or json")
+        raise typer.Exit(2)
+    if effective_format == "json":
+        console.out(json.dumps(result, indent=2, default=str))
+    elif effective_format == "annotated":
+        console.print(render_check_annotated(result))
+    else:
+        console.print(render_check_summary(result))
+
+    exit_code = check_exit_code(
+        result,
+        ci_mode=ci_mode_from_env(),
+        allow_stale_state=allow_stale_state,
+        strict_freshness=strict_freshness,
+        fail_on_unknown=fail_on_unknown,
+    )
+    if exit_code:
+        raise typer.Exit(exit_code)
+
+
+def read_check_input(input_path: Path | None) -> str:
+    if input_path is not None:
+        reject_symlink_components(input_path, "Check input")
+        reject_symlink_paths([input_path], "Check input")
+        if not input_path.is_file():
+            raise ValueError(f"input file not found: {input_path}")
+        return input_path.read_text()
+    return sys.stdin.read()
 
 
 @app.command()

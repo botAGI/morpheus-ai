@@ -1,0 +1,6 @@
+[project]
+name = "morpheus-wake"
+version = "0.2.0a1"
+requires-python = ">=3.10"
+license = "MIT"
+

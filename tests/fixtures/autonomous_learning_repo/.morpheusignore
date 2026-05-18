@@ -1,0 +1,4 @@
+.env
+secrets.env
+docs/prompt_injection.md
+

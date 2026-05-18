@@ -1,9 +1,12 @@
 # Morpheus
 
-> Хватит запускать AI-агентов с нуля.
+> Хватит позволять coding agents галлюцинировать о вашем репозитории.
 >
-> Morpheus генерирует `WAKE.md` - скомпилированный файл состояния проекта,
-> который позволяет любому агенту продолжить работу с текущего места.
+> First verify. Then learn.
+
+Morpheus проверяет утверждения агентов о проекте по source-backed состоянию. А
+затем может запустить автономную learning lab, чтобы проверить, можно ли
+дистиллировать устойчивую проектную правду в локальные веса.
 
 `README.md` объясняет проект людям.
 `AGENTS.md` говорит агентам, как работать.
@@ -14,8 +17,9 @@
 > Статус: alpha. Последний опубликованный package release: v0.1.1.
 > Deterministic compiler, receipts, CLI, API, UI launchpad, MCP endpoint,
 > A2A-style discovery и cache-backed интеграции уже usable. В main есть
-> review-gated v0.2 semantic alpha. LoRA/training экспериментален и не является
-> core launch path.
+> review-gated v0.2 semantic/check work и экспериментальная autonomous learning
+> lab. Local adapter learning экспериментален до прохождения eval; source spans
+> остаются источником истины.
 
 ![Morpheus terminal demo](https://raw.githubusercontent.com/botAGI/morpheus-ai/main/demo/morpheus-demo.gif)
 
@@ -24,22 +28,25 @@
 Каждый AI-агент стартует холодным.
 
 Вы снова вставляете контекст. Снова объясняете решения. Агент предлагает старые
-идеи. Он не понимает, что изменилось вчера.
+идеи и утверждает, что в проекте есть несуществующие возможности.
 
-Morpheus компилирует текущее состояние проекта в `WAKE.md`, подкрепляя его
-источниками, evidence и подписанными receipts.
+Morpheus компилирует проектное состояние, проверяет текст агента по
+source-backed evidence и может собрать экспериментальный локальный learning
+dataset только из accepted claims.
 
 ```text
-sources -> compile -> WAKE.md -> signed receipt -> agent handoff -> verify
+sources -> WAKE.md -> morpheus check -> reviewed dataset -> local adapter lab
 ```
 
 ## Главный Примитив
 
-Morpheus - это Agent State Compiler.
+Morpheus - это source-grounded truth layer с экспериментальным learning core.
 
 Он генерирует `WAKE.md`: файл состояния проекта, который говорит агентам, где
-проект сейчас, и связывает это состояние с источниками, evidence и подписанными
-receipts.
+проект сейчас. `morpheus check` проверяет claims по локальному состоянию, source
+spans, manifests и evidence. `morpheus learn lab` запускает автономный локальный
+эксперимент: можно ли превратить проверенную проектную правду в полезную
+adapter memory.
 
 Этот репозиторий намеренно коммитит
 [WAKE.md](https://github.com/botAGI/morpheus-ai/blob/main/WAKE.md) как
@@ -68,6 +75,18 @@ uvx --from morpheus-wake morpheus wake . --private
 
 Это оставит скомпилированное состояние в `.morpheus/WAKE.md`.
 
+Alpha loop из трёх команд:
+
+```bash
+uvx --from morpheus-wake morpheus wake .
+gh pr view 42 --json body -q .body | morpheus check
+morpheus learn lab . --backend mlx
+```
+
+`morpheus learn lab` экспериментален. Он может использовать strict autonomous
+benchmark lane, но никогда не активирует adapters автоматически и не делает raw
+Markdown fine-tuning.
+
 Development install:
 
 ```bash
@@ -90,20 +109,19 @@ Agent: I do not have enough context.
 С Morpheus:
 
 ```text
-User: Read WAKE.md. What changed yesterday?
-Agent: Morpheus moved from "memory compiler" to "Agent State Compiler".
-       Outdated: LoRA as the core product path.
-       Current: WAKE.md with provenance receipts.
-       Next action: review semantic candidates and expand richer stale-claim detection.
+User: Check this agent answer before I merge it.
+Agent: stale: "Morpheus is mainly a LoRA trainer."
+       incorrect: "morpheus check sends text to cloud by default."
+       verified: "The package name is morpheus-wake."
 ```
 
 ## Почему Не Просто Memory?
 
 Memory говорит агенту, что происходило.
-State говорит агенту, что правда сейчас.
+Source-grounded state говорит агенту, что сейчас подтверждено источниками.
 
 RAG достаёт старые фрагменты.
-Morpheus компилирует текущее состояние проекта.
+Morpheus проверяет текущие project claims перед любым learning experiment.
 
 `README.md` - для людей.
 `AGENTS.md` - для инструкций агентам.
@@ -113,6 +131,13 @@ Morpheus компилирует текущее состояние проекта
 
 - **WAKE.md compiler**: сканирует watched paths и извлекает решения, задачи,
   заметки, исправления и evidence.
+- **Local claim check**: `morpheus check` проверяет текст агента из файла или
+  stdin по локальному состоянию и возвращает `verified`, `stale`, `incorrect`
+  или `unknown`.
+- **Autonomous learning lab**: `morpheus learn lab` строит strict benchmark
+  dataset из machine-verifiable source-backed claims, при необходимости запускает
+  local MLX LoRA smoke training и пишет pass/partial/fail report без активации
+  adapters.
 - **Проверяемое происхождение**: пишет `state.json`, `evidence.jsonl` и
   подписанные ed25519 receipts с SHA-256 хешами.
 - **Agent handoff**: создаёт инструкции, diagnostics и manifest URLs для другого
@@ -128,7 +153,7 @@ Morpheus компилирует текущее состояние проекта
 - **Integration cache readers**: GitHub, Gmail, Calendar, Slack и Linear могут
   добавлять evidence из локальных cache или token-backed adapters.
 
-## Deterministic Core, Semantic Alpha
+## Deterministic Core, Check, And Learning Alpha
 
 v0.1 намеренно deterministic. Он извлекает явные маркеры:
 
@@ -137,6 +162,9 @@ TODO: DECISION: FIXME: NOTE: HACK: XXX:
 ```
 
 Это делает receipts воспроизводимыми и простыми для проверки.
+
+`morpheus check` в v0.2 alpha slice по умолчанию работает только локально. Он
+не отправляет текст агента или source excerpts в cloud providers.
 
 В main есть alpha semantic review path:
 
@@ -151,6 +179,18 @@ Semantic extraction остаётся review-gated. Candidates помечаютс
 `source_backed` или `needs_review`, source spans проверяются перед apply, а
 accepted claims становятся active только после `morpheus review apply` и нового
 подписанного receipt.
+
+Learning core находится за этим gate:
+
+```bash
+morpheus learn dataset . --from accepted
+morpheus learn train . --dry-run
+morpheus learn eval .
+morpheus learn lab . --no-train
+```
+
+Нет accepted source span - нет training example. Нет успешного eval - нет
+activation. Нет rollback - нет production use.
 
 ## Obsidian И Личная База
 

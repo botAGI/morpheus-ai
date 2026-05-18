@@ -2,49 +2,56 @@
 
 ## 1. Product Frame
 
-Morpheus is the Agent State Compiler.
+Morpheus is a source-grounded truth layer with an experimental learning core.
 
-It generates `WAKE.md` - a compiled project state file that lets any agent
-continue where the last agent or human stopped.
+It verifies coding-agent claims against project sources, compiles current state
+into `WAKE.md`, and can run a local learning lab that turns accepted
+source-backed claims into experimental adapter training data.
 
 Morpheus is not a personal AI agent. Morpheus is not a generic memory layer.
-Morpheus is not a LoRA trainer. Those can integrate with it, but the core
-primitive is `WAKE.md`.
+Morpheus is not a real-world truth oracle. It verifies source-grounded project
+truth. Local adapter learning is experimental and remains behind check, review,
+eval, and rollback gates.
 
 **Public pitch:**
 
 ```text
-WAKE.md for AI agents.
-Compile project state so agents stop starting cold.
+Stop coding agents from hallucinating about your repo.
+First verify. Then learn.
 ```
 
 **Core loop:**
 
 ```text
-sources -> compile -> WAKE.md -> signed receipt -> agent handoff -> verify
+sources -> WAKE.md -> check -> accepted dataset -> local adapter lab -> eval
 ```
 
 ## 2. Core Differentiation
 
-- **GitHub-native artifact**: `WAKE.md` sits next to `README.md` and
+- **GitHub-native state artifact**: `WAKE.md` sits next to `README.md` and
   `AGENTS.md`.
-- **Current state, not old fragments**: Morpheus compiles what is true now,
-  instead of only retrieving past notes.
+- **Source-grounded claim verification**: `morpheus check` classifies agent text
+  as `verified`, `stale`, `incorrect`, or `unknown` against local project state.
+- **Current project truth, not old fragments**: Morpheus compiles what is
+  supported now, instead of only retrieving past notes.
 - **Verifiable provenance**: state is backed by `state.json`, `evidence.jsonl`,
   SHA-256 hashes, and signed ed25519 receipts.
 - **Agent handoff**: CLI, HTTP, A2A-style discovery, and MCP expose the same
   state to coding agents.
 - **Local-first operation**: private projects and vaults can keep generated
   state under `.morpheus/`.
-- **Review-gated semantic future**: inferred claims must be labeled and reviewed
+- **Review-gated semantic state**: inferred claims must be labeled and reviewed
   before they become active state.
+- **Experimental learning lab**: accepted source-backed claims can become a local
+  dataset for adapter experiments. Adapter output is not the source of truth;
+  source spans and `morpheus check` remain the gate.
 
 ## 3. Non-Goals For v0.1
 
 - Morpheus does not autonomously run as the agent.
 - Morpheus does not claim legal compliance as a product guarantee.
-- Morpheus does not train on raw private vaults by default.
-- Morpheus does not treat adapter training as the launch differentiator.
+- Morpheus does not use raw private vaults as model-training input.
+- Morpheus does not activate adapters without eval and rollback support.
 
 The safe framing is:
 
@@ -67,9 +74,12 @@ and user-controlled state export.
 │  Core Engine                                         │
 │  - Deterministic compiler                            │
 │  - WAKE.md generator                                 │
+│  - Local claim checker                               │
 │  - Evidence extraction from sources                  │
 │  - Receipt chain and ed25519 signing                 │
 │  - Verification CLI                                  │
+│  - Reviewed dataset compiler                         │
+│  - Autonomous learning lab                           │
 ├──────────────────────────────────────────────────────┤
 │  Agent Interfaces                                    │
 │  - CLI handoff                                       │
@@ -80,7 +90,7 @@ and user-controlled state export.
 │  Optional Surfaces                                   │
 │  - Browser UI launchpad                              │
 │  - Local integration cache readers                   │
-│  - Experimental consolidation and LoRA helpers       │
+│  - Experimental consolidation and adapter helpers    │
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -176,7 +186,13 @@ The installed executable remains `morpheus`.
 ```bash
 morpheus wake .                 # Init if needed, compile, verify, write root WAKE.md
 morpheus wake . --private       # Keep WAKE.md under .morpheus/
+morpheus check                  # Check agent text from stdin against local state
+morpheus check --input FILE     # Check agent text from a file
 morpheus stale .                # Report stale launch-positioning claims
+morpheus learn lab .            # Run autonomous local learning experiment
+morpheus learn dataset .        # Build dataset from accepted candidates
+morpheus learn train . --dry-run
+morpheus learn eval .
 morpheus init                   # Initialize .morpheus/
 morpheus compile                # Compile sources into state artifacts
 morpheus verify --all           # Verify receipt chain and artifacts
@@ -252,6 +268,23 @@ class Receipt(BaseModel):
     previous_receipt_sha256: str | None
     signature: dict
 ```
+
+### Learning Gate
+
+Training examples may be created only from claims that satisfy all of these:
+
+- `status == accepted`
+- `label == source_backed`
+- source path exists and is not ignored
+- source SHA/span still match
+- evidence excerpt matches the source span
+- no secret-like content
+- not pending, rejected, `needs_review`, or inferred-only
+
+Outdated claims can become correction/negative examples. They must not become
+positive project facts.
+
+Activation requires eval. Production use requires rollback.
 
 ## 10. Integrations
 
