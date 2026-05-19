@@ -1,4 +1,5 @@
 """Autonomous source-grounded learning lab for Morpheus."""
+import hashlib
 import json
 import shutil
 import subprocess
@@ -18,12 +19,16 @@ from morpheus.core.providers.local import LocalProvider
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
 from morpheus.core.semantic.models import SemanticCandidate
 from morpheus.core.semantic.review import ReviewStore, run_semantic_review
+from morpheus.core.semantic.scanner import scan_semantic_sources
+from morpheus.core.semantic.verifier import verify_candidate_span
 
 
 LAB_MIN_ACCEPTED = 20
 LAB_MIN_EXAMPLES = 100
 LAB_MIN_EVAL_ITEMS = 30
 LAB_MLX_EVAL_ITEM_LIMIT = 6
+LAB_PASS_RATE_THRESHOLD = 0.60
+LAB_HALLUCINATION_RATE_THRESHOLD = 0.05
 DEFAULT_LAB_BACKEND = "fake"
 DEFAULT_LAB_MODEL = "mlx-community/Qwen2.5-7B-Instruct-4bit"
 LAB_STRICT_KINDS = {
@@ -267,6 +272,13 @@ def _finish_lab(
         eval_items_count=eval_items_count,
         eval_result=eval_result,
     )
+    eval_gate = _eval_gate(eval_result)
+    dataset_quality = _dataset_quality(
+        accepted=accepted,
+        examples_count=examples_count,
+        eval_items_count=eval_items_count,
+        eval_seed_path=lab_dir / "dataset" / "eval.seed.jsonl",
+    )
     production_blockers = _production_blockers(
         source_mode=source_mode,
         train_allowed=train_allowed,
@@ -286,6 +298,7 @@ def _finish_lab(
         "eval_items_count": eval_items_count,
         "dataset_id": dataset_id,
         "dataset_sha256": dataset_manifest.get("dataset_sha256"),
+        "dataset_quality": dataset_quality,
         "training_backend": backend,
         "model": model,
         "training_ran": training_result["training_ran"],
@@ -294,6 +307,7 @@ def _finish_lab(
         "train_allowed": train_allowed,
         "production_ready": not production_blockers and verdict == "ML_CORE_PASS",
         "production_blockers": production_blockers,
+        "eval_gate": eval_gate,
         "eval": eval_result,
     }
     _write_json(lab_dir / "source_inventory.json", _source_inventory(source_project, accepted, rejected_reasons))
@@ -304,7 +318,7 @@ def _finish_lab(
 
 
 def _strict_accept_for_project(project_root: Path) -> dict:
-    candidates = _load_or_generate_candidates(project_root)
+    candidates, review_meta = _load_or_generate_candidates(project_root)
     accepted: list[SemanticCandidate] = []
     rejected_reasons: Counter = Counter()
     for candidate in candidates:
@@ -322,16 +336,60 @@ def _strict_accept_for_project(project_root: Path) -> dict:
         "candidates": candidates,
         "accepted": accepted,
         "rejected_reasons": rejected_reasons,
+        "review_meta": review_meta,
     }
 
 
-def _load_or_generate_candidates(project_root: Path) -> list[SemanticCandidate]:
+def _load_or_generate_candidates(project_root: Path) -> tuple[list[SemanticCandidate], dict]:
     store = ReviewStore(project_root)
     candidates = store.load_candidates()
     if candidates:
-        return candidates
+        stale_count = _stale_review_candidate_count(project_root, candidates)
+        if stale_count:
+            ephemeral = _generate_ephemeral_lab_candidates(project_root)
+            return ephemeral, {
+                "review_source": "ephemeral_local_due_to_stale_review_store",
+                "stale_review_candidates": stale_count,
+                "ephemeral_candidates_generated": len(ephemeral),
+            }
+        return candidates, {
+            "review_source": "review_store",
+            "stale_review_candidates": 0,
+            "ephemeral_candidates_generated": 0,
+        }
     run_semantic_review(project_root, provider=LocalProvider())
-    return store.load_candidates()
+    generated = store.load_candidates()
+    return generated, {
+        "review_source": "generated_review_store",
+        "stale_review_candidates": 0,
+        "ephemeral_candidates_generated": 0,
+    }
+
+
+def _stale_review_candidate_count(project_root: Path, candidates: list[SemanticCandidate]) -> int:
+    return sum(
+        1
+        for candidate in candidates
+        if _strict_lab_accept_reason(project_root, candidate)[1] == "source_hash_mismatch"
+    )
+
+
+def _generate_ephemeral_lab_candidates(project_root: Path) -> list[SemanticCandidate]:
+    provider = LocalProvider()
+    run_id = _timestamp_id("semlab")
+    prompt_sha256 = hashlib.sha256(b"morpheus-lab-ephemeral-local-v1").hexdigest()
+    source_revision = "lab:ephemeral"
+    candidates = []
+    for source in scan_semantic_sources(project_root):
+        candidates.extend(
+            provider.extract_candidates(
+                source,
+                run_id=run_id,
+                prompt_sha256=prompt_sha256,
+                source_revision=source_revision,
+            )
+        )
+    return [verify_candidate_span(project_root, candidate) for candidate in candidates]
 
 
 def _strict_lab_accept_reason(project_root: Path, candidate: SemanticCandidate) -> tuple[bool, str]:
@@ -613,6 +671,74 @@ def _production_blockers(
     return blockers
 
 
+def _dataset_quality(
+    *,
+    accepted: list[SemanticCandidate],
+    examples_count: int,
+    eval_items_count: int,
+    eval_seed_path: Path,
+) -> dict:
+    eval_items = _read_jsonl(eval_seed_path)
+    accepted_count = len(accepted)
+    return {
+        "accepted_candidates": accepted_count,
+        "examples_count": examples_count,
+        "eval_items_count": eval_items_count,
+        "examples_per_candidate": round(examples_count / accepted_count, 4)
+        if accepted_count
+        else 0.0,
+        "source_path_count": len({candidate.source_path for candidate in accepted}),
+        "accepted_by_kind": dict(Counter(candidate.kind for candidate in accepted)),
+        "accepted_by_source_path": dict(Counter(candidate.source_path for candidate in accepted)),
+        "eval_items_by_category": dict(Counter(str(item.get("category") or "unknown") for item in eval_items)),
+        "meets_thresholds": {
+            "accepted_candidates": accepted_count >= LAB_MIN_ACCEPTED,
+            "examples": examples_count >= LAB_MIN_EXAMPLES,
+            "eval_items": eval_items_count >= LAB_MIN_EVAL_ITEMS,
+        },
+    }
+
+
+def _eval_gate(eval_result: dict) -> dict:
+    adapter = eval_result.get("adapter", {})
+    comparison = eval_result.get("comparison", {})
+    adapter_pass_rate = adapter.get("pass_rate")
+    adapter_hallucination_rate = adapter.get("hallucination_rate")
+    critical_failures = int(adapter.get("critical_failures") or 0)
+    regression_count = int(comparison.get("regression_count") or 0)
+    adapter_evaluated = bool(adapter.get("evaluated_items_count"))
+    block_reasons = []
+    if not adapter_evaluated:
+        block_reasons.append("adapter_not_evaluated")
+    if adapter_pass_rate is not None and adapter_pass_rate < LAB_PASS_RATE_THRESHOLD:
+        block_reasons.append("pass_rate_below_threshold")
+    if (
+        adapter_hallucination_rate is not None
+        and adapter_hallucination_rate > LAB_HALLUCINATION_RATE_THRESHOLD
+    ):
+        block_reasons.append("hallucination_rate_above_threshold")
+    if critical_failures:
+        block_reasons.append("critical_failures")
+    if regression_count:
+        block_reasons.append("regressions")
+    if comparison.get("critical_regression"):
+        block_reasons.append("critical_regression")
+    if comparison.get("eval_error"):
+        block_reasons.append("eval_error")
+    return {
+        "pass_rate_threshold": LAB_PASS_RATE_THRESHOLD,
+        "hallucination_rate_threshold": LAB_HALLUCINATION_RATE_THRESHOLD,
+        "adapter_evaluated": adapter_evaluated,
+        "adapter_pass_rate": adapter_pass_rate,
+        "adapter_hallucination_rate": adapter_hallucination_rate,
+        "critical_failures": critical_failures,
+        "regression_count": regression_count,
+        "critical_regression": bool(comparison.get("critical_regression")),
+        "activation_allowed": not block_reasons,
+        "block_reasons": block_reasons,
+    }
+
+
 def _evaluate_lab_items(
     items: list[dict],
     *,
@@ -871,7 +997,11 @@ def _write_dogfood_reports(lab_dir: Path, result: dict) -> None:
 def _source_metrics(result: dict) -> dict:
     inventory = _source_inventory_raw(result)
     accepted = int(inventory["accepted_candidates"])
+    review_meta = result.get("review_meta") or {}
     return {
+        "review_source": review_meta.get("review_source", "unknown"),
+        "stale_review_candidates": int(review_meta.get("stale_review_candidates") or 0),
+        "ephemeral_candidates_generated": int(review_meta.get("ephemeral_candidates_generated") or 0),
         "total_candidates": inventory["total_candidates"],
         "strict_accepted_candidates": accepted,
         "candidate_threshold": LAB_MIN_ACCEPTED,
@@ -886,7 +1016,11 @@ def _source_metrics(result: dict) -> dict:
 
 def _source_inventory_raw(result: dict) -> dict:
     candidates = result["candidates"]
+    review_meta = result.get("review_meta") or {}
     return {
+        "review_source": review_meta.get("review_source", "unknown"),
+        "stale_review_candidates": int(review_meta.get("stale_review_candidates") or 0),
+        "ephemeral_candidates_generated": int(review_meta.get("ephemeral_candidates_generated") or 0),
         "total_candidates": len(candidates),
         "accepted_candidates": len(result["accepted"]),
         "by_kind": dict(Counter(candidate.kind for candidate in candidates)),
@@ -983,6 +1117,55 @@ def _write_report(path: Path, summary: dict) -> None:
             f"- Candidate train allowed: `{dogfood['train_allowed']}`",
             "",
         ])
+    quality = summary.get("dataset_quality") or {}
+    if quality:
+        lines.extend([
+            "## Dataset Quality",
+            "",
+            f"- Accepted candidates: `{quality['accepted_candidates']}`",
+            f"- Examples: `{quality['examples_count']}`",
+            f"- Eval items: `{quality['eval_items_count']}`",
+            f"- Examples per candidate: `{quality['examples_per_candidate']}`",
+            f"- Source path count: `{quality['source_path_count']}`",
+            "",
+            "### Accepted By Kind",
+            "",
+        ])
+        accepted_by_kind = quality.get("accepted_by_kind") or {}
+        if accepted_by_kind:
+            lines.extend(f"- `{kind}`: {count}" for kind, count in sorted(accepted_by_kind.items()))
+        else:
+            lines.append("- none")
+        lines.extend(["", "### Eval Items By Category", ""])
+        eval_by_category = quality.get("eval_items_by_category") or {}
+        if eval_by_category:
+            lines.extend(f"- `{category}`: {count}" for category, count in sorted(eval_by_category.items()))
+        else:
+            lines.append("- none")
+        lines.append("")
+    gate = summary.get("eval_gate") or {}
+    if gate:
+        lines.extend([
+            "## Eval Gate",
+            "",
+            f"- Adapter evaluated: `{gate['adapter_evaluated']}`",
+            f"- Activation allowed: `{gate['activation_allowed']}`",
+            f"- Pass rate threshold: `{gate['pass_rate_threshold']}`",
+            f"- Hallucination rate threshold: `{gate['hallucination_rate_threshold']}`",
+            f"- Adapter pass rate: `{gate.get('adapter_pass_rate')}`",
+            f"- Adapter hallucination rate: `{gate.get('adapter_hallucination_rate')}`",
+            f"- Critical failures: `{gate['critical_failures']}`",
+            f"- Regression count: `{gate['regression_count']}`",
+            "",
+            "### Eval Gate Block Reasons",
+            "",
+        ])
+        block_reasons = gate.get("block_reasons") or []
+        if block_reasons:
+            lines.extend(f"- `{reason}`" for reason in block_reasons)
+        else:
+            lines.append("- none")
+        lines.append("")
     lines.extend([
         "## Safety",
         "",

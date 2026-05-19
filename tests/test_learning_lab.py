@@ -6,6 +6,8 @@ from typer.testing import CliRunner
 
 from morpheus.cli import app
 from morpheus.core.learning.lab import run_autonomous_lab
+from morpheus.core.providers.local import LocalProvider
+from morpheus.core.semantic.review import run_semantic_review
 
 
 FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "autonomous_learning_repo"
@@ -125,6 +127,78 @@ def test_learn_lab_dogfood_no_train_reports_real_data_metrics(tmp_path):
     assert payload["train_allowed"] is True
     assert payload["production_ready"] is False
     assert payload["production_blockers"] == ["training_not_run"]
+
+
+def test_learn_lab_regenerates_ephemeral_candidates_when_review_store_is_stale(tmp_path):
+    project_root = copy_autonomous_repo(tmp_path)
+    run_semantic_review(project_root, provider=LocalProvider())
+    review_path = project_root / ".morpheus" / "review" / "semantic_candidates.jsonl"
+    stale_review_contents = review_path.read_text()
+    (project_root / "README.md").write_text(
+        (project_root / "README.md").read_text()
+        + "DECISION: Fresh dogfood candidate state should not mutate review files.\n"
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["learn", "lab", str(project_root), "--dogfood", "--no-train"],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output[result.output.index("{"):])
+    assert payload["source"] == "dogfood"
+    assert payload["dogfood"]["review_source"] == "ephemeral_local_due_to_stale_review_store"
+    assert payload["dogfood"]["stale_review_candidates"] > 0
+    assert payload["dogfood"]["ephemeral_candidates_generated"] > 0
+    assert payload["dogfood"]["strict_accepted_candidates"] >= 20
+    assert "source_hash_mismatch" not in payload["dogfood"]["rejected_reasons"]
+    assert review_path.read_text() == stale_review_contents
+
+
+def test_learn_lab_reports_dataset_quality_metrics(tmp_path):
+    project_root = copy_autonomous_repo(tmp_path)
+
+    result = CliRunner().invoke(
+        app,
+        ["learn", "lab", str(project_root), "--fixture-only", "--no-train"],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output[result.output.index("{"):])
+    quality = payload["dataset_quality"]
+    assert quality["accepted_candidates"] >= 20
+    assert quality["examples_count"] >= 100
+    assert quality["eval_items_count"] >= 30
+    assert quality["examples_per_candidate"] >= 2.0
+    assert quality["accepted_by_kind"]["active_decision"] >= 1
+    assert quality["source_path_count"] >= 5
+    assert quality["eval_items_by_category"]["unsupported_claim_refusal"] >= 1
+    lab_dir = Path(payload["lab_dir"])
+    report = (lab_dir / "REPORT.md").read_text()
+    assert "## Dataset Quality" in report
+    assert "Examples per candidate" in report
+
+
+def test_learn_lab_reports_eval_gate_reasons(tmp_path):
+    project_root = copy_autonomous_repo(tmp_path)
+
+    result = CliRunner().invoke(
+        app,
+        ["learn", "lab", str(project_root), "--fixture-only", "--no-train"],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output[result.output.index("{"):])
+    gate = payload["eval_gate"]
+    assert gate["pass_rate_threshold"] == 0.6
+    assert gate["hallucination_rate_threshold"] == 0.05
+    assert gate["adapter_evaluated"] is False
+    assert gate["activation_allowed"] is False
+    assert "adapter_not_evaluated" in gate["block_reasons"]
+    lab_dir = Path(payload["lab_dir"])
+    report = (lab_dir / "REPORT.md").read_text()
+    assert "## Eval Gate" in report
+    assert "Adapter evaluated" in report
 
 
 def test_learn_lab_trained_fake_adapter_writes_base_vs_adapter_eval(tmp_path, monkeypatch):
