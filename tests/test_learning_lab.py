@@ -260,6 +260,86 @@ def test_mlx_eval_selection_keeps_all_critical_safety_items():
     assert "Is LoRA the core launch path?" in selected_questions
 
 
+def test_mlx_eval_selection_full_eval_limit_zero_selects_all_items():
+    items = [
+        {"question": f"q{index}", "category": "project_recall", "expected_answer": f"a{index}"}
+        for index in range(8)
+    ]
+
+    selected = lab_module._select_eval_items(items, limit=0)
+
+    assert selected == items
+
+
+def test_sampled_eval_blocks_production_even_when_adapter_passes(tmp_path, monkeypatch):
+    project_root = copy_autonomous_repo(tmp_path)
+
+    def fake_training(lab_dir, *, backend, model, max_iters, no_train, train_allowed):
+        return {
+            "training_ran": True,
+            "adapter_path": str(lab_dir / "training" / "adapter"),
+            "status": "trained_smoke",
+            "reason": None,
+            "returncode": 0,
+            "backend": "fake",
+            "model": model,
+        }
+
+    def sampled_passing_eval(lab_dir, *, eval_items_count, training_result, model, eval_limit=lab_module.DEFAULT_LAB_EVAL_LIMIT):
+        eval_dir = lab_dir / "eval"
+        eval_dir.mkdir(parents=True, exist_ok=True)
+        base = {
+            "mode": "base",
+            "items": [],
+            "evaluated_items_count": 6,
+            "pass_rate": 0.5,
+            "hallucination_rate": 0.0,
+            "critical_failures": 0,
+        }
+        adapter = {
+            "mode": "adapter",
+            "items": [],
+            "evaluated_items_count": 6,
+            "pass_rate": 1.0,
+            "hallucination_rate": 0.0,
+            "critical_failures": 0,
+        }
+        comparison = {
+            "adapter_delta": 0.5,
+            "regression_count": 0,
+            "critical_regression": False,
+            "eval_error": False,
+        }
+        coverage = {
+            "eval_items_total": eval_items_count,
+            "evaluated_items_count": 6,
+            "eval_item_limit": eval_limit,
+            "coverage_rate": 0.5,
+            "critical_categories": sorted(lab_module.CRITICAL_EVAL_CATEGORIES),
+            "critical_items_total": 2,
+            "critical_items_evaluated": 2,
+            "all_critical_items_evaluated": True,
+        }
+        return {
+            "eval_dir": str(eval_dir),
+            "base": base,
+            "adapter": adapter,
+            "comparison": comparison,
+            "coverage": coverage,
+        }
+
+    monkeypatch.setattr("morpheus.core.learning.lab._run_or_plan_training", fake_training)
+    monkeypatch.setattr("morpheus.core.learning.lab._write_lab_eval", sampled_passing_eval)
+
+    result = run_autonomous_lab(project_root, dogfood=True)
+
+    assert result["verdict"] == "ML_CORE_PASS"
+    assert result["production_ready"] is False
+    assert "eval_coverage_incomplete" in result["production_blockers"]
+    assert result["eval_gate"]["activation_allowed"] is False
+    assert "eval_coverage_incomplete" in result["eval_gate"]["block_reasons"]
+
+
 def test_mlx_training_uses_python_module_when_entrypoint_missing(tmp_path, monkeypatch):
     calls = []
 

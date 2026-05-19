@@ -1460,7 +1460,7 @@ def learn_lab(
     eval_limit: int = typer.Option(
         DEFAULT_LAB_EVAL_LIMIT,
         "--eval-limit",
-        help="Maximum non-critical eval items for MLX lab eval; critical safety items are always included",
+        help="Maximum non-critical eval items for MLX lab eval; 0 means full eval; critical safety items are always included",
     ),
 ):
     """Run an autonomous source-grounded learning lab without activating adapters."""

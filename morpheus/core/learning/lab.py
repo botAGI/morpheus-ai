@@ -633,6 +633,7 @@ def _write_lab_eval(
         f"- Evaluated items: `{coverage['evaluated_items_count']}`",
         f"- Eval item limit: `{coverage['eval_item_limit']}`",
         f"- Coverage rate: `{coverage['coverage_rate']}`",
+        f"- Full eval coverage: `{coverage.get('full_eval_coverage')}`",
         f"- Critical items total: `{coverage['critical_items_total']}`",
         f"- Critical items evaluated: `{coverage['critical_items_evaluated']}`",
         f"- All critical items evaluated: `{coverage['all_critical_items_evaluated']}`",
@@ -708,6 +709,9 @@ def _production_blockers(
         blockers.append("eval_error")
     if comparison.get("critical_regression"):
         blockers.append("critical_regression")
+    coverage = eval_result.get("coverage") or {}
+    if training_result.get("training_ran") and not coverage.get("full_eval_coverage"):
+        blockers.append("eval_coverage_incomplete")
     if training_result.get("training_ran") and verdict != "ML_CORE_PASS":
         blockers.append("adapter_eval_not_passed")
     return blockers
@@ -744,6 +748,7 @@ def _dataset_quality(
 def _eval_gate(eval_result: dict) -> dict:
     adapter = eval_result.get("adapter", {})
     comparison = eval_result.get("comparison", {})
+    coverage = eval_result.get("coverage") or {}
     adapter_pass_rate = adapter.get("pass_rate")
     adapter_hallucination_rate = adapter.get("hallucination_rate")
     critical_failures = int(adapter.get("critical_failures") or 0)
@@ -767,6 +772,8 @@ def _eval_gate(eval_result: dict) -> dict:
         block_reasons.append("critical_regression")
     if comparison.get("eval_error"):
         block_reasons.append("eval_error")
+    if adapter_evaluated and not coverage.get("full_eval_coverage"):
+        block_reasons.append("eval_coverage_incomplete")
     return {
         "pass_rate_threshold": LAB_PASS_RATE_THRESHOLD,
         "hallucination_rate_threshold": LAB_HALLUCINATION_RATE_THRESHOLD,
@@ -776,6 +783,8 @@ def _eval_gate(eval_result: dict) -> dict:
         "critical_failures": critical_failures,
         "regression_count": regression_count,
         "critical_regression": bool(comparison.get("critical_regression")),
+        "eval_coverage_rate": coverage.get("coverage_rate"),
+        "full_eval_coverage": bool(coverage.get("full_eval_coverage")),
         "activation_allowed": not block_reasons,
         "block_reasons": block_reasons,
     }
@@ -963,6 +972,8 @@ def _compare_lab_eval(base: dict, adapter: dict) -> dict:
 
 def _select_eval_items(items: list[dict], *, limit: int) -> list[dict]:
     limit = max(0, int(limit))
+    if limit == 0:
+        return items
     if len(items) <= limit:
         return items
     selected = []
@@ -1024,6 +1035,7 @@ def _eval_coverage(seed_items: list[dict], selected_items: list[dict], *, eval_l
         "evaluated_items_count": len(selected_items),
         "eval_item_limit": eval_limit,
         "coverage_rate": coverage_rate,
+        "full_eval_coverage": bool(total and len(selected_items) == total),
         "critical_categories": sorted(CRITICAL_EVAL_CATEGORIES),
         "critical_items_total": len(critical_items),
         "critical_items_evaluated": critical_evaluated,
@@ -1251,6 +1263,8 @@ def _write_report(path: Path, summary: dict) -> None:
             f"- Adapter hallucination rate: `{gate.get('adapter_hallucination_rate')}`",
             f"- Critical failures: `{gate['critical_failures']}`",
             f"- Regression count: `{gate['regression_count']}`",
+            f"- Eval coverage rate: `{gate.get('eval_coverage_rate')}`",
+            f"- Full eval coverage: `{gate.get('full_eval_coverage')}`",
             "",
             "### Eval Gate Block Reasons",
             "",
@@ -1270,6 +1284,7 @@ def _write_report(path: Path, summary: dict) -> None:
             f"- Evaluated items: `{coverage['evaluated_items_count']}`",
             f"- Eval item limit: `{coverage['eval_item_limit']}`",
             f"- Coverage rate: `{coverage['coverage_rate']}`",
+            f"- Full eval coverage: `{coverage.get('full_eval_coverage')}`",
             f"- Critical items total: `{coverage['critical_items_total']}`",
             f"- Critical items evaluated: `{coverage['critical_items_evaluated']}`",
             f"- All critical items evaluated: `{coverage['all_critical_items_evaluated']}`",
