@@ -78,6 +78,7 @@ def run_autonomous_lab(
     _write_json(lab_dir / "lab_config.json", config)
 
     dogfood_blocked_reason = None
+    dogfood_metrics = None
     source_mode = "dogfood"
     source_project = project_root
     if fixture_only:
@@ -85,6 +86,8 @@ def run_autonomous_lab(
         source_project = project_root
     elif not dogfood:
         dogfood_result = _strict_accept_for_project(project_root)
+        dogfood_metrics = _source_metrics(dogfood_result)
+        _write_dogfood_reports(lab_dir, dogfood_result)
         if len(dogfood_result["accepted"]) >= LAB_MIN_ACCEPTED:
             source_mode = "dogfood"
             _write_source_reports(lab_dir, dogfood_result)
@@ -103,6 +106,7 @@ def run_autonomous_lab(
                 no_train=no_train,
                 max_iters=max_iters,
                 dogfood_blocked_reason=None,
+                dogfood_metrics=dogfood_metrics,
             )
         dogfood_blocked_reason = (
             f"strict accepted candidates {len(dogfood_result['accepted'])} "
@@ -112,6 +116,8 @@ def run_autonomous_lab(
         source_project = _fixture_project(project_root, lab_dir)
     else:
         dogfood_result = _strict_accept_for_project(project_root)
+        dogfood_metrics = _source_metrics(dogfood_result)
+        _write_dogfood_reports(lab_dir, dogfood_result)
         _write_source_reports(lab_dir, dogfood_result)
         if len(dogfood_result["accepted"]) < LAB_MIN_ACCEPTED:
             dogfood_blocked_reason = (
@@ -131,6 +137,7 @@ def run_autonomous_lab(
             no_train=no_train,
             max_iters=max_iters,
             dogfood_blocked_reason=dogfood_blocked_reason,
+            dogfood_metrics=dogfood_metrics,
         )
 
     fixture_result = _strict_accept_for_project(source_project)
@@ -148,6 +155,7 @@ def run_autonomous_lab(
         no_train=no_train,
         max_iters=max_iters,
         dogfood_blocked_reason=dogfood_blocked_reason,
+        dogfood_metrics=dogfood_metrics,
     )
 
 
@@ -198,6 +206,7 @@ def _finish_lab(
     no_train: bool,
     max_iters: int,
     dogfood_blocked_reason: str | None,
+    dogfood_metrics: dict | None,
 ) -> dict:
     _write_jsonl(lab_dir / "accepted_candidates.jsonl", [
         candidate.model_dump(mode="json") for candidate in accepted
@@ -258,11 +267,20 @@ def _finish_lab(
         eval_items_count=eval_items_count,
         eval_result=eval_result,
     )
+    production_blockers = _production_blockers(
+        source_mode=source_mode,
+        train_allowed=train_allowed,
+        training_result=training_result,
+        eval_result=eval_result,
+        verdict=verdict,
+    )
     summary = {
         "lab_id": lab_id,
         "lab_dir": str(lab_dir),
         "source": source_mode,
+        "source_is_real_project_data": source_mode == "dogfood",
         "dogfood_blocked_reason": dogfood_blocked_reason,
+        "dogfood": dogfood_metrics,
         "strict_accepted_candidates": len(accepted),
         "examples_count": examples_count,
         "eval_items_count": eval_items_count,
@@ -274,6 +292,8 @@ def _finish_lab(
         "adapter_path": training_result.get("adapter_path"),
         "verdict": verdict,
         "train_allowed": train_allowed,
+        "production_ready": not production_blockers and verdict == "ML_CORE_PASS",
+        "production_blockers": production_blockers,
         "eval": eval_result,
     }
     _write_json(lab_dir / "source_inventory.json", _source_inventory(source_project, accepted, rejected_reasons))
@@ -568,6 +588,31 @@ def _lab_verdict(
     return "ML_CORE_PARTIAL"
 
 
+def _production_blockers(
+    *,
+    source_mode: str,
+    train_allowed: bool,
+    training_result: dict,
+    eval_result: dict,
+    verdict: str,
+) -> list[str]:
+    blockers = []
+    if source_mode != "dogfood":
+        blockers.append("source_mode_fixture_not_real_project_data")
+    if not train_allowed:
+        blockers.append("dataset_threshold_not_met")
+    if not training_result.get("training_ran"):
+        blockers.append("training_not_run")
+    comparison = eval_result.get("comparison", {})
+    if comparison.get("eval_error"):
+        blockers.append("eval_error")
+    if comparison.get("critical_regression"):
+        blockers.append("critical_regression")
+    if training_result.get("training_ran") and verdict != "ML_CORE_PASS":
+        blockers.append("adapter_eval_not_passed")
+    return blockers
+
+
 def _evaluate_lab_items(
     items: list[dict],
     *,
@@ -813,6 +858,32 @@ def _write_source_reports(lab_dir: Path, result: dict) -> None:
     )
 
 
+def _write_dogfood_reports(lab_dir: Path, result: dict) -> None:
+    _write_json(lab_dir / "dogfood_inventory.json", _source_inventory_raw(result))
+    _write_strict_accept_report(
+        lab_dir / "dogfood_strict_accept_report.md",
+        accepted=result["accepted"],
+        rejected_reasons=result["rejected_reasons"],
+        dogfood_blocked_reason=None,
+    )
+
+
+def _source_metrics(result: dict) -> dict:
+    inventory = _source_inventory_raw(result)
+    accepted = int(inventory["accepted_candidates"])
+    return {
+        "total_candidates": inventory["total_candidates"],
+        "strict_accepted_candidates": accepted,
+        "candidate_threshold": LAB_MIN_ACCEPTED,
+        "train_allowed": accepted >= LAB_MIN_ACCEPTED,
+        "by_kind": inventory["by_kind"],
+        "by_label": inventory["by_label"],
+        "by_status": inventory["by_status"],
+        "by_source_path": inventory["by_source_path"],
+        "rejected_reasons": inventory["rejected_reasons"],
+    }
+
+
 def _source_inventory_raw(result: dict) -> dict:
     candidates = result["candidates"]
     return {
@@ -875,6 +946,7 @@ def _write_report(path: Path, summary: dict) -> None:
         "",
         f"- Lab ID: `{summary['lab_id']}`",
         f"- Source mode: `{summary['source']}`",
+        f"- Real project data: `{summary['source_is_real_project_data']}`",
         f"- Strict accepted candidates: `{summary['strict_accepted_candidates']}`",
         f"- Examples: `{summary['examples_count']}`",
         f"- Eval items: `{summary['eval_items_count']}`",
@@ -883,14 +955,42 @@ def _write_report(path: Path, summary: dict) -> None:
         f"- Training ran: `{summary['training_ran']}`",
         f"- Adapter: `{summary.get('adapter_path') or 'none'}`",
         f"- Verdict: `{summary['verdict']}`",
+        f"- Production ready: `{summary['production_ready']}`",
         "",
+        "## Production Gate",
+        "",
+    ]
+    if summary["source"] != "dogfood":
+        lines.extend([
+            "Fixture benchmark is not production data.",
+            "",
+        ])
+    blockers = summary.get("production_blockers") or []
+    if blockers:
+        lines.extend(["Production blockers:", ""])
+        lines.extend(f"- `{blocker}`" for blocker in blockers)
+        lines.append("")
+    else:
+        lines.extend(["No production blockers detected.", ""])
+    dogfood = summary.get("dogfood")
+    if dogfood:
+        lines.extend([
+            "## Dogfood Metrics",
+            "",
+            f"- Total candidates: `{dogfood['total_candidates']}`",
+            f"- Strict accepted candidates: `{dogfood['strict_accepted_candidates']}`",
+            f"- Candidate threshold: `{dogfood['candidate_threshold']}`",
+            f"- Candidate train allowed: `{dogfood['train_allowed']}`",
+            "",
+        ])
+    lines.extend([
         "## Safety",
         "",
         "- Raw markdown was scanned only to create source spans; dataset examples came from accepted candidates.",
         "- Pending, rejected, inferred-only, ignored, and secret-like candidates were excluded.",
         "- No adapter was activated.",
         "",
-    ]
+    ])
     if summary.get("dogfood_blocked_reason"):
         lines.extend(["## Dogfood Blocker", "", summary["dogfood_blocked_reason"], ""])
     path.write_text("\n".join(lines))

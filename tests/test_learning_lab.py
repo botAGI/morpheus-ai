@@ -48,6 +48,9 @@ def test_learn_lab_fixture_no_train_builds_strict_dataset_and_report(tmp_path):
     assert payload["strict_accepted_candidates"] >= 20
     assert payload["examples_count"] >= 100
     assert payload["eval_items_count"] >= 30
+    assert payload["production_ready"] is False
+    assert "source_mode_fixture_not_real_project_data" in payload["production_blockers"]
+    assert "training_not_run" in payload["production_blockers"]
 
     lab_dir = Path(payload["lab_dir"])
     assert (lab_dir / "REPORT.md").is_file()
@@ -95,7 +98,33 @@ def test_learn_lab_default_uses_fixture_when_dogfood_is_blocked(tmp_path):
     payload = json.loads(result.output[result.output.index("{"):])
     assert payload["source"] == "fixture"
     assert payload["dogfood_blocked_reason"]
+    assert payload["dogfood"]["strict_accepted_candidates"] == 0
+    assert payload["dogfood"]["train_allowed"] is False
+    assert payload["production_ready"] is False
+    assert "source_mode_fixture_not_real_project_data" in payload["production_blockers"]
     assert payload["verdict"] == "ML_CORE_PARTIAL"
+    lab_dir = Path(payload["lab_dir"])
+    assert (lab_dir / "dogfood_inventory.json").is_file()
+    report = (lab_dir / "REPORT.md").read_text()
+    assert "Fixture benchmark is not production data." in report
+
+
+def test_learn_lab_dogfood_no_train_reports_real_data_metrics(tmp_path):
+    project_root = copy_autonomous_repo(tmp_path)
+
+    result = CliRunner().invoke(
+        app,
+        ["learn", "lab", str(project_root), "--dogfood", "--no-train"],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output[result.output.index("{"):])
+    assert payload["source"] == "dogfood"
+    assert payload["dogfood"]["strict_accepted_candidates"] >= 20
+    assert payload["dogfood"]["train_allowed"] is True
+    assert payload["train_allowed"] is True
+    assert payload["production_ready"] is False
+    assert payload["production_blockers"] == ["training_not_run"]
 
 
 def test_learn_lab_trained_fake_adapter_writes_base_vs_adapter_eval(tmp_path, monkeypatch):
@@ -122,6 +151,8 @@ def test_learn_lab_trained_fake_adapter_writes_base_vs_adapter_eval(tmp_path, mo
     report = (eval_dir / "eval_report.md").read_text()
 
     assert result["verdict"] == "ML_CORE_PASS"
+    assert result["production_ready"] is False
+    assert "source_mode_fixture_not_real_project_data" in result["production_blockers"]
     assert result["eval"]["comparison"]["adapter_delta"] >= 0
     assert base["items"]
     assert adapter["items"]
