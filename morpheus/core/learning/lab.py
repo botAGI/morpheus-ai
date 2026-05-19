@@ -319,8 +319,10 @@ def _finish_lab(
         dataset_id = str(dataset_manifest.get("dataset_id") or "")
         examples_count = int(dataset_manifest.get("examples_count") or 0)
         eval_items_count = _count_jsonl(lab_dataset_dir / "eval.seed.jsonl")
+        heldout_items_count = _count_jsonl(lab_dataset_dir / "eval.heldout.jsonl")
     else:
         _write_empty_dataset(lab_dir / "dataset")
+        heldout_items_count = 0
 
     train_allowed = (
         len(accepted) >= LAB_MIN_ACCEPTED
@@ -338,6 +340,7 @@ def _finish_lab(
     eval_result = _write_lab_eval(
         lab_dir,
         eval_items_count=eval_items_count,
+        heldout_items_count=heldout_items_count,
         training_result=training_result,
         model=model,
         eval_limit=eval_limit,
@@ -347,6 +350,10 @@ def _finish_lab(
         training_result=training_result,
         examples_count=examples_count,
         eval_items_count=eval_items_count,
+        eval_result=eval_result,
+    )
+    verdict = _apply_eval_readiness_to_verdict(
+        verdict,
         eval_result=eval_result,
     )
     eval_gate = _eval_gate(eval_result)
@@ -373,6 +380,7 @@ def _finish_lab(
         "strict_accepted_candidates": len(accepted),
         "examples_count": examples_count,
         "eval_items_count": eval_items_count,
+        "heldout_items_count": heldout_items_count,
         "dataset_id": dataset_id,
         "dataset_sha256": dataset_manifest.get("dataset_sha256"),
         "dataset_quality": dataset_quality,
@@ -655,6 +663,7 @@ def _write_lab_eval(
     lab_dir: Path,
     *,
     eval_items_count: int,
+    heldout_items_count: int = 0,
     training_result: dict,
     model: str,
     eval_limit: int = DEFAULT_LAB_EVAL_LIMIT,
@@ -662,13 +671,15 @@ def _write_lab_eval(
     eval_dir = lab_dir / "eval"
     eval_dir.mkdir(parents=True, exist_ok=True)
     seed_items = _read_jsonl(lab_dir / "dataset" / "eval.seed.jsonl")
+    heldout_items = _read_jsonl(lab_dir / "dataset" / "eval.heldout.jsonl")
+    all_items = [*seed_items, *heldout_items]
     if not training_result["training_ran"]:
-        selected = seed_items
-        base = _evaluate_lab_items(seed_items, mode="base", backend="fake", model=model)
+        selected = all_items
+        base = _evaluate_lab_items(all_items, mode="base", backend="fake", model=model)
         adapter = {
             "mode": "adapter",
             "items": [],
-            "items_count": eval_items_count,
+            "items_count": eval_items_count + heldout_items_count,
             "evaluated_items_count": 0,
             "pass_rate": None,
             "hallucination_rate": None,
@@ -682,7 +693,7 @@ def _write_lab_eval(
             "status": "adapter_not_run",
         }
     elif training_result.get("backend") == "mlx":
-        selected = _select_eval_items(seed_items, limit=eval_limit)
+        selected = _select_eval_items(all_items, limit=eval_limit)
         base = _evaluate_lab_items(selected, mode="base", backend="mlx", model=model)
         adapter = _evaluate_lab_items(
             selected,
@@ -693,12 +704,12 @@ def _write_lab_eval(
         )
         comparison = _compare_lab_eval(base, adapter)
     else:
-        selected = seed_items
-        base = _evaluate_lab_items(seed_items, mode="base", backend="fake", model=model)
-        adapter = _evaluate_lab_items(seed_items, mode="adapter", backend="fake", model=model)
+        selected = all_items
+        base = _evaluate_lab_items(all_items, mode="base", backend="fake", model=model)
+        adapter = _evaluate_lab_items(all_items, mode="adapter", backend="fake", model=model)
         comparison = _compare_lab_eval(base, adapter)
 
-    coverage = _eval_coverage(seed_items, selected, eval_limit=eval_limit)
+    coverage = _eval_coverage(all_items, selected, eval_limit=eval_limit)
     _write_json(eval_dir / "base_results.json", base)
     _write_json(eval_dir / "adapter_results.json", adapter)
     _write_json(eval_dir / "eval_config.json", {
@@ -706,6 +717,7 @@ def _write_lab_eval(
         "backend": training_result.get("backend"),
         "training_status": training_result.get("status"),
         "eval_items_total": eval_items_count,
+        "heldout_items_total": heldout_items_count,
         "mlx_eval_item_limit": eval_limit,
         "coverage": coverage,
     })
@@ -713,6 +725,7 @@ def _write_lab_eval(
         "# Morpheus Lab Eval",
         "",
         f"- Eval items: `{eval_items_count}`",
+        f"- Held-out eval items: `{heldout_items_count}`",
         f"- Base evaluated: `{base.get('evaluated_items_count', 0)}`",
         f"- Adapter evaluated: `{adapter.get('evaluated_items_count', 0)}`",
         f"- Base pass rate: `{base.get('pass_rate')}`",
@@ -726,6 +739,9 @@ def _write_lab_eval(
         f"- Eval item limit: `{coverage['eval_item_limit']}`",
         f"- Coverage rate: `{coverage['coverage_rate']}`",
         f"- Full eval coverage: `{coverage.get('full_eval_coverage')}`",
+        f"- Held-out items total: `{coverage.get('heldout_items_total')}`",
+        f"- Held-out items evaluated: `{coverage.get('heldout_items_evaluated')}`",
+        f"- All held-out items evaluated: `{coverage.get('all_heldout_items_evaluated')}`",
         f"- Critical items total: `{coverage['critical_items_total']}`",
         f"- Critical items evaluated: `{coverage['critical_items_evaluated']}`",
         f"- All critical items evaluated: `{coverage['all_critical_items_evaluated']}`",
@@ -781,6 +797,20 @@ def _lab_verdict(
     return "ML_CORE_PARTIAL"
 
 
+def _apply_eval_readiness_to_verdict(verdict: str, *, eval_result: dict) -> str:
+    if verdict != "ML_CORE_PASS":
+        return verdict
+    comparison = eval_result.get("comparison") or {}
+    if comparison.get("regression_count"):
+        return "ML_CORE_PARTIAL"
+    coverage = eval_result.get("coverage") or {}
+    if not coverage.get("full_eval_coverage"):
+        return "ML_CORE_PARTIAL"
+    if not coverage.get("all_heldout_items_evaluated"):
+        return "ML_CORE_PARTIAL"
+    return verdict
+
+
 def _production_blockers(
     *,
     source_mode: str,
@@ -801,9 +831,13 @@ def _production_blockers(
         blockers.append("eval_error")
     if comparison.get("critical_regression"):
         blockers.append("critical_regression")
+    if comparison.get("regression_count"):
+        blockers.append("regressions")
     coverage = eval_result.get("coverage") or {}
     if training_result.get("training_ran") and not coverage.get("full_eval_coverage"):
         blockers.append("eval_coverage_incomplete")
+    if training_result.get("training_ran") and not coverage.get("all_heldout_items_evaluated"):
+        blockers.append("heldout_eval_missing")
     if training_result.get("training_ran") and verdict != "ML_CORE_PASS":
         blockers.append("adapter_eval_not_passed")
     return blockers
@@ -866,6 +900,8 @@ def _eval_gate(eval_result: dict) -> dict:
         block_reasons.append("eval_error")
     if adapter_evaluated and not coverage.get("full_eval_coverage"):
         block_reasons.append("eval_coverage_incomplete")
+    if adapter_evaluated and not coverage.get("all_heldout_items_evaluated"):
+        block_reasons.append("heldout_eval_missing")
     return {
         "pass_rate_threshold": LAB_PASS_RATE_THRESHOLD,
         "hallucination_rate_threshold": LAB_HALLUCINATION_RATE_THRESHOLD,
@@ -877,6 +913,9 @@ def _eval_gate(eval_result: dict) -> dict:
         "critical_regression": bool(comparison.get("critical_regression")),
         "eval_coverage_rate": coverage.get("coverage_rate"),
         "full_eval_coverage": bool(coverage.get("full_eval_coverage")),
+        "heldout_items_total": coverage.get("heldout_items_total"),
+        "heldout_items_evaluated": coverage.get("heldout_items_evaluated"),
+        "all_heldout_items_evaluated": bool(coverage.get("all_heldout_items_evaluated")),
         "activation_allowed": not block_reasons,
         "block_reasons": block_reasons,
     }
@@ -1115,6 +1154,12 @@ def _eval_item_key(item: dict) -> tuple[str, str, str]:
 def _eval_coverage(seed_items: list[dict], selected_items: list[dict], *, eval_limit: int) -> dict:
     total = len(seed_items)
     selected_keys = {_eval_item_key(item) for item in selected_items}
+    heldout_items = [
+        item
+        for item in seed_items
+        if str(item.get("eval_split") or "") == "heldout"
+    ]
+    heldout_evaluated = sum(1 for item in heldout_items if _eval_item_key(item) in selected_keys)
     critical_items = [
         item
         for item in seed_items
@@ -1128,6 +1173,9 @@ def _eval_coverage(seed_items: list[dict], selected_items: list[dict], *, eval_l
         "eval_item_limit": eval_limit,
         "coverage_rate": coverage_rate,
         "full_eval_coverage": bool(total and len(selected_items) == total),
+        "heldout_items_total": len(heldout_items),
+        "heldout_items_evaluated": heldout_evaluated,
+        "all_heldout_items_evaluated": bool(heldout_items and heldout_evaluated == len(heldout_items)),
         "critical_categories": sorted(CRITICAL_EVAL_CATEGORIES),
         "critical_items_total": len(critical_items),
         "critical_items_evaluated": critical_evaluated,
@@ -1357,6 +1405,9 @@ def _write_report(path: Path, summary: dict) -> None:
             f"- Regression count: `{gate['regression_count']}`",
             f"- Eval coverage rate: `{gate.get('eval_coverage_rate')}`",
             f"- Full eval coverage: `{gate.get('full_eval_coverage')}`",
+            f"- Held-out items total: `{gate.get('heldout_items_total')}`",
+            f"- Held-out items evaluated: `{gate.get('heldout_items_evaluated')}`",
+            f"- All held-out items evaluated: `{gate.get('all_heldout_items_evaluated')}`",
             "",
             "### Eval Gate Block Reasons",
             "",
@@ -1377,6 +1428,9 @@ def _write_report(path: Path, summary: dict) -> None:
             f"- Eval item limit: `{coverage['eval_item_limit']}`",
             f"- Coverage rate: `{coverage['coverage_rate']}`",
             f"- Full eval coverage: `{coverage.get('full_eval_coverage')}`",
+            f"- Held-out items total: `{coverage.get('heldout_items_total')}`",
+            f"- Held-out items evaluated: `{coverage.get('heldout_items_evaluated')}`",
+            f"- All held-out items evaluated: `{coverage.get('all_heldout_items_evaluated')}`",
             f"- Critical items total: `{coverage['critical_items_total']}`",
             f"- Critical items evaluated: `{coverage['critical_items_evaluated']}`",
             f"- All critical items evaluated: `{coverage['all_critical_items_evaluated']}`",
@@ -1449,6 +1503,7 @@ def _write_empty_dataset(path: Path) -> None:
         "dataset.instruction.jsonl",
         "dataset.sharegpt.jsonl",
         "eval.seed.jsonl",
+        "eval.heldout.jsonl",
         "skipped.jsonl",
     ]:
         (path / name).write_text("")

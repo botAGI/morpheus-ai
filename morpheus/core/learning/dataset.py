@@ -7,6 +7,8 @@ from pathlib import Path
 from morpheus.core.compiler import compute_sha256
 from morpheus.core.learning.evals import (
     eval_items_for_candidate,
+    heldout_eval_items_for_candidate,
+    heldout_truth_gate_negative_eval_items,
     truth_gate_negative_eval_items,
     unsupported_claim_eval_item,
 )
@@ -106,16 +108,20 @@ def build_learning_dataset(
 
     instruction_examples: list[dict] = []
     eval_items: list[dict] = []
+    heldout_items: list[dict] = []
     for item in eligible:
         instruction_examples.extend(instruction_examples_for_candidate(item.candidate))
         eval_items.extend(eval_items_for_candidate(item.candidate))
+        heldout_items.extend(heldout_eval_items_for_candidate(item.candidate))
     if eligible and include_refusals:
         instruction_examples.extend(truth_gate_negative_instruction_examples())
         eval_items.append(unsupported_claim_eval_item())
         eval_items.extend(truth_gate_negative_eval_items())
+        heldout_items.extend(heldout_truth_gate_negative_eval_items())
     elif include_refusals:
         eval_items.append(unsupported_claim_eval_item())
         eval_items.extend(truth_gate_negative_eval_items())
+        heldout_items.extend(heldout_truth_gate_negative_eval_items())
 
     sharegpt_examples = sharegpt_examples_from_instruction(instruction_examples)
     chat_examples = chat_examples_from_instruction(instruction_examples)
@@ -128,6 +134,7 @@ def build_learning_dataset(
     sharegpt_path = out_dir / "dataset.sharegpt.jsonl"
     skipped_path = out_dir / "skipped.jsonl"
     eval_path = out_dir / "eval.seed.jsonl"
+    heldout_eval_path = out_dir / "eval.heldout.jsonl"
     manifest_path = out_dir / "manifest.json"
     train_path = out_dir / "train.jsonl"
     valid_path = out_dir / "valid.jsonl"
@@ -139,6 +146,7 @@ def build_learning_dataset(
     _write_jsonl(test_path, split_rows["test"])
     _write_jsonl(skipped_path, skipped)
     _write_jsonl(eval_path, eval_items)
+    _write_jsonl(heldout_eval_path, heldout_items)
 
     selected_path = _selected_dataset_path(
         dataset_format,
@@ -158,6 +166,8 @@ def build_learning_dataset(
         "candidate_count": len(candidates),
         "trainable_candidate_count": sum(1 for item in eligible if item.trainable_positive),
         "examples_count": len(instruction_examples),
+        "eval_items_count": len(eval_items),
+        "heldout_eval_items_count": len(heldout_items),
         "skipped_count": len(skipped),
         "split_counts": {key: len(value) for key, value in split_rows.items()},
         "smoke_mode": len(instruction_examples) < 20,
@@ -184,6 +194,7 @@ def build_learning_dataset(
             "sharegpt": SHAREGPT_FORMAT_VERSION,
             "chat": CHAT_FORMAT_VERSION,
             "eval_seed": "morpheus-eval-seed/1",
+            "heldout_eval": "morpheus-heldout-eval/1",
             "manifest": "morpheus-learning-manifest/1",
         },
     }

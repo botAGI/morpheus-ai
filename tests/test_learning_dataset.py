@@ -183,6 +183,7 @@ def test_dataset_builds_examples_manifest_and_eval_seed_from_accepted_source_bac
     instruction_examples = read_jsonl(dataset_dir / "dataset.instruction.jsonl")
     sharegpt_examples = read_jsonl(dataset_dir / "dataset.sharegpt.jsonl")
     eval_items = read_jsonl(dataset_dir / "eval.seed.jsonl")
+    heldout_items = read_jsonl(dataset_dir / "eval.heldout.jsonl")
     manifest = json.loads((dataset_dir / "manifest.json").read_text())
 
     assert result["selected_dataset_path"].endswith("dataset.instruction.jsonl")
@@ -196,8 +197,11 @@ def test_dataset_builds_examples_manifest_and_eval_seed_from_accepted_source_bac
         for message in item["messages"]
     )
     assert any(item["source_candidate_id"] == "c_decision" for item in eval_items)
+    assert any(item["source_candidate_id"] == "c_decision" for item in heldout_items)
+    assert all(item["eval_split"] == "heldout" for item in heldout_items)
     assert manifest["candidate_count"] == 11
     assert manifest["trainable_candidate_count"] == 5
+    assert manifest["heldout_eval_items_count"] == len(heldout_items)
     assert manifest["examples_count"] == len(instruction_examples)
     assert manifest["dataset_sha256"]
     assert manifest["prompt_sha256_values"] == [PROMPT_SHA]
@@ -380,6 +384,28 @@ def test_mlx_train_chat_prompts_match_eval_questions_exactly(tmp_path):
     assert all("What reviewed project state is supported by README.md:" not in prompt for prompt in user_prompts)
     assert "Morpheus is mainly a LoRA trainer" in user_prompts
     assert "Morpheus trains on raw markdown" in user_prompts
+
+
+def test_heldout_eval_prompts_are_not_training_prompts(tmp_path):
+    project_root = copy_learning_project(tmp_path)
+
+    result = build_learning_dataset(project_root, dataset_format="chat", include_refusals=True)
+
+    dataset_dir = Path(result["dataset_dir"])
+    train_rows = read_jsonl(dataset_dir / "train.jsonl")
+    heldout_items = read_jsonl(dataset_dir / "eval.heldout.jsonl")
+    user_prompts = {
+        message["content"]
+        for row in train_rows
+        for message in row["messages"]
+        if message["role"] == "user"
+    }
+    heldout_questions = {item["question"] for item in heldout_items}
+
+    assert heldout_questions
+    assert heldout_questions.isdisjoint(user_prompts)
+    assert any("reviewed Morpheus fact" in question for question in heldout_questions)
+    assert "Can Morpheus fine-tune directly on raw markdown without review?" in heldout_questions
 
 
 def test_mlx_train_split_oversamples_required_memory_prompts(tmp_path):

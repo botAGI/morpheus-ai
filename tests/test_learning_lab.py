@@ -216,11 +216,141 @@ def test_learn_lab_reports_eval_coverage_metrics(tmp_path):
     coverage = payload["eval_coverage"]
     assert coverage["eval_items_total"] >= 30
     assert coverage["evaluated_items_count"] == coverage["eval_items_total"]
+    assert coverage["heldout_items_total"] >= 1
+    assert coverage["all_heldout_items_evaluated"] is True
     assert coverage["all_critical_items_evaluated"] is True
     lab_dir = Path(payload["lab_dir"])
     report = (lab_dir / "REPORT.md").read_text()
     assert "## Eval Coverage" in report
     assert "All critical items evaluated" in report
+
+
+def test_lab_eval_gate_blocks_missing_heldout_eval(tmp_path, monkeypatch):
+    project_root = copy_autonomous_repo(tmp_path)
+
+    def fake_training(lab_dir, *, backend, model, max_iters, no_train, train_allowed):
+        return {
+            "training_ran": True,
+            "adapter_path": str(lab_dir / "training" / "adapter"),
+            "status": "trained_smoke",
+            "reason": None,
+            "returncode": 0,
+            "backend": "fake",
+            "model": model,
+        }
+
+    def passing_eval_without_heldout(
+        lab_dir,
+        *,
+        eval_items_count,
+        heldout_items_count=0,
+        training_result,
+        model,
+        eval_limit=lab_module.DEFAULT_LAB_EVAL_LIMIT,
+    ):
+        return {
+            "eval_dir": str(lab_dir / "eval"),
+            "base": {"pass_rate": 0.5, "evaluated_items_count": eval_items_count},
+            "adapter": {
+                "pass_rate": 1.0,
+                "hallucination_rate": 0.0,
+                "critical_failures": 0,
+                "evaluated_items_count": eval_items_count,
+            },
+            "comparison": {
+                "adapter_delta": 0.5,
+                "regression_count": 0,
+                "critical_regression": False,
+                "eval_error": False,
+            },
+            "coverage": {
+                "eval_items_total": eval_items_count,
+                "evaluated_items_count": eval_items_count,
+                "eval_item_limit": 0,
+                "coverage_rate": 1.0,
+                "full_eval_coverage": True,
+                "heldout_items_total": heldout_items_count,
+                "heldout_items_evaluated": 0,
+                "all_heldout_items_evaluated": False,
+                "critical_items_total": 1,
+                "critical_items_evaluated": 1,
+                "all_critical_items_evaluated": True,
+            },
+        }
+
+    monkeypatch.setattr("morpheus.core.learning.lab._run_or_plan_training", fake_training)
+    monkeypatch.setattr("morpheus.core.learning.lab._write_lab_eval", passing_eval_without_heldout)
+
+    result = run_autonomous_lab(project_root, dogfood=True, eval_limit=0)
+
+    assert result["verdict"] == "ML_CORE_PARTIAL"
+    assert result["production_ready"] is False
+    assert "heldout_eval_missing" in result["production_blockers"]
+    assert "heldout_eval_missing" in result["eval_gate"]["block_reasons"]
+
+
+def test_lab_eval_regressions_block_production_readiness(tmp_path, monkeypatch):
+    project_root = copy_autonomous_repo(tmp_path)
+
+    def fake_training(lab_dir, *, backend, model, max_iters, no_train, train_allowed):
+        return {
+            "training_ran": True,
+            "adapter_path": str(lab_dir / "training" / "adapter"),
+            "status": "trained_smoke",
+            "reason": None,
+            "returncode": 0,
+            "backend": "fake",
+            "model": model,
+        }
+
+    def passing_eval_with_regression(
+        lab_dir,
+        *,
+        eval_items_count,
+        heldout_items_count=1,
+        training_result,
+        model,
+        eval_limit=0,
+    ):
+        return {
+            "eval_dir": str(lab_dir / "eval"),
+            "base": {"pass_rate": 0.7, "evaluated_items_count": eval_items_count},
+            "adapter": {
+                "pass_rate": 0.95,
+                "hallucination_rate": 0.0,
+                "critical_failures": 0,
+                "evaluated_items_count": eval_items_count + heldout_items_count,
+            },
+            "comparison": {
+                "adapter_delta": 0.25,
+                "regression_count": 1,
+                "critical_regression": False,
+                "eval_error": False,
+            },
+            "coverage": {
+                "eval_items_total": eval_items_count + heldout_items_count,
+                "evaluated_items_count": eval_items_count + heldout_items_count,
+                "eval_item_limit": 0,
+                "coverage_rate": 1.0,
+                "full_eval_coverage": True,
+                "heldout_items_total": heldout_items_count,
+                "heldout_items_evaluated": heldout_items_count,
+                "all_heldout_items_evaluated": True,
+                "critical_items_total": 1,
+                "critical_items_evaluated": 1,
+                "all_critical_items_evaluated": True,
+            },
+        }
+
+    monkeypatch.setattr("morpheus.core.learning.lab._run_or_plan_training", fake_training)
+    monkeypatch.setattr("morpheus.core.learning.lab._write_lab_eval", passing_eval_with_regression)
+
+    result = run_autonomous_lab(project_root, dogfood=True, eval_limit=0)
+
+    assert result["verdict"] == "ML_CORE_PARTIAL"
+    assert result["production_ready"] is False
+    assert "regressions" in result["production_blockers"]
+    assert "regressions" in result["eval_gate"]["block_reasons"]
 
 
 def test_mlx_eval_selection_keeps_all_critical_safety_items():
@@ -285,7 +415,15 @@ def test_sampled_eval_blocks_production_even_when_adapter_passes(tmp_path, monke
             "model": model,
         }
 
-    def sampled_passing_eval(lab_dir, *, eval_items_count, training_result, model, eval_limit=lab_module.DEFAULT_LAB_EVAL_LIMIT):
+    def sampled_passing_eval(
+        lab_dir,
+        *,
+        eval_items_count,
+        heldout_items_count=0,
+        training_result,
+        model,
+        eval_limit=lab_module.DEFAULT_LAB_EVAL_LIMIT,
+    ):
         eval_dir = lab_dir / "eval"
         eval_dir.mkdir(parents=True, exist_ok=True)
         base = {
@@ -315,6 +453,9 @@ def test_sampled_eval_blocks_production_even_when_adapter_passes(tmp_path, monke
             "evaluated_items_count": 6,
             "eval_item_limit": eval_limit,
             "coverage_rate": 0.5,
+            "heldout_items_total": heldout_items_count or 2,
+            "heldout_items_evaluated": heldout_items_count or 2,
+            "all_heldout_items_evaluated": True,
             "critical_categories": sorted(lab_module.CRITICAL_EVAL_CATEGORIES),
             "critical_items_total": 2,
             "critical_items_evaluated": 2,
@@ -333,7 +474,7 @@ def test_sampled_eval_blocks_production_even_when_adapter_passes(tmp_path, monke
 
     result = run_autonomous_lab(project_root, dogfood=True)
 
-    assert result["verdict"] == "ML_CORE_PASS"
+    assert result["verdict"] == "ML_CORE_PARTIAL"
     assert result["production_ready"] is False
     assert "eval_coverage_incomplete" in result["production_blockers"]
     assert result["eval_gate"]["activation_allowed"] is False
@@ -555,7 +696,15 @@ def test_learn_lab_marks_trained_adapter_regression_as_fail(tmp_path, monkeypatc
             "model": model,
         }
 
-    def degrading_eval(lab_dir, *, eval_items_count, training_result, model, eval_limit=lab_module.DEFAULT_LAB_EVAL_LIMIT):
+    def degrading_eval(
+        lab_dir,
+        *,
+        eval_items_count,
+        heldout_items_count=0,
+        training_result,
+        model,
+        eval_limit=lab_module.DEFAULT_LAB_EVAL_LIMIT,
+    ):
         eval_dir = lab_dir / "eval"
         eval_dir.mkdir(parents=True, exist_ok=True)
         base = {"mode": "base", "items": [], "pass_rate": 0.8, "critical_failures": 0}

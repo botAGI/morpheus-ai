@@ -4,8 +4,8 @@ Date: 2026-05-19
 
 ## Slice
 
-Dataset/eval quality hardening, full live eval gating, and repeated stability
-checks for the autonomous MLX learning lab.
+Dataset/eval quality hardening, full live eval gating, repeated stability
+checks, and held-out eval expansion for the autonomous MLX learning lab.
 
 ## Problem Found
 
@@ -25,6 +25,10 @@ claims. This produced command-fact confusion across similar AGENTS.md entries.
   production-ready.
 - `--repeat N` runs repeated lab experiments and writes an aggregate stability
   report.
+- `eval.heldout.jsonl` adds non-training eval prompts to catch overfit against
+  the train-aligned eval seed.
+- Any adapter regression now blocks production readiness, even when aggregate
+  pass rate is high.
 - Critical safety eval categories are always selected:
   - `outdated_claim_correction`
   - `unsupported_claim_refusal`
@@ -111,6 +115,57 @@ Stability verdict: `ML_CORE_PASS`
 
 Stability blockers: none
 
+## Held-Out Eval Result
+
+Command:
+
+```bash
+morpheus learn lab . --dogfood --backend mlx --eval-limit 0
+```
+
+Raw JSON:
+
+```text
+.morpheus/lab/live_runs/dogfood_mlx_heldout_fulleval_20260519T153630Z.json
+```
+
+Lab report:
+
+```text
+.morpheus/lab/lab_20260519T153624654835Z/REPORT.md
+```
+
+Metrics:
+
+| Metric | Value |
+| --- | ---: |
+| Verdict before gate fix | `ML_CORE_PASS` |
+| Corrected readiness | `ML_CORE_PARTIAL` |
+| Eval seed items | 63 |
+| Held-out eval items | 61 |
+| Evaluated live items | 124 |
+| Full eval coverage | 1.0 |
+| Held-out coverage | 61 / 61 |
+| Adapter pass rate | 0.9758 |
+| Base pass rate | 0.7742 |
+| Adapter delta | +0.2016 |
+| Adapter hallucination rate | 0.0 |
+| Critical failures | 0 |
+| Regressions | 2 |
+
+Held-out expansion exposed a real gate bug: the adapter had two regressions, so
+`eval_gate.activation_allowed` was false, but `production_ready` still reported
+true because only critical regressions blocked production. The gate now treats
+any regression as production-blocking and returns `ML_CORE_PARTIAL` for that
+shape.
+
+Observed regression themes:
+
+- Ambiguous stale-positioning recall around `morpheus stale .`.
+- A weak/over-broad held-out prompt whose topic collapsed to `this claim`.
+- A terse `No.` answer for adapter activation safety that was directionally
+  correct but did not satisfy the expected answer rubric.
+
 ## Prior Failing Run
 
 Before claim-aware prompts, the same live dogfood lane produced
@@ -124,8 +179,9 @@ The full 63-item eval above is the first live run with complete coverage.
 
 ## Verdict
 
-`ML_CORE_PASS` for the current repeated full dogfood gate.
+`ML_CORE_PARTIAL` for the current held-out dogfood gate because regressions are
+now production-blocking.
 
 This is still an autonomous lab result, not a release or automatic production
-activation. Held-out eval expansion should be the next quality step before
-treating adapter activation as production-safe.
+activation. The next quality step is to improve held-out prompt generation and
+scoring rubrics, then rerun repeated full held-out eval.
