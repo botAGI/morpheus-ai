@@ -7,6 +7,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import time
 from collections import Counter
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
@@ -673,12 +674,30 @@ def _write_lab_eval(
 ) -> dict:
     eval_dir = lab_dir / "eval"
     eval_dir.mkdir(parents=True, exist_ok=True)
+    progress_path = eval_dir / "eval_progress.jsonl"
+    progress_summary_path = eval_dir / "progress_summary.json"
+    progress_path.unlink(missing_ok=True)
     seed_items = _read_jsonl(lab_dir / "dataset" / "eval.seed.jsonl")
     heldout_items = _read_jsonl(lab_dir / "dataset" / "eval.heldout.jsonl")
     all_items = [*seed_items, *heldout_items]
+    _write_progress_event(progress_path, {
+        "event": "eval_started",
+        "total_items": len(all_items),
+        "seed_items": len(seed_items),
+        "heldout_items": len(heldout_items),
+        "eval_limit": eval_limit,
+        "backend": training_result.get("backend"),
+        "training_status": training_result.get("status"),
+    })
     if not training_result["training_ran"]:
         selected = all_items
-        base = _evaluate_lab_items(all_items, mode="base", backend="fake", model=model)
+        base = _evaluate_lab_items(
+            all_items,
+            mode="base",
+            backend="fake",
+            model=model,
+            progress_path=progress_path,
+        )
         adapter = {
             "mode": "adapter",
             "items": [],
@@ -689,6 +708,12 @@ def _write_lab_eval(
             "critical_failures": 0,
             "status": "not_run",
         }
+        _write_progress_event(progress_path, {
+            "event": "mode_skipped",
+            "mode": "adapter",
+            "reason": "training_not_run",
+            "total_items": eval_items_count + heldout_items_count,
+        })
         comparison = {
             "adapter_delta": None,
             "regression_count": 0,
@@ -697,22 +722,57 @@ def _write_lab_eval(
         }
     elif training_result.get("backend") == "mlx":
         selected = _select_eval_items(all_items, limit=eval_limit)
-        base = _evaluate_lab_items(selected, mode="base", backend="mlx", model=model)
+        base = _evaluate_lab_items(
+            selected,
+            mode="base",
+            backend="mlx",
+            model=model,
+            progress_path=progress_path,
+        )
         adapter = _evaluate_lab_items(
             selected,
             mode="adapter",
             backend="mlx",
             model=model,
             adapter_path=training_result.get("adapter_path"),
+            progress_path=progress_path,
         )
         comparison = _compare_lab_eval(base, adapter)
     else:
         selected = all_items
-        base = _evaluate_lab_items(all_items, mode="base", backend="fake", model=model)
-        adapter = _evaluate_lab_items(all_items, mode="adapter", backend="fake", model=model)
+        base = _evaluate_lab_items(
+            all_items,
+            mode="base",
+            backend="fake",
+            model=model,
+            progress_path=progress_path,
+        )
+        adapter = _evaluate_lab_items(
+            all_items,
+            mode="adapter",
+            backend="fake",
+            model=model,
+            progress_path=progress_path,
+        )
         comparison = _compare_lab_eval(base, adapter)
 
     coverage = _eval_coverage(all_items, selected, eval_limit=eval_limit)
+    progress_summary = _eval_progress_summary(
+        progress_path=progress_path,
+        base=base,
+        adapter=adapter,
+        comparison=comparison,
+        coverage=coverage,
+    )
+    _write_json(progress_summary_path, progress_summary)
+    _write_progress_event(progress_path, {
+        "event": "eval_completed",
+        "status": progress_summary["status"],
+        "base_evaluated": progress_summary["base_evaluated"],
+        "adapter_evaluated": progress_summary["adapter_evaluated"],
+        "full_eval_coverage": progress_summary["full_eval_coverage"],
+        "all_heldout_items_evaluated": progress_summary["all_heldout_items_evaluated"],
+    })
     _write_json(eval_dir / "base_results.json", base)
     _write_json(eval_dir / "adapter_results.json", adapter)
     _write_json(eval_dir / "eval_config.json", {
@@ -723,6 +783,8 @@ def _write_lab_eval(
         "heldout_items_total": heldout_items_count,
         "mlx_eval_item_limit": eval_limit,
         "coverage": coverage,
+        "progress_path": str(progress_path),
+        "progress_summary_path": str(progress_summary_path),
     })
     report = [
         "# Morpheus Lab Eval",
@@ -735,6 +797,8 @@ def _write_lab_eval(
         f"- Adapter pass rate: `{adapter.get('pass_rate')}`",
         f"- Adapter delta: `{comparison.get('adapter_delta')}`",
         f"- Critical regression: `{comparison.get('critical_regression')}`",
+        f"- Progress log: `{progress_path}`",
+        f"- Progress summary: `{progress_summary_path}`",
         "",
         "## Eval Coverage",
         "",
@@ -767,6 +831,7 @@ def _write_lab_eval(
         "adapter": adapter,
         "comparison": comparison,
         "coverage": coverage,
+        "progress": progress_summary,
     }
 
 
@@ -931,21 +996,44 @@ def _evaluate_lab_items(
     backend: str,
     model: str,
     adapter_path: str | None = None,
+    progress_path: Path | None = None,
 ) -> dict:
     scored = []
     errors = []
-    for item in items:
+    started_at = time.monotonic()
+    _write_progress_event(progress_path, {
+        "event": "mode_started",
+        "mode": mode,
+        "backend": backend,
+        "model": model,
+        "total_items": len(items),
+        "adapter_path": adapter_path,
+    })
+    for index, item in enumerate(items, start=1):
         try:
             answer = _lab_answer(item, mode=mode, backend=backend, model=model, adapter_path=adapter_path)
         except (OSError, subprocess.SubprocessError, TimeoutError, ValueError) as exc:
             answer = ""
             errors.append({"question": item.get("question"), "error": str(exc)})
-        scored.append(_score_lab_item(item, answer, mode=mode))
+        scored_item = _score_lab_item(item, answer, mode=mode)
+        scored.append(scored_item)
+        _write_progress_event(progress_path, {
+            "event": "item_evaluated",
+            "mode": mode,
+            "index": index,
+            "total_items": len(items),
+            "category": scored_item.get("category"),
+            "source_candidate_id": scored_item.get("source_candidate_id"),
+            "passed": scored_item.get("passed"),
+            "hallucinated": scored_item.get("hallucinated"),
+            "critical_failure": scored_item.get("critical_failure"),
+            "elapsed_seconds": round(time.monotonic() - started_at, 3),
+        })
     total = len(scored)
     passed = sum(1 for item in scored if item["passed"])
     hallucinated = sum(1 for item in scored if item["hallucinated"])
     critical_failures = sum(1 for item in scored if item["critical_failure"])
-    return {
+    result = {
         "mode": mode,
         "backend": backend,
         "model": model,
@@ -958,6 +1046,63 @@ def _evaluate_lab_items(
         "critical_failures": critical_failures,
         "errors": errors,
         "status": "evaluated_with_errors" if errors else "evaluated",
+    }
+    _write_progress_event(progress_path, {
+        "event": "mode_completed",
+        "mode": mode,
+        "backend": backend,
+        "evaluated_items_count": total,
+        "passed": passed,
+        "errors_count": len(errors),
+        "pass_rate": result["pass_rate"],
+        "elapsed_seconds": round(time.monotonic() - started_at, 3),
+    })
+    return result
+
+
+def _write_progress_event(progress_path: Path | None, payload: dict) -> None:
+    if progress_path is None:
+        return
+    progress_path.parent.mkdir(parents=True, exist_ok=True)
+    event = {
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        **payload,
+    }
+    with progress_path.open("a") as handle:
+        handle.write(json.dumps(event, sort_keys=True, default=str) + "\n")
+        handle.flush()
+
+
+def _eval_progress_summary(
+    *,
+    progress_path: Path,
+    base: dict,
+    adapter: dict,
+    comparison: dict,
+    coverage: dict,
+) -> dict:
+    adapter_evaluated = bool(adapter.get("evaluated_items_count"))
+    errors_count = len(base.get("errors") or []) + len(adapter.get("errors") or [])
+    if errors_count:
+        status = "completed_with_errors"
+    elif not adapter_evaluated:
+        status = "adapter_not_run"
+    else:
+        status = "completed"
+    return {
+        "status": status,
+        "progress_path": str(progress_path),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "base_evaluated": int(base.get("evaluated_items_count") or 0),
+        "adapter_evaluated": int(adapter.get("evaluated_items_count") or 0),
+        "base_pass_rate": base.get("pass_rate"),
+        "adapter_pass_rate": adapter.get("pass_rate"),
+        "adapter_delta": comparison.get("adapter_delta"),
+        "regression_count": int(comparison.get("regression_count") or 0),
+        "critical_regression": bool(comparison.get("critical_regression")),
+        "full_eval_coverage": bool(coverage.get("full_eval_coverage")),
+        "all_heldout_items_evaluated": bool(coverage.get("all_heldout_items_evaluated")),
+        "errors_count": errors_count,
     }
 
 

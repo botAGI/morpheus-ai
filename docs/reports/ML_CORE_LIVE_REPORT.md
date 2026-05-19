@@ -104,15 +104,46 @@ the real dogfood dataset below training thresholds.
 
 ## Remaining Reliability Work
 
-The live full-eval command writes final JSON only after completion. During
-long MLX runs the output file stays empty because stdout is buffered.
+The previous live full-eval command wrote final JSON only after completion.
+During long MLX runs the output file stayed empty because stdout was buffered.
+
+That reliability gap is now addressed with incremental eval progress artifacts:
+
+- `eval/eval_progress.jsonl` records `eval_started`, `mode_started`,
+  `item_evaluated`, `mode_completed`, `mode_skipped`, and `eval_completed`
+  events.
+- Each item event records mode, index, total, category, source candidate ID,
+  pass/fail flags, critical-failure flag, and elapsed seconds.
+- `eval/progress_summary.json` records final base/adapter evaluated counts,
+  pass rates, regression count, coverage, held-out coverage, and status.
+- Final JSON output remains stable for automation.
+
+Dogfood progress preflight:
+
+```text
+.morpheus/lab/live_runs/dogfood_progress_notrain_20260519T195506Z.json
+```
+
+Progress artifacts:
+
+```text
+.morpheus/lab/lab_20260519T195510721491Z/eval/eval_progress.jsonl
+.morpheus/lab/lab_20260519T195510721491Z/eval/progress_summary.json
+```
+
+Observed progress metrics:
+
+- Progress events: `117`
+- Base evaluated: `112`
+- Adapter evaluated: `0` (`--no-train`)
+- Status: `adapter_not_run`
+- All held-out items evaluated: `true`
 
 Next reliability slice:
 
-- Add progress logging or incremental progress artifacts for MLX lab eval.
-- Include current eval item index, total items, mode (`base`/`adapter`), and
-  elapsed time.
-- Keep final JSON stable for automation.
+- Run a full MLX eval and verify progress artifacts update during both
+  `base` and `adapter` modes.
+- Add optional stderr progress lines for humans watching a terminal.
 
 ## Verdict
 

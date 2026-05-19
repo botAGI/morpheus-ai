@@ -746,6 +746,48 @@ def test_learn_lab_trained_fake_adapter_writes_base_vs_adapter_eval(tmp_path, mo
     assert "pending_manual_eval" not in report
 
 
+def test_learn_lab_eval_writes_progress_artifacts(tmp_path, monkeypatch):
+    project_root = copy_autonomous_repo(tmp_path)
+
+    def fake_training(lab_dir, *, backend, model, max_iters, no_train, train_allowed):
+        return {
+            "training_ran": True,
+            "adapter_path": str(lab_dir / "training" / "adapter"),
+            "status": "trained_smoke",
+            "reason": None,
+            "returncode": 0,
+            "backend": "fake",
+            "model": model,
+        }
+
+    monkeypatch.setattr("morpheus.core.learning.lab._run_or_plan_training", fake_training)
+
+    result = run_autonomous_lab(project_root, fixture_only=True)
+
+    eval_dir = Path(result["eval"]["eval_dir"])
+    progress_path = eval_dir / "eval_progress.jsonl"
+    summary_path = eval_dir / "progress_summary.json"
+    config = json.loads((eval_dir / "eval_config.json").read_text())
+    progress_rows = read_jsonl(progress_path)
+    summary = json.loads(summary_path.read_text())
+
+    assert progress_path.is_file()
+    assert summary_path.is_file()
+    assert config["progress_path"] == str(progress_path)
+    assert result["eval"]["progress"]["progress_path"] == str(progress_path)
+    assert {row["event"] for row in progress_rows} >= {
+        "mode_started",
+        "item_evaluated",
+        "mode_completed",
+    }
+    assert {row["mode"] for row in progress_rows if "mode" in row} >= {"base", "adapter"}
+    assert summary["status"] == "completed"
+    assert summary["progress_path"] == str(progress_path)
+    assert summary["base_evaluated"] == result["eval"]["base"]["evaluated_items_count"]
+    assert summary["adapter_evaluated"] == result["eval"]["adapter"]["evaluated_items_count"]
+    assert summary["all_heldout_items_evaluated"] is True
+
+
 def test_learn_lab_default_iters_match_passing_mlx_curriculum(tmp_path, monkeypatch):
     project_root = copy_autonomous_repo(tmp_path)
     captured = {}
