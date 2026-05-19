@@ -1,6 +1,10 @@
 """Example generation from reviewed semantic candidates."""
 
-from morpheus.core.learning.evals import truth_gate_negative_eval_items, unsupported_claim_eval_item
+from morpheus.core.learning.evals import (
+    candidate_recall_question,
+    truth_gate_negative_eval_items,
+    unsupported_claim_eval_item,
+)
 from morpheus.core.semantic.models import SemanticCandidate
 
 
@@ -17,6 +21,7 @@ def instruction_examples_for_candidate(candidate: SemanticCandidate) -> list[dic
     metadata = candidate_metadata(candidate)
     if candidate.kind == "outdated_claim":
         return [_outdated_instruction_example(candidate, metadata)]
+    recall_question = candidate_recall_question(candidate)
 
     return [
         {
@@ -27,10 +32,10 @@ def instruction_examples_for_candidate(candidate: SemanticCandidate) -> list[dic
         },
         {
             "instruction": "Answer a reviewed Morpheus eval item using accepted source-backed state.",
-            "input": f"What reviewed project state is supported by {candidate.source_path}:{candidate.line_start}?",
+            "input": recall_question,
             "output": candidate.claim,
             "metadata": {**metadata, "example_type": "eval_aligned_recall"},
-            "chat_user_content": f"What reviewed project state is supported by {candidate.source_path}:{candidate.line_start}?",
+            "chat_user_content": recall_question,
         },
         {
             "instruction": "Apply reviewed project state while working in the repository.",

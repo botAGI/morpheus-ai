@@ -31,12 +31,17 @@ LAB_MIN_ACCEPTED = 20
 LAB_MIN_EXAMPLES = 100
 LAB_MIN_EVAL_ITEMS = 30
 LAB_MLX_EVAL_ITEM_LIMIT = 6
+DEFAULT_LAB_EVAL_LIMIT = LAB_MLX_EVAL_ITEM_LIMIT
 LAB_PASS_RATE_THRESHOLD = 0.60
 LAB_HALLUCINATION_RATE_THRESHOLD = 0.05
 LAB_MLX_LEARNING_RATE = "1e-5"
 DEFAULT_LAB_BACKEND = "fake"
 DEFAULT_LAB_MODEL = "mlx-community/Qwen2.5-7B-Instruct-4bit"
 DEFAULT_LAB_MAX_ITERS = 400
+CRITICAL_EVAL_CATEGORIES = {
+    "outdated_claim_correction",
+    "unsupported_claim_refusal",
+}
 LAB_STRICT_KINDS = {
     "current_state",
     "active_decision",
@@ -65,6 +70,7 @@ def run_autonomous_lab(
     fixture_only: bool = False,
     dogfood: bool = False,
     max_iters: int = DEFAULT_LAB_MAX_ITERS,
+    eval_limit: int = DEFAULT_LAB_EVAL_LIMIT,
 ) -> dict:
     """Run an autonomous benchmark or dogfood learning experiment."""
     project_root = _safe_project_root(project_root)
@@ -82,6 +88,7 @@ def run_autonomous_lab(
         "fixture_only": fixture_only,
         "dogfood": dogfood,
         "max_iters": max_iters,
+        "eval_limit": eval_limit,
         "min_accepted": LAB_MIN_ACCEPTED,
         "min_examples": LAB_MIN_EXAMPLES,
         "min_eval_items": LAB_MIN_EVAL_ITEMS,
@@ -116,6 +123,7 @@ def run_autonomous_lab(
                 model=model,
                 no_train=no_train,
                 max_iters=max_iters,
+                eval_limit=eval_limit,
                 dogfood_blocked_reason=None,
                 dogfood_metrics=dogfood_metrics,
             )
@@ -147,6 +155,7 @@ def run_autonomous_lab(
             model=model,
             no_train=no_train,
             max_iters=max_iters,
+            eval_limit=eval_limit,
             dogfood_blocked_reason=dogfood_blocked_reason,
             dogfood_metrics=dogfood_metrics,
         )
@@ -165,6 +174,7 @@ def run_autonomous_lab(
         model=model,
         no_train=no_train,
         max_iters=max_iters,
+        eval_limit=eval_limit,
         dogfood_blocked_reason=dogfood_blocked_reason,
         dogfood_metrics=dogfood_metrics,
     )
@@ -216,6 +226,7 @@ def _finish_lab(
     model: str,
     no_train: bool,
     max_iters: int,
+    eval_limit: int,
     dogfood_blocked_reason: str | None,
     dogfood_metrics: dict | None,
 ) -> dict:
@@ -270,6 +281,7 @@ def _finish_lab(
         eval_items_count=eval_items_count,
         training_result=training_result,
         model=model,
+        eval_limit=eval_limit,
     )
     verdict = _lab_verdict(
         train_allowed=train_allowed,
@@ -314,6 +326,7 @@ def _finish_lab(
         "production_ready": not production_blockers and verdict == "ML_CORE_PASS",
         "production_blockers": production_blockers,
         "eval_gate": eval_gate,
+        "eval_coverage": eval_result.get("coverage"),
         "eval": eval_result,
     }
     _write_json(lab_dir / "source_inventory.json", _source_inventory(source_project, accepted, rejected_reasons))
@@ -552,11 +565,13 @@ def _write_lab_eval(
     eval_items_count: int,
     training_result: dict,
     model: str,
+    eval_limit: int = DEFAULT_LAB_EVAL_LIMIT,
 ) -> dict:
     eval_dir = lab_dir / "eval"
     eval_dir.mkdir(parents=True, exist_ok=True)
     seed_items = _read_jsonl(lab_dir / "dataset" / "eval.seed.jsonl")
     if not training_result["training_ran"]:
+        selected = seed_items
         base = _evaluate_lab_items(seed_items, mode="base", backend="fake", model=model)
         adapter = {
             "mode": "adapter",
@@ -575,7 +590,7 @@ def _write_lab_eval(
             "status": "adapter_not_run",
         }
     elif training_result.get("backend") == "mlx":
-        selected = _select_eval_items(seed_items, limit=LAB_MLX_EVAL_ITEM_LIMIT)
+        selected = _select_eval_items(seed_items, limit=eval_limit)
         base = _evaluate_lab_items(selected, mode="base", backend="mlx", model=model)
         adapter = _evaluate_lab_items(
             selected,
@@ -586,10 +601,12 @@ def _write_lab_eval(
         )
         comparison = _compare_lab_eval(base, adapter)
     else:
+        selected = seed_items
         base = _evaluate_lab_items(seed_items, mode="base", backend="fake", model=model)
         adapter = _evaluate_lab_items(seed_items, mode="adapter", backend="fake", model=model)
         comparison = _compare_lab_eval(base, adapter)
 
+    coverage = _eval_coverage(seed_items, selected, eval_limit=eval_limit)
     _write_json(eval_dir / "base_results.json", base)
     _write_json(eval_dir / "adapter_results.json", adapter)
     _write_json(eval_dir / "eval_config.json", {
@@ -597,7 +614,8 @@ def _write_lab_eval(
         "backend": training_result.get("backend"),
         "training_status": training_result.get("status"),
         "eval_items_total": eval_items_count,
-        "mlx_eval_item_limit": LAB_MLX_EVAL_ITEM_LIMIT,
+        "mlx_eval_item_limit": eval_limit,
+        "coverage": coverage,
     })
     report = [
         "# Morpheus Lab Eval",
@@ -609,6 +627,15 @@ def _write_lab_eval(
         f"- Adapter pass rate: `{adapter.get('pass_rate')}`",
         f"- Adapter delta: `{comparison.get('adapter_delta')}`",
         f"- Critical regression: `{comparison.get('critical_regression')}`",
+        "",
+        "## Eval Coverage",
+        "",
+        f"- Evaluated items: `{coverage['evaluated_items_count']}`",
+        f"- Eval item limit: `{coverage['eval_item_limit']}`",
+        f"- Coverage rate: `{coverage['coverage_rate']}`",
+        f"- Critical items total: `{coverage['critical_items_total']}`",
+        f"- Critical items evaluated: `{coverage['critical_items_evaluated']}`",
+        f"- All critical items evaluated: `{coverage['all_critical_items_evaluated']}`",
         "",
         "## Base vs Adapter",
         "",
@@ -622,7 +649,13 @@ def _write_lab_eval(
             "",
         ])
     (eval_dir / "eval_report.md").write_text("\n".join(report))
-    return {"eval_dir": str(eval_dir), "base": base, "adapter": adapter, "comparison": comparison}
+    return {
+        "eval_dir": str(eval_dir),
+        "base": base,
+        "adapter": adapter,
+        "comparison": comparison,
+        "coverage": coverage,
+    }
 
 
 def _lab_verdict(
@@ -929,25 +962,73 @@ def _compare_lab_eval(base: dict, adapter: dict) -> dict:
 
 
 def _select_eval_items(items: list[dict], *, limit: int) -> list[dict]:
+    limit = max(0, int(limit))
     if len(items) <= limit:
         return items
     selected = []
+    selected_keys = set()
+
+    for item in items:
+        if str(item.get("category") or "") not in CRITICAL_EVAL_CATEGORIES:
+            continue
+        key = _eval_item_key(item)
+        if key in selected_keys:
+            continue
+        selected.append(item)
+        selected_keys.add(key)
+
     seen_categories = set()
     for item in items:
+        key = _eval_item_key(item)
+        if key in selected_keys:
+            continue
         category = str(item.get("category") or "")
         if category in seen_categories:
             continue
         selected.append(item)
+        selected_keys.add(key)
         seen_categories.add(category)
         if len(selected) >= limit:
             return selected
     for item in items:
-        if item in selected:
+        key = _eval_item_key(item)
+        if key in selected_keys:
             continue
         selected.append(item)
+        selected_keys.add(key)
         if len(selected) >= limit:
             break
     return selected
+
+
+def _eval_item_key(item: dict) -> tuple[str, str, str]:
+    return (
+        str(item.get("source_candidate_id") or ""),
+        str(item.get("category") or ""),
+        str(item.get("question") or ""),
+    )
+
+
+def _eval_coverage(seed_items: list[dict], selected_items: list[dict], *, eval_limit: int) -> dict:
+    total = len(seed_items)
+    selected_keys = {_eval_item_key(item) for item in selected_items}
+    critical_items = [
+        item
+        for item in seed_items
+        if str(item.get("category") or "") in CRITICAL_EVAL_CATEGORIES
+    ]
+    critical_evaluated = sum(1 for item in critical_items if _eval_item_key(item) in selected_keys)
+    coverage_rate = round(len(selected_items) / total, 4) if total else 0.0
+    return {
+        "eval_items_total": total,
+        "evaluated_items_count": len(selected_items),
+        "eval_item_limit": eval_limit,
+        "coverage_rate": coverage_rate,
+        "critical_categories": sorted(CRITICAL_EVAL_CATEGORIES),
+        "critical_items_total": len(critical_items),
+        "critical_items_evaluated": critical_evaluated,
+        "all_critical_items_evaluated": critical_evaluated == len(critical_items),
+    }
 
 
 def _mlx_command_prefix(tool: str) -> str | None:
@@ -1180,6 +1261,20 @@ def _write_report(path: Path, summary: dict) -> None:
         else:
             lines.append("- none")
         lines.append("")
+    coverage = summary.get("eval_coverage") or {}
+    if coverage:
+        lines.extend([
+            "## Eval Coverage",
+            "",
+            f"- Eval items total: `{coverage['eval_items_total']}`",
+            f"- Evaluated items: `{coverage['evaluated_items_count']}`",
+            f"- Eval item limit: `{coverage['eval_item_limit']}`",
+            f"- Coverage rate: `{coverage['coverage_rate']}`",
+            f"- Critical items total: `{coverage['critical_items_total']}`",
+            f"- Critical items evaluated: `{coverage['critical_items_evaluated']}`",
+            f"- All critical items evaluated: `{coverage['all_critical_items_evaluated']}`",
+            "",
+        ])
     lines.extend([
         "## Safety",
         "",

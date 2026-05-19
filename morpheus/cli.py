@@ -36,7 +36,12 @@ from morpheus.core.check import (
 from morpheus.core.learning.adapters import activate_adapter, list_adapters, rollback_adapter
 from morpheus.core.learning.dataset import build_learning_dataset
 from morpheus.core.learning.eval import run_learning_eval
-from morpheus.core.learning.lab import DEFAULT_LAB_MAX_ITERS, lab_auto_accept, run_autonomous_lab
+from morpheus.core.learning.lab import (
+    DEFAULT_LAB_EVAL_LIMIT,
+    DEFAULT_LAB_MAX_ITERS,
+    lab_auto_accept,
+    run_autonomous_lab,
+)
 from morpheus.core.learning.registry import learning_status
 from morpheus.core.learning.train import plan_training_run
 from morpheus.core.wake import generate_wake_md
@@ -1452,6 +1457,11 @@ def learn_lab(
         "--max-iters",
         help="Maximum LoRA training iterations for autonomous lab runs",
     ),
+    eval_limit: int = typer.Option(
+        DEFAULT_LAB_EVAL_LIMIT,
+        "--eval-limit",
+        help="Maximum non-critical eval items for MLX lab eval; critical safety items are always included",
+    ),
 ):
     """Run an autonomous source-grounded learning lab without activating adapters."""
     try:
@@ -1463,6 +1473,7 @@ def learn_lab(
             fixture_only=fixture_only,
             dogfood=dogfood,
             max_iters=max_iters,
+            eval_limit=eval_limit,
         )
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         console.print(f"[red]Learning lab failed:[/red] {exc}")

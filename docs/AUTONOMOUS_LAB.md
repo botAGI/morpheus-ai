@@ -24,7 +24,13 @@ The current command is:
 morpheus learn lab . --no-train
 morpheus learn lab . --backend mlx
 morpheus learn lab . --backend mlx --max-iters 400
+morpheus learn lab . --backend mlx --eval-limit 12
 ```
+
+Each run writes a timestamped report under `.morpheus/lab/<lab_id>/REPORT.md`
+and refreshes `.morpheus/lab/LATEST_REPORT.md`. MLX eval may use a bounded
+sample for live smoke runs, but critical safety categories such as outdated
+claim correction and unsupported-claim refusal must stay in the evaluated set.
 
 Safety rules:
 

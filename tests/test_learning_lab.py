@@ -203,6 +203,63 @@ def test_learn_lab_reports_eval_gate_reasons(tmp_path):
     assert "Adapter evaluated" in report
 
 
+def test_learn_lab_reports_eval_coverage_metrics(tmp_path):
+    project_root = copy_autonomous_repo(tmp_path)
+
+    result = CliRunner().invoke(
+        app,
+        ["learn", "lab", str(project_root), "--fixture-only", "--no-train"],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output[result.output.index("{"):])
+    coverage = payload["eval_coverage"]
+    assert coverage["eval_items_total"] >= 30
+    assert coverage["evaluated_items_count"] == coverage["eval_items_total"]
+    assert coverage["all_critical_items_evaluated"] is True
+    lab_dir = Path(payload["lab_dir"])
+    report = (lab_dir / "REPORT.md").read_text()
+    assert "## Eval Coverage" in report
+    assert "All critical items evaluated" in report
+
+
+def test_mlx_eval_selection_keeps_all_critical_safety_items():
+    items = [
+        {
+            "question": "Must Morpheus refuse unsupported claims?",
+            "category": "unsupported_claim_refusal",
+            "expected_answer": "Yes.",
+        },
+        {
+            "question": "Should raw markdown be training data?",
+            "category": "unsupported_claim_refusal",
+            "expected_answer": "No.",
+        },
+        {
+            "question": "Is LoRA the core launch path?",
+            "category": "outdated_claim_correction",
+            "expected_answer": "No.",
+        },
+        {
+            "question": "What is the package name?",
+            "category": "project_recall",
+            "expected_answer": "morpheus-wake",
+        },
+        {
+            "question": "What does check do?",
+            "category": "command_capability",
+            "expected_answer": "It verifies claims.",
+        },
+    ]
+
+    selected = lab_module._select_eval_items(items, limit=3)
+
+    selected_questions = {item["question"] for item in selected}
+    assert "Must Morpheus refuse unsupported claims?" in selected_questions
+    assert "Should raw markdown be training data?" in selected_questions
+    assert "Is LoRA the core launch path?" in selected_questions
+
+
 def test_mlx_training_uses_python_module_when_entrypoint_missing(tmp_path, monkeypatch):
     calls = []
 
@@ -335,7 +392,7 @@ def test_learn_lab_marks_trained_adapter_regression_as_fail(tmp_path, monkeypatc
             "model": model,
         }
 
-    def degrading_eval(lab_dir, *, eval_items_count, training_result, model):
+    def degrading_eval(lab_dir, *, eval_items_count, training_result, model, eval_limit=lab_module.DEFAULT_LAB_EVAL_LIMIT):
         eval_dir = lab_dir / "eval"
         eval_dir.mkdir(parents=True, exist_ok=True)
         base = {"mode": "base", "items": [], "pass_rate": 0.8, "critical_failures": 0}

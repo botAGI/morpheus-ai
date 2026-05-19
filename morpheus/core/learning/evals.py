@@ -1,5 +1,7 @@
 """Eval seed generation for reviewed learning datasets."""
 
+import re
+
 from morpheus.core.semantic.models import SemanticCandidate
 
 
@@ -23,13 +25,33 @@ def eval_items_for_candidate(candidate: SemanticCandidate) -> list[dict]:
             source_path=candidate.source_path,
             claim=candidate.claim,
         ),
-        "question": f"What reviewed project state is supported by {candidate.source_path}:{candidate.line_start}?",
+        "question": candidate_recall_question(candidate),
         "expected_answer": candidate.claim,
         "source_candidate_id": candidate.id,
         "source_path": candidate.source_path,
         "kind": candidate.kind,
         "must_answer_without_source": False,
     }]
+
+
+def candidate_recall_question(candidate: SemanticCandidate) -> str:
+    topic = _claim_topic(candidate.claim)
+    category = _category(
+        candidate.kind,
+        source_path=candidate.source_path,
+        claim=candidate.claim,
+    )
+    if category == "command_cli_capability_claims":
+        return f"What reviewed Morpheus command or capability is about {topic}?"
+    if category == "package_metadata_claims":
+        return f"What reviewed Morpheus package metadata is about {topic}?"
+    if candidate.kind == "agent_rule":
+        return f"What reviewed Morpheus agent rule is about {topic}?"
+    if candidate.kind == "active_decision":
+        return f"What reviewed Morpheus active decision is about {topic}?"
+    if candidate.kind == "source_reference":
+        return f"What reviewed Morpheus source-backed reference is about {topic}?"
+    return f"What reviewed Morpheus current state is about {topic}?"
 
 
 def unsupported_claim_eval_item() -> dict:
@@ -114,7 +136,7 @@ def truth_gate_negative_eval_items() -> list[dict]:
 def _category(kind: str, *, source_path: str = "", claim: str = "") -> str:
     if source_path == "pyproject.toml":
         return "package_metadata_claims"
-    if "morpheus " in claim.casefold():
+    if _looks_like_morpheus_command(claim):
         return "command_cli_capability_claims"
     return {
         "active_decision": "active_decision_recall",
@@ -122,3 +144,28 @@ def _category(kind: str, *, source_path: str = "", claim: str = "") -> str:
         "open_task": "project_recall",
         "source_reference": "project_recall",
     }.get(kind, "project_recall")
+
+
+def _looks_like_morpheus_command(claim: str) -> bool:
+    text = claim.casefold()
+    return bool(
+        re.search(
+            r"`?\bmorpheus\s+"
+            r"(check|wake|learn|review|verify|prepare-agent|handoff|agent-connect|diagnostics|serve)\b",
+            text,
+        )
+    )
+
+
+def _claim_topic(claim: str) -> str:
+    text = claim.strip()
+    text = re.sub(r"^[-*]\s*", "", text)
+    text = re.sub(r"^(DECISION|RULE|TODO|NOTE|OUTDATED):\s*", "", text, flags=re.IGNORECASE)
+    if ":" in text:
+        prefix = text.split(":", 1)[0].strip(" `.")
+        if 2 <= len(prefix) <= 80:
+            return prefix
+    text = re.sub(r"`[^`]+`", "", text)
+    text = re.sub(r"\s+", " ", text).strip(" .")
+    words = text.split()
+    return " ".join(words[:7]) if words else "this claim"
