@@ -1,5 +1,6 @@
 """Example generation from reviewed semantic candidates."""
 
+from morpheus.core.learning.evals import truth_gate_negative_eval_items, unsupported_claim_eval_item
 from morpheus.core.semantic.models import SemanticCandidate
 
 
@@ -23,6 +24,12 @@ def instruction_examples_for_candidate(candidate: SemanticCandidate) -> list[dic
             "input": f"What should an agent know from {candidate.source_path}:{candidate.line_start}?",
             "output": candidate.claim,
             "metadata": {**metadata, "example_type": "direct_recall"},
+        },
+        {
+            "instruction": "Answer a reviewed Morpheus eval item using accepted source-backed state.",
+            "input": f"What reviewed project state is supported by {candidate.source_path}:{candidate.line_start}?",
+            "output": candidate.claim,
+            "metadata": {**metadata, "example_type": "eval_aligned_recall"},
         },
         {
             "instruction": "Apply reviewed project state while working in the repository.",
@@ -62,6 +69,27 @@ def sharegpt_examples_from_instruction(items: list[dict]) -> list[dict]:
 
 def chat_examples_from_instruction(items: list[dict]) -> list[dict]:
     return sharegpt_examples_from_instruction(items)
+
+
+def truth_gate_negative_instruction_examples() -> list[dict]:
+    items = [unsupported_claim_eval_item(), *truth_gate_negative_eval_items()]
+    examples = []
+    for item in items:
+        examples.append({
+            "instruction": "Apply Morpheus truth-gate safety rules.",
+            "input": item["question"],
+            "output": item["expected_answer"],
+            "metadata": {
+                "source_candidate_id": None,
+                "source_path": None,
+                "line_start": None,
+                "line_end": None,
+                "evidence_sha256": None,
+                "kind": item["kind"],
+                "example_type": item["category"],
+            },
+        })
+    return examples
 
 
 def candidate_metadata(candidate: SemanticCandidate) -> dict:

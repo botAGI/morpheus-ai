@@ -1,10 +1,12 @@
 import json
 import shutil
+from types import SimpleNamespace
 from pathlib import Path
 
 from typer.testing import CliRunner
 
 from morpheus.cli import app
+import morpheus.core.learning.lab as lab_module
 from morpheus.core.learning.lab import run_autonomous_lab
 from morpheus.core.providers.local import LocalProvider
 from morpheus.core.semantic.review import run_semantic_review
@@ -199,6 +201,66 @@ def test_learn_lab_reports_eval_gate_reasons(tmp_path):
     report = (lab_dir / "REPORT.md").read_text()
     assert "## Eval Gate" in report
     assert "Adapter evaluated" in report
+
+
+def test_mlx_training_uses_python_module_when_entrypoint_missing(tmp_path, monkeypatch):
+    calls = []
+
+    monkeypatch.setattr(lab_module.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(
+        lab_module.importlib.util,
+        "find_spec",
+        lambda name: object() if name == "mlx_lm" else None,
+    )
+
+    def fake_run(command, **_kwargs):
+        calls.append(command)
+        return SimpleNamespace(returncode=0, stdout="trained", stderr="")
+
+    monkeypatch.setattr(lab_module.subprocess, "run", fake_run)
+
+    result = lab_module._run_or_plan_training(
+        tmp_path,
+        backend="mlx",
+        model="local-model",
+        max_iters=1,
+        no_train=False,
+        train_allowed=True,
+    )
+
+    assert result["training_ran"] is True
+    assert calls
+    assert f"{lab_module.sys.executable} -m mlx_lm lora" in calls[0]
+    assert f"--learning-rate {lab_module.LAB_MLX_LEARNING_RATE}" in calls[0]
+
+
+def test_mlx_generation_uses_python_module_and_training_system_prompt(monkeypatch):
+    calls = []
+
+    monkeypatch.setattr(lab_module.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(
+        lab_module.importlib.util,
+        "find_spec",
+        lambda name: object() if name == "mlx_lm" else None,
+    )
+
+    def fake_run(command, **_kwargs):
+        calls.append(command)
+        return SimpleNamespace(returncode=0, stdout="answer", stderr="")
+
+    monkeypatch.setattr(lab_module.subprocess, "run", fake_run)
+
+    answer = lab_module._mlx_generate_answer(
+        model="local-model",
+        prompt="What reviewed state is supported?",
+        adapter_path="/tmp/adapter",
+    )
+
+    assert answer == "answer"
+    assert calls
+    assert f"{lab_module.sys.executable} -m mlx_lm generate" in calls[0]
+    assert "--system-prompt" in calls[0]
+    assert "Use reviewed Morpheus state only" in calls[0]
 
 
 def test_learn_lab_trained_fake_adapter_writes_base_vs_adapter_eval(tmp_path, monkeypatch):

@@ -1,8 +1,11 @@
 """Autonomous source-grounded learning lab for Morpheus."""
 import hashlib
+import importlib.util
 import json
+import shlex
 import shutil
 import subprocess
+import sys
 from collections import Counter
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
@@ -10,6 +13,7 @@ from fnmatch import fnmatch
 from pathlib import Path
 
 from morpheus.core.learning.dataset import build_learning_dataset
+from morpheus.core.learning.examples import SYSTEM_PROMPT
 from morpheus.core.learning.safety import (
     contains_secret_like_text,
     load_morpheusignore,
@@ -29,6 +33,7 @@ LAB_MIN_EVAL_ITEMS = 30
 LAB_MLX_EVAL_ITEM_LIMIT = 6
 LAB_PASS_RATE_THRESHOLD = 0.60
 LAB_HALLUCINATION_RATE_THRESHOLD = 0.05
+LAB_MLX_LEARNING_RATE = "1e-5"
 DEFAULT_LAB_BACKEND = "fake"
 DEFAULT_LAB_MODEL = "mlx-community/Qwen2.5-7B-Instruct-4bit"
 LAB_STRICT_KINDS = {
@@ -475,12 +480,14 @@ def _run_or_plan_training(
     training_dir = lab_dir / "training"
     training_dir.mkdir(parents=True, exist_ok=True)
     adapter_path = training_dir / "adapter"
+    command_prefix = _mlx_command_prefix("lora") if backend == "mlx" else None
     command = _training_command(
         backend=backend,
         model=model,
         dataset_dir=lab_dir / "dataset",
         adapter_path=adapter_path,
         max_iters=max_iters,
+        command_prefix=command_prefix,
     )
     (training_dir / "train_command.sh").write_text(command + "\n")
     (training_dir / "train_command.sh").chmod(0o755)
@@ -507,10 +514,11 @@ def _run_or_plan_training(
         (training_dir / "train.log").write_text(f"Training skipped: {result['reason']}\n")
         adapter_manifest["status"] = "planned"
     elif backend == "mlx":
-        binary = shutil.which("mlx_lm.lora")
-        if binary is None:
-            result["reason"] = "mlx_lm.lora_not_found"
-            (training_dir / "train.log").write_text("Training skipped: mlx_lm.lora not found.\n")
+        if command_prefix is None:
+            result["reason"] = "mlx_lm_not_found"
+            (training_dir / "train.log").write_text(
+                "Training skipped: neither mlx_lm.lora nor python -m mlx_lm is available.\n"
+            )
             adapter_manifest["status"] = "blocked"
         else:
             completed = subprocess.run(
@@ -804,28 +812,24 @@ def _fake_lab_answer(item: dict, *, mode: str) -> str:
 
 
 def _mlx_generate_answer(*, model: str, prompt: str, adapter_path: str | None) -> str:
-    binary = shutil.which("mlx_lm.generate")
-    if binary is None:
-        raise ValueError("mlx_lm.generate not found")
-    command = [
-        binary,
-        "--model",
-        model,
-        "--prompt",
-        prompt,
-        "--max-tokens",
-        "96",
-        "--temp",
-        "0",
-        "--seed",
-        "7",
-        "--verbose",
-        "False",
-    ]
+    command_prefix = _mlx_command_prefix("generate")
+    if command_prefix is None:
+        raise ValueError("mlx_lm generate not found")
+    command = (
+        f"{command_prefix} "
+        f"--model {shlex.quote(model)} "
+        f"--system-prompt {shlex.quote(SYSTEM_PROMPT)} "
+        f"--prompt {shlex.quote(prompt)} "
+        "--max-tokens 96 "
+        "--temp 0 "
+        "--seed 7 "
+        "--verbose False"
+    )
     if adapter_path:
-        command.extend(["--adapter-path", adapter_path])
+        command += f" --adapter-path {shlex.quote(adapter_path)}"
     completed = subprocess.run(
         command,
+        shell=True,
         text=True,
         capture_output=True,
         timeout=300,
@@ -943,6 +947,15 @@ def _select_eval_items(items: list[dict], *, limit: int) -> list[dict]:
         if len(selected) >= limit:
             break
     return selected
+
+
+def _mlx_command_prefix(tool: str) -> str | None:
+    binary = shutil.which(f"mlx_lm.{tool}")
+    if binary:
+        return shlex.quote(binary)
+    if importlib.util.find_spec("mlx_lm") is not None:
+        return f"{shlex.quote(sys.executable)} -m mlx_lm {tool}"
+    return None
 
 
 def _fixture_project(project_root: Path, lab_dir: Path) -> Path:
@@ -1213,17 +1226,20 @@ def _training_command(
     dataset_dir: Path,
     adapter_path: Path,
     max_iters: int,
+    command_prefix: str | None = None,
 ) -> str:
     if backend == "mlx":
+        prefix = command_prefix or "mlx_lm.lora"
         return (
-            "mlx_lm.lora "
-            f"--model {model} "
+            f"{prefix} "
+            f"--model {shlex.quote(model)} "
             "--train "
-            f"--data {dataset_dir} "
-            f"--adapter-path {adapter_path} "
+            f"--data {shlex.quote(str(dataset_dir))} "
+            f"--adapter-path {shlex.quote(str(adapter_path))} "
             f"--iters {max_iters} "
             "--batch-size 1 "
             "--num-layers 4 "
+            f"--learning-rate {LAB_MLX_LEARNING_RATE} "
             "--mask-prompt"
         )
     return (

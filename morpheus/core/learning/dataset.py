@@ -17,6 +17,7 @@ from morpheus.core.learning.examples import (
     chat_examples_from_instruction,
     instruction_examples_for_candidate,
     sharegpt_examples_from_instruction,
+    truth_gate_negative_instruction_examples,
 )
 from morpheus.core.learning.registry import datasets_root
 from morpheus.core.learning.safety import (
@@ -39,6 +40,13 @@ POSITIVE_KINDS = {
     "agent_rule",
     "source_reference",
     "open_task",
+}
+TRAIN_REQUIRED_EXAMPLE_TYPES = {
+    "eval_aligned_recall",
+    "outdated_claim_correction",
+    "unsupported_claim_refusal",
+    "agent_rule_adherence",
+    "command_cli_capability_claims",
 }
 
 
@@ -95,6 +103,7 @@ def build_learning_dataset(
         instruction_examples.extend(instruction_examples_for_candidate(item.candidate))
         eval_items.extend(eval_items_for_candidate(item.candidate))
     if eligible and include_refusals:
+        instruction_examples.extend(truth_gate_negative_instruction_examples())
         eval_items.append(unsupported_claim_eval_item())
         eval_items.extend(truth_gate_negative_eval_items())
     elif include_refusals:
@@ -339,16 +348,48 @@ def _split_chat_rows(rows: list[dict]) -> dict[str, list[dict]]:
         return {"train": rows, "valid": rows, "test": rows}
     if len(rows) == 2:
         return {"train": rows[:1], "valid": rows[1:], "test": rows[1:]}
+    required = [row for row in rows if _train_required_row(row)]
+    remaining = [row for row in rows if not _train_required_row(row)]
     if len(rows) < 20:
-        return {"train": rows[:-2], "valid": rows[-2:-1], "test": rows[-1:]}
+        train = _dedupe_rows([*required, *rows[:-2]])
+        return {"train": train, "valid": rows[-2:-1], "test": rows[-1:]}
 
     train_end = max(1, int(len(rows) * 0.8))
-    valid_end = max(train_end + 1, int(len(rows) * 0.9))
-    return {
-        "train": rows[:train_end],
-        "valid": rows[train_end:valid_end],
-        "test": rows[valid_end:],
-    }
+    valid_target = max(1, int(len(rows) * 0.1))
+    train = _dedupe_rows(required)
+    valid = []
+    test = []
+    for row in remaining:
+        if len(train) < train_end:
+            train.append(row)
+        elif len(valid) < valid_target:
+            valid.append(row)
+        else:
+            test.append(row)
+    if not valid:
+        valid = rows[-2:-1]
+    if not test:
+        test = rows[-1:]
+    return {"train": train, "valid": valid, "test": test}
+
+
+def _train_required_row(row: dict) -> bool:
+    metadata = row.get("metadata") if isinstance(row, dict) else None
+    if not isinstance(metadata, dict):
+        return False
+    return str(metadata.get("example_type") or "") in TRAIN_REQUIRED_EXAMPLE_TYPES
+
+
+def _dedupe_rows(rows: list[dict]) -> list[dict]:
+    seen = set()
+    deduped = []
+    for row in rows:
+        key = json.dumps(row, sort_keys=True)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(row)
+    return deduped
 
 
 def _safe_project_root(project_root: Path) -> Path:

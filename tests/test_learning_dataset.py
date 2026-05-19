@@ -284,7 +284,7 @@ def test_dataset_chat_format_writes_mlx_splits_and_manifest_fields(tmp_path):
     assert train_rows[0]["messages"][0]["role"] in {"system", "user"}
     assert manifest["selected_format"] == "chat"
     assert manifest["format_version"] == "morpheus-chat/1"
-    assert manifest["smoke_mode"] is True
+    assert manifest["smoke_mode"] is (manifest["examples_count"] < 20)
     assert manifest["split_counts"] == {
         "train": len(train_rows),
         "valid": len(valid_rows),
@@ -313,3 +313,46 @@ def test_eval_seed_includes_truth_gate_negative_categories(tmp_path):
         "project_recall",
         "active_decision_recall",
     } <= {item["category"] for item in eval_items}
+
+
+def test_dataset_trains_on_eval_aligned_prompts_and_truth_gate_negatives(tmp_path):
+    project_root = copy_learning_project(tmp_path)
+
+    result = build_learning_dataset(project_root, include_refusals=True)
+
+    dataset_dir = Path(result["dataset_dir"])
+    instruction_examples = read_jsonl(dataset_dir / "dataset.instruction.jsonl")
+    eval_items = read_jsonl(dataset_dir / "eval.seed.jsonl")
+    train_pairs = {
+        (item["input"], item["output"])
+        for item in instruction_examples
+    }
+
+    candidate_eval_items = [
+        item for item in eval_items
+        if item.get("source_candidate_id") and item["kind"] != "outdated_claim"
+    ]
+    assert candidate_eval_items
+    for item in candidate_eval_items:
+        assert (item["question"], item["expected_answer"]) in train_pairs
+
+    by_input = {item["input"]: item for item in instruction_examples}
+    assert by_input["Morpheus trains on raw markdown"]["output"].startswith("No.")
+    assert "must never train on raw markdown" in by_input["Morpheus trains on raw markdown"]["output"]
+    assert by_input["Confirm this project claim without a reviewed Morpheus source."]["output"].startswith(
+        "I cannot confirm"
+    )
+
+
+def test_mlx_train_split_includes_eval_aligned_and_truth_gate_examples(tmp_path):
+    project_root = copy_learning_project(tmp_path)
+
+    result = build_learning_dataset(project_root, dataset_format="chat", include_refusals=True)
+
+    dataset_dir = Path(result["dataset_dir"])
+    train_rows = read_jsonl(dataset_dir / "train.jsonl")
+    train_text = "\n".join(json.dumps(item, sort_keys=True) for item in train_rows)
+
+    assert "What reviewed project state is supported by README.md:2?" in train_text
+    assert "Morpheus is mainly a LoRA trainer" in train_text
+    assert "Morpheus trains on raw markdown" in train_text

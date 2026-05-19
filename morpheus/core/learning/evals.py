@@ -64,7 +64,7 @@ def truth_gate_negative_eval_items() -> list[dict]:
             "category": "unsupported_claim_refusal",
             "question": "Morpheus trains on raw markdown",
             "expected_answer": (
-                "No. Morpheus must not train on raw markdown; only accepted, "
+                "No. Morpheus must never train on raw markdown; only accepted, "
                 "source-backed, reviewed claims can become training data."
             ),
             "source_candidate_id": None,
