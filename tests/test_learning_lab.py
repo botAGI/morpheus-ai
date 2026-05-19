@@ -297,6 +297,30 @@ def test_learn_lab_trained_fake_adapter_writes_base_vs_adapter_eval(tmp_path, mo
     assert "pending_manual_eval" not in report
 
 
+def test_learn_lab_default_iters_match_passing_mlx_curriculum(tmp_path, monkeypatch):
+    project_root = copy_autonomous_repo(tmp_path)
+    captured = {}
+
+    def fake_training(lab_dir, *, backend, model, max_iters, no_train, train_allowed):
+        captured["max_iters"] = max_iters
+        return {
+            "training_ran": False,
+            "adapter_path": None,
+            "status": "skipped",
+            "reason": "fake_backend_no_training",
+            "returncode": None,
+            "backend": backend,
+            "model": model,
+        }
+
+    monkeypatch.setattr("morpheus.core.learning.lab._run_or_plan_training", fake_training)
+
+    run_autonomous_lab(project_root, fixture_only=True)
+
+    assert captured["max_iters"] == lab_module.DEFAULT_LAB_MAX_ITERS
+    assert captured["max_iters"] >= 400
+
+
 def test_learn_lab_marks_trained_adapter_regression_as_fail(tmp_path, monkeypatch):
     project_root = copy_autonomous_repo(tmp_path)
 

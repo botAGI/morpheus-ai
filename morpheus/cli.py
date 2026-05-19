@@ -36,7 +36,7 @@ from morpheus.core.check import (
 from morpheus.core.learning.adapters import activate_adapter, list_adapters, rollback_adapter
 from morpheus.core.learning.dataset import build_learning_dataset
 from morpheus.core.learning.eval import run_learning_eval
-from morpheus.core.learning.lab import lab_auto_accept, run_autonomous_lab
+from morpheus.core.learning.lab import DEFAULT_LAB_MAX_ITERS, lab_auto_accept, run_autonomous_lab
 from morpheus.core.learning.registry import learning_status
 from morpheus.core.learning.train import plan_training_run
 from morpheus.core.wake import generate_wake_md
@@ -1447,7 +1447,11 @@ def learn_lab(
     no_train: bool = typer.Option(False, "--no-train", help="Build dataset/eval artifacts without training"),
     fixture_only: bool = typer.Option(False, "--fixture-only", help="Use the autonomous benchmark fixture"),
     dogfood: bool = typer.Option(False, "--dogfood", help="Require dogfood source mode"),
-    max_iters: int = typer.Option(50, "--max-iters", help="Maximum LoRA smoke-training iterations"),
+    max_iters: int = typer.Option(
+        DEFAULT_LAB_MAX_ITERS,
+        "--max-iters",
+        help="Maximum LoRA training iterations for autonomous lab runs",
+    ),
 ):
     """Run an autonomous source-grounded learning lab without activating adapters."""
     try:

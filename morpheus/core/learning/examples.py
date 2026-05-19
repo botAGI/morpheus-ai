@@ -30,6 +30,7 @@ def instruction_examples_for_candidate(candidate: SemanticCandidate) -> list[dic
             "input": f"What reviewed project state is supported by {candidate.source_path}:{candidate.line_start}?",
             "output": candidate.claim,
             "metadata": {**metadata, "example_type": "eval_aligned_recall"},
+            "chat_user_content": f"What reviewed project state is supported by {candidate.source_path}:{candidate.line_start}?",
         },
         {
             "instruction": "Apply reviewed project state while working in the repository.",
@@ -53,9 +54,11 @@ def instruction_examples_for_candidate(candidate: SemanticCandidate) -> list[dic
 def sharegpt_examples_from_instruction(items: list[dict]) -> list[dict]:
     sharegpt = []
     for item in items:
-        user_content = item["instruction"]
-        if item.get("input"):
-            user_content = f"{user_content}\n\n{item['input']}"
+        user_content = item.get("chat_user_content")
+        if not user_content:
+            user_content = item["instruction"]
+            if item.get("input"):
+                user_content = f"{user_content}\n\n{item['input']}"
         sharegpt.append({
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
@@ -79,6 +82,7 @@ def truth_gate_negative_instruction_examples() -> list[dict]:
             "instruction": "Apply Morpheus truth-gate safety rules.",
             "input": item["question"],
             "output": item["expected_answer"],
+            "chat_user_content": item["question"],
             "metadata": {
                 "source_candidate_id": None,
                 "source_path": None,

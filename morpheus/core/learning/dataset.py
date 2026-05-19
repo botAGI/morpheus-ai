@@ -48,6 +48,13 @@ TRAIN_REQUIRED_EXAMPLE_TYPES = {
     "agent_rule_adherence",
     "command_cli_capability_claims",
 }
+TRAIN_EXAMPLE_REPEATS = {
+    "eval_aligned_recall": 3,
+    "outdated_claim_correction": 8,
+    "unsupported_claim_refusal": 8,
+    "agent_rule_adherence": 8,
+    "command_cli_capability_claims": 8,
+}
 
 
 @dataclass
@@ -348,15 +355,15 @@ def _split_chat_rows(rows: list[dict]) -> dict[str, list[dict]]:
         return {"train": rows, "valid": rows, "test": rows}
     if len(rows) == 2:
         return {"train": rows[:1], "valid": rows[1:], "test": rows[1:]}
-    required = [row for row in rows if _train_required_row(row)]
+    required = _expand_required_rows(row for row in rows if _train_required_row(row))
     remaining = [row for row in rows if not _train_required_row(row)]
     if len(rows) < 20:
-        train = _dedupe_rows([*required, *rows[:-2]])
+        train = [*required, *rows[:-2]]
         return {"train": train, "valid": rows[-2:-1], "test": rows[-1:]}
 
     train_end = max(1, int(len(rows) * 0.8))
     valid_target = max(1, int(len(rows) * 0.1))
-    train = _dedupe_rows(required)
+    train = list(required)
     valid = []
     test = []
     for row in remaining:
@@ -378,6 +385,16 @@ def _train_required_row(row: dict) -> bool:
     if not isinstance(metadata, dict):
         return False
     return str(metadata.get("example_type") or "") in TRAIN_REQUIRED_EXAMPLE_TYPES
+
+
+def _expand_required_rows(rows) -> list[dict]:
+    expanded = []
+    for row in rows:
+        metadata = row.get("metadata") if isinstance(row, dict) else {}
+        example_type = str(metadata.get("example_type") or "")
+        repeats = TRAIN_EXAMPLE_REPEATS.get(example_type, 1)
+        expanded.extend(row for _ in range(repeats))
+    return expanded
 
 
 def _dedupe_rows(rows: list[dict]) -> list[dict]:

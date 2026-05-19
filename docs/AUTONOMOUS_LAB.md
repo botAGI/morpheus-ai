@@ -22,7 +22,8 @@ The current command is:
 
 ```bash
 morpheus learn lab . --no-train
-morpheus learn lab . --backend mlx --max-iters 50
+morpheus learn lab . --backend mlx
+morpheus learn lab . --backend mlx --max-iters 400
 ```
 
 Safety rules:
@@ -32,4 +33,3 @@ Safety rules:
 - Outdated claims can become correction examples, not positive facts.
 - Cloud providers are not called by default.
 - Adapter output is not treated as project truth.
-

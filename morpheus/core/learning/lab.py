@@ -36,6 +36,7 @@ LAB_HALLUCINATION_RATE_THRESHOLD = 0.05
 LAB_MLX_LEARNING_RATE = "1e-5"
 DEFAULT_LAB_BACKEND = "fake"
 DEFAULT_LAB_MODEL = "mlx-community/Qwen2.5-7B-Instruct-4bit"
+DEFAULT_LAB_MAX_ITERS = 400
 LAB_STRICT_KINDS = {
     "current_state",
     "active_decision",
@@ -63,7 +64,7 @@ def run_autonomous_lab(
     no_train: bool = False,
     fixture_only: bool = False,
     dogfood: bool = False,
-    max_iters: int = 50,
+    max_iters: int = DEFAULT_LAB_MAX_ITERS,
 ) -> dict:
     """Run an autonomous benchmark or dogfood learning experiment."""
     project_root = _safe_project_root(project_root)

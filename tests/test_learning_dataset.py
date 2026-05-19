@@ -356,3 +356,41 @@ def test_mlx_train_split_includes_eval_aligned_and_truth_gate_examples(tmp_path)
     assert "What reviewed project state is supported by README.md:2?" in train_text
     assert "Morpheus is mainly a LoRA trainer" in train_text
     assert "Morpheus trains on raw markdown" in train_text
+
+
+def test_mlx_train_chat_prompts_match_eval_questions_exactly(tmp_path):
+    project_root = copy_learning_project(tmp_path)
+
+    result = build_learning_dataset(project_root, dataset_format="chat", include_refusals=True)
+
+    dataset_dir = Path(result["dataset_dir"])
+    train_rows = read_jsonl(dataset_dir / "train.jsonl")
+    user_prompts = {
+        message["content"]
+        for row in train_rows
+        for message in row["messages"]
+        if message["role"] == "user"
+    }
+
+    assert "What reviewed project state is supported by README.md:2?" in user_prompts
+    assert "Morpheus is mainly a LoRA trainer" in user_prompts
+    assert "Morpheus trains on raw markdown" in user_prompts
+
+
+def test_mlx_train_split_oversamples_required_memory_prompts(tmp_path):
+    project_root = copy_learning_project(tmp_path)
+
+    result = build_learning_dataset(project_root, dataset_format="chat", include_refusals=True)
+
+    dataset_dir = Path(result["dataset_dir"])
+    train_rows = read_jsonl(dataset_dir / "train.jsonl")
+    user_prompts = [
+        message["content"]
+        for row in train_rows
+        for message in row["messages"]
+        if message["role"] == "user"
+    ]
+
+    assert user_prompts.count("What reviewed project state is supported by README.md:2?") >= 3
+    assert user_prompts.count("Morpheus is mainly a LoRA trainer") >= 8
+    assert user_prompts.count("Morpheus trains on raw markdown") >= 8
