@@ -2,6 +2,7 @@
 import hashlib
 import importlib.util
 import json
+import re
 import shlex
 import shutil
 import subprocess
@@ -528,6 +529,8 @@ def _strict_lab_accept_reason(project_root: Path, candidate: SemanticCandidate) 
         return False, "speculative_wording"
     if _needs_split(candidate.claim):
         return False, "needs_split"
+    if _looks_truncated_claim(candidate.claim):
+        return False, "truncated_claim"
     if contains_secret_like_text(candidate.claim) or contains_secret_like_text(candidate.evidence_excerpt):
         return False, "secret_like_content"
     rel_path = Path(candidate.source_path)
@@ -1043,6 +1046,13 @@ def _answer_passes(category: str, expected: str, answer: str) -> bool:
     folded_expected = _normalize(expected)
     if not folded_answer:
         return False
+    if category == "command_cli_capability_claims":
+        expected_commands = _morpheus_command_requirements(expected)
+        answer_commands = _morpheus_command_requirements(answer)
+        if expected_commands and _command_requirements_satisfied(expected_commands, answer_commands):
+            return True
+        if _same_command_with_missing_flags(expected_commands, answer_commands):
+            return False
     if category == "unsupported_claim_refusal":
         return any(token in folded_answer for token in ["cannot confirm", "unsupported", "no."])
     if category == "outdated_claim_correction":
@@ -1056,6 +1066,43 @@ def _answer_passes(category: str, expected: str, answer: str) -> bool:
     return _token_overlap(folded_expected, folded_answer) >= 0.45 or (
         folded_expected
         and SequenceMatcher(None, folded_expected, folded_answer).ratio() >= 0.55
+    )
+
+
+def _morpheus_command_requirements(text: str) -> dict[str, set[str]]:
+    folded = text.casefold()
+    requirements: dict[str, set[str]] = {}
+    for match in re.finditer(
+        r"`?\bmorpheus\s+"
+        r"(check|wake|compile|stale|learn|review|verify|prepare-agent|handoff|agent-connect|diagnostics|serve)\b"
+        r"(?P<flags>(?:\s+--[a-z0-9-]+)*)",
+        folded,
+    ):
+        command = re.sub(r"\s+", " ", match.group(0)).strip(" `.")
+        parts = command.split()
+        base = " ".join(parts[:2])
+        flags = {token for token in parts[2:] if token.startswith("--")}
+        requirements.setdefault(base, set()).update(flags)
+    return requirements
+
+
+def _command_requirements_satisfied(
+    expected: dict[str, set[str]],
+    answer: dict[str, set[str]],
+) -> bool:
+    return all(
+        base in answer and flags <= answer[base]
+        for base, flags in expected.items()
+    )
+
+
+def _same_command_with_missing_flags(
+    expected: dict[str, set[str]],
+    answer: dict[str, set[str]],
+) -> bool:
+    return any(
+        base in answer and not flags <= answer[base]
+        for base, flags in expected.items()
     )
 
 
@@ -1590,6 +1637,50 @@ def _needs_split(claim: str) -> bool:
         return True
     lowered = claim.casefold()
     return lowered.count(" and ") >= 2 or ";" in claim
+
+
+def _looks_truncated_claim(claim: str) -> bool:
+    text = re.sub(r"^[-*]\s*", "", claim.strip())
+    text = re.sub(r"[*_`]+", "", text)
+    text = re.sub(r"\s+", " ", text).strip(" .,")
+    if not text:
+        return True
+    words = text.split()
+    first = words[0].casefold().strip(".,:;!?()[]{}")
+    last = words[-1].casefold().strip(".,:;!?()[]{}")
+    if first in {
+        "and",
+        "or",
+        "but",
+        "into",
+        "from",
+        "with",
+        "without",
+        "while",
+        "that",
+        "which",
+        "where",
+    }:
+        return True
+    if last in {
+        "and",
+        "or",
+        "but",
+        "of",
+        "to",
+        "from",
+        "with",
+        "without",
+        "while",
+        "what",
+        "that",
+        "which",
+        "where",
+        "is",
+        "are",
+    }:
+        return True
+    return False
 
 
 def _sha256(path: Path) -> str:

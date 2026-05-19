@@ -8,6 +8,8 @@ from typer.testing import CliRunner
 
 from morpheus.cli import app
 from morpheus.core.learning.dataset import build_learning_dataset
+from morpheus.core.learning.evals import eval_items_for_candidate, heldout_eval_items_for_candidate
+from morpheus.core.semantic.models import SemanticCandidate
 
 
 FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "learning_project"
@@ -406,6 +408,98 @@ def test_heldout_eval_prompts_are_not_training_prompts(tmp_path):
     assert heldout_questions.isdisjoint(user_prompts)
     assert any("reviewed Morpheus fact" in question for question in heldout_questions)
     assert "Can Morpheus fine-tune directly on raw markdown without review?" in heldout_questions
+
+
+def test_heldout_prompt_preserves_code_only_claim_topic(tmp_path):
+    project_root = copy_learning_project(tmp_path)
+    item = candidate(
+        project_root,
+        candidate_id="c_cli_name",
+        kind="current_state",
+        claim="`morpheus`",
+        source_path="README.md",
+        line_start=2,
+    )
+
+    heldout_item = heldout_eval_items_for_candidate(SemanticCandidate(**item))[0]
+
+    assert "morpheus" in heldout_item["question"].casefold()
+    assert "this claim" not in heldout_item["question"]
+
+
+def test_heldout_key_value_prompt_asks_for_value_without_leaking_answer(tmp_path):
+    project_root = copy_learning_project(tmp_path)
+    item = candidate(
+        project_root,
+        candidate_id="c_pypi_name",
+        kind="current_state",
+        claim="- PyPI project name: `morpheus-wake`,",
+        source_path="README.md",
+        line_start=2,
+    )
+
+    heldout_item = heldout_eval_items_for_candidate(SemanticCandidate(**item))[0]
+
+    assert heldout_item["question"] == (
+        "Which reviewed Morpheus value is recorded for PyPI project name?"
+    )
+    assert "morpheus-wake" not in heldout_item["question"]
+
+
+def test_eval_expected_answer_removes_markdown_list_marker(tmp_path):
+    project_root = copy_learning_project(tmp_path)
+    item = candidate(
+        project_root,
+        candidate_id="c_pypi_name",
+        kind="current_state",
+        claim="- PyPI project name: `morpheus-wake`,",
+        source_path="README.md",
+        line_start=2,
+    )
+
+    eval_item = eval_items_for_candidate(SemanticCandidate(**item))[0]
+
+    assert eval_item["expected_answer"] == "PyPI project name: `morpheus-wake`"
+    assert not eval_item["expected_answer"].startswith("-")
+
+
+def test_command_prompt_classifies_compile_command_claim(tmp_path):
+    project_root = copy_learning_project(tmp_path)
+    item = candidate(
+        project_root,
+        candidate_id="c_compile_command",
+        kind="current_state",
+        claim="- Review-gated semantic compile alpha for `morpheus compile --semantic --review`",
+        source_path="README.md",
+        line_start=2,
+    )
+
+    heldout_item = heldout_eval_items_for_candidate(SemanticCandidate(**item))[0]
+
+    assert heldout_item["category"] == "command_cli_capability_claims"
+    assert "command" in heldout_item["question"]
+
+
+def test_truth_gate_training_uses_paraphrases_without_leaking_heldout_prompts(tmp_path):
+    project_root = copy_learning_project(tmp_path)
+
+    result = build_learning_dataset(project_root, dataset_format="chat", include_refusals=True)
+
+    dataset_dir = Path(result["dataset_dir"])
+    train_rows = read_jsonl(dataset_dir / "train.jsonl")
+    heldout_items = read_jsonl(dataset_dir / "eval.heldout.jsonl")
+    user_prompts = {
+        message["content"]
+        for row in train_rows
+        for message in row["messages"]
+        if message["role"] == "user"
+    }
+    heldout_questions = {item["question"] for item in heldout_items}
+
+    assert "Can Morpheus skip eval before adapter activation?" in user_prompts
+    assert "Can Morpheus train directly from raw README or markdown files?" in user_prompts
+    assert "Can a Morpheus adapter be activated before evaluation passes?" in heldout_questions
+    assert heldout_questions.isdisjoint(user_prompts)
 
 
 def test_mlx_train_split_oversamples_required_memory_prompts(tmp_path):

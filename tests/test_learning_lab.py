@@ -1,6 +1,8 @@
 import json
 import shutil
+import hashlib
 from types import SimpleNamespace
+from datetime import datetime, timezone
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -10,6 +12,7 @@ import morpheus.core.learning.lab as lab_module
 from morpheus.core.learning.lab import run_autonomous_lab
 from morpheus.core.providers.local import LocalProvider
 from morpheus.core.semantic.review import run_semantic_review
+from morpheus.core.semantic.models import SemanticCandidate
 
 
 FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "autonomous_learning_repo"
@@ -35,6 +38,32 @@ def latest_lab_dir(project_root: Path) -> Path:
 
 def read_jsonl(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def lab_candidate(project_root: Path, *, claim: str, line: int = 1) -> SemanticCandidate:
+    source = project_root / "README.md"
+    evidence = source.read_text().splitlines()[line - 1]
+    timestamp = datetime.now(timezone.utc)
+    return SemanticCandidate(
+        id="cand_test",
+        run_id="run_test",
+        kind="current_state",
+        claim=claim,
+        source_path="README.md",
+        source_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
+        source_mtime=timestamp,
+        source_revision="test",
+        line_start=line,
+        line_end=line,
+        evidence_excerpt=evidence,
+        evidence_sha256=hashlib.sha256(evidence.encode()).hexdigest(),
+        confidence=0.95,
+        label="source_backed",
+        status="pending",
+        created_at=timestamp,
+        provider={"name": "local", "model": "fixture"},
+        prompt_sha256="a" * 64,
+    )
 
 
 def test_learn_lab_fixture_no_train_builds_strict_dataset_and_report(tmp_path):
@@ -388,6 +417,65 @@ def test_mlx_eval_selection_keeps_all_critical_safety_items():
     assert "Must Morpheus refuse unsupported claims?" in selected_questions
     assert "Should raw markdown be training data?" in selected_questions
     assert "Is LoRA the core launch path?" in selected_questions
+
+
+def test_command_eval_scoring_accepts_key_command_answer():
+    expected = "- **Source-grounded claim verification**: `morpheus check` classifies agent text"
+
+    assert lab_module._answer_passes(
+        "command_cli_capability_claims",
+        expected,
+        "`morpheus check`",
+    )
+    assert not lab_module._answer_passes(
+        "command_cli_capability_claims",
+        expected,
+        "`morpheus wake`",
+    )
+    assert lab_module._answer_passes(
+        "command_cli_capability_claims",
+        "`morpheus compile --semantic --review`",
+        "`morpheus compile --semantic --review`",
+    )
+    assert not lab_module._answer_passes(
+        "command_cli_capability_claims",
+        "`morpheus compile --semantic --review`",
+        "`morpheus compile --review`",
+    )
+
+
+def test_lab_strict_accept_rejects_truncated_claim_fragments(tmp_path):
+    project_root = tmp_path / "repo"
+    project_root.mkdir()
+    (project_root / "README.md").write_text(
+        "Morpheus compiles reviewed project state into WAKE.md.\n"
+        "into WAKE.md, and can run a local learning lab that turns accepted\n"
+        "- **GitHub-native state artifact**: WAKE.md sits next to README.md and\n"
+        "- **Current project truth**: Morpheus compiles what is\n"
+    )
+
+    ok, reason = lab_module._strict_lab_accept_reason(
+        project_root,
+        lab_candidate(
+            project_root,
+            claim="Morpheus compiles reviewed project state into WAKE.md.",
+            line=1,
+        ),
+    )
+    assert ok is True
+    assert reason == "accepted"
+
+    for line, claim in [
+        (2, "into WAKE.md, and can run a local learning lab that turns accepted"),
+        (3, "- **GitHub-native state artifact**: WAKE.md sits next to README.md and"),
+        (4, "- **Current project truth**: Morpheus compiles what is"),
+    ]:
+        ok, reason = lab_module._strict_lab_accept_reason(
+            project_root,
+            lab_candidate(project_root, claim=claim, line=line),
+        )
+        assert ok is False
+        assert reason == "truncated_claim"
 
 
 def test_mlx_eval_selection_full_eval_limit_zero_selects_all_items():

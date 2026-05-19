@@ -2,6 +2,7 @@
 
 from morpheus.core.learning.evals import (
     candidate_recall_question,
+    claim_answer_text,
     truth_gate_negative_eval_items,
     unsupported_claim_eval_item,
 )
@@ -22,25 +23,26 @@ def instruction_examples_for_candidate(candidate: SemanticCandidate) -> list[dic
     if candidate.kind == "outdated_claim":
         return [_outdated_instruction_example(candidate, metadata)]
     recall_question = candidate_recall_question(candidate)
+    answer = claim_answer_text(candidate.claim)
 
     return [
         {
             "instruction": "Recall the reviewed Morpheus project state.",
             "input": f"What should an agent know from {candidate.source_path}:{candidate.line_start}?",
-            "output": candidate.claim,
+            "output": answer,
             "metadata": {**metadata, "example_type": "direct_recall"},
         },
         {
             "instruction": "Answer a reviewed Morpheus eval item using accepted source-backed state.",
             "input": recall_question,
-            "output": candidate.claim,
+            "output": answer,
             "metadata": {**metadata, "example_type": "eval_aligned_recall"},
             "chat_user_content": recall_question,
         },
         {
             "instruction": "Apply reviewed project state while working in the repository.",
             "input": "How should a coding agent adapt its behavior for this project?",
-            "output": f"Use this reviewed project state: {candidate.claim}",
+            "output": f"Use this reviewed project state: {answer}",
             "metadata": {**metadata, "example_type": "project_behavior"},
         },
         {
@@ -49,7 +51,7 @@ def instruction_examples_for_candidate(candidate: SemanticCandidate) -> list[dic
             "output": (
                 "I cannot confirm unsupported project claims without reviewed Morpheus "
                 f"evidence. The reviewed source here is {candidate.source_path}:"
-                f"{candidate.line_start}, which supports: {candidate.claim}"
+                f"{candidate.line_start}, which supports: {answer}"
             ),
             "metadata": {**metadata, "example_type": "source_grounding_refusal"},
         },
@@ -80,7 +82,11 @@ def chat_examples_from_instruction(items: list[dict]) -> list[dict]:
 
 
 def truth_gate_negative_instruction_examples() -> list[dict]:
-    items = [unsupported_claim_eval_item(), *truth_gate_negative_eval_items()]
+    items = [
+        unsupported_claim_eval_item(),
+        *truth_gate_negative_eval_items(),
+        *_truth_gate_negative_training_variants(),
+    ]
     examples = []
     for item in items:
         examples.append({
@@ -99,6 +105,47 @@ def truth_gate_negative_instruction_examples() -> list[dict]:
             },
         })
     return examples
+
+
+def _truth_gate_negative_training_variants() -> list[dict]:
+    return [
+        {
+            "category": "unsupported_claim_refusal",
+            "question": "Can Morpheus train directly from raw README or markdown files?",
+            "expected_answer": (
+                "No. Morpheus must never train on raw markdown; only accepted, "
+                "source-backed, reviewed claims can become training data."
+            ),
+            "kind": "unsupported_claim",
+        },
+        {
+            "category": "agent_rule_adherence",
+            "question": "Can Morpheus skip eval before adapter activation?",
+            "expected_answer": (
+                "No. Adapter activation requires a passing eval; without eval, "
+                "the adapter must remain inactive."
+            ),
+            "kind": "unsupported_claim",
+        },
+        {
+            "category": "command_cli_capability_claims",
+            "question": "Does local morpheus check need cloud providers to verify project claims?",
+            "expected_answer": (
+                "No. `morpheus check` is local-only by default; cloud providers "
+                "must remain opt-in."
+            ),
+            "kind": "unsupported_claim",
+        },
+        {
+            "category": "unsupported_claim_refusal",
+            "question": "Is WAKE.md enough evidence without source spans?",
+            "expected_answer": (
+                "No. WAKE.md is a state artifact; source-backed evidence spans "
+                "remain the training and verification gate."
+            ),
+            "kind": "unsupported_claim",
+        },
+    ]
 
 
 def candidate_metadata(candidate: SemanticCandidate) -> dict:

@@ -26,7 +26,7 @@ def eval_items_for_candidate(candidate: SemanticCandidate) -> list[dict]:
             claim=candidate.claim,
         ),
         "question": candidate_recall_question(candidate),
-        "expected_answer": candidate.claim,
+        "expected_answer": claim_answer_text(candidate.claim),
         "source_candidate_id": candidate.id,
         "source_path": candidate.source_path,
         "kind": candidate.kind,
@@ -56,7 +56,7 @@ def heldout_eval_items_for_candidate(candidate: SemanticCandidate) -> list[dict]
             claim=candidate.claim,
         ),
         "question": _heldout_recall_question(candidate),
-        "expected_answer": candidate.claim,
+        "expected_answer": claim_answer_text(candidate.claim),
         "source_candidate_id": candidate.id,
         "source_path": candidate.source_path,
         "kind": candidate.kind,
@@ -83,6 +83,14 @@ def candidate_recall_question(candidate: SemanticCandidate) -> str:
     if candidate.kind == "source_reference":
         return f"What reviewed Morpheus source-backed reference is about {topic}?"
     return f"What reviewed Morpheus current state is about {topic}?"
+
+
+def claim_answer_text(claim: str) -> str:
+    text = claim.strip()
+    text = re.sub(r"^[-*]\s*", "", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    text = text.rstrip(" ,")
+    return text
 
 
 def heldout_truth_gate_negative_eval_items() -> list[dict]:
@@ -223,11 +231,18 @@ def truth_gate_negative_eval_items() -> list[dict]:
 
 def _heldout_recall_question(candidate: SemanticCandidate) -> str:
     topic = _claim_topic(candidate.claim)
+    key = _claim_key(candidate.claim)
     category = _category(
         candidate.kind,
         source_path=candidate.source_path,
         claim=candidate.claim,
     )
+    if key and category == "command_cli_capability_claims":
+        return f"Which reviewed Morpheus command is recorded for {key}?"
+    if key and category == "package_metadata_claims":
+        return f"Which reviewed Morpheus package metadata value is recorded for {key}?"
+    if key:
+        return f"Which reviewed Morpheus value is recorded for {key}?"
     if category == "command_cli_capability_claims":
         return f"Which reviewed Morpheus command fact is tied to {topic}?"
     if category == "package_metadata_claims":
@@ -259,21 +274,38 @@ def _looks_like_morpheus_command(claim: str) -> bool:
     return bool(
         re.search(
             r"`?\bmorpheus\s+"
-            r"(check|wake|learn|review|verify|prepare-agent|handoff|agent-connect|diagnostics|serve)\b",
+            r"(check|wake|compile|stale|learn|review|verify|prepare-agent|handoff|agent-connect|diagnostics|serve)\b",
             text,
         )
     )
 
 
 def _claim_topic(claim: str) -> str:
+    key = _claim_key(claim)
+    if key:
+        return key
     text = claim.strip()
     text = re.sub(r"^[-*]\s*", "", text)
     text = re.sub(r"^(DECISION|RULE|TODO|NOTE|OUTDATED):\s*", "", text, flags=re.IGNORECASE)
-    if ":" in text:
-        prefix = text.split(":", 1)[0].strip(" `.")
-        if 2 <= len(prefix) <= 80:
-            return prefix
-    text = re.sub(r"`[^`]+`", "", text)
+    text = re.sub(r"`([^`]+)`", r"\1", text)
     text = re.sub(r"\s+", " ", text).strip(" .")
     words = text.split()
-    return " ".join(words[:7]) if words else "this claim"
+    topic = " ".join(words[:7]) if words else ""
+    if topic.casefold() == "morpheus":
+        return "the morpheus CLI command"
+    return topic if topic else "this claim"
+
+
+def _claim_key(claim: str) -> str | None:
+    text = claim.strip()
+    text = re.sub(r"^[-*]\s*", "", text)
+    text = re.sub(r"^(DECISION|RULE|TODO|NOTE|OUTDATED):\s*", "", text, flags=re.IGNORECASE)
+    if ":" not in text:
+        return None
+    key = text.split(":", 1)[0]
+    key = re.sub(r"`([^`]+)`", r"\1", key)
+    key = re.sub(r"[*_]+", "", key)
+    key = re.sub(r"\s+", " ", key).strip(" `.-")
+    if 2 <= len(key) <= 80:
+        return key
+    return None
