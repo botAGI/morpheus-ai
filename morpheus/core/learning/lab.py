@@ -180,6 +180,65 @@ def run_autonomous_lab(
     )
 
 
+def run_autonomous_lab_stability(
+    project_root: Path,
+    *,
+    repeat: int,
+    backend: str = DEFAULT_LAB_BACKEND,
+    model: str = DEFAULT_LAB_MODEL,
+    no_train: bool = False,
+    fixture_only: bool = False,
+    dogfood: bool = False,
+    max_iters: int = DEFAULT_LAB_MAX_ITERS,
+    eval_limit: int = DEFAULT_LAB_EVAL_LIMIT,
+) -> dict:
+    """Run repeated autonomous labs and aggregate stability gate results."""
+    project_root = _safe_project_root(project_root)
+    if repeat < 1:
+        raise ValueError("repeat must be >= 1")
+    stability_id = _timestamp_id("stability")
+    stability_dir = project_root / ".morpheus" / "lab" / "stability" / stability_id
+    _ensure_new_dir(stability_dir)
+
+    runs = []
+    for index in range(1, repeat + 1):
+        result = run_autonomous_lab(
+            project_root,
+            backend=backend,
+            model=model,
+            no_train=no_train,
+            fixture_only=fixture_only,
+            dogfood=dogfood,
+            max_iters=max_iters,
+            eval_limit=eval_limit,
+        )
+        runs.append(_stability_run_summary(index, result))
+
+    blockers = _stability_blockers(runs)
+    summary = {
+        "stability_id": stability_id,
+        "stability_dir": str(stability_dir),
+        "repeat": repeat,
+        "runs_count": len(runs),
+        "backend": backend,
+        "model": model,
+        "no_train": no_train,
+        "fixture_only": fixture_only,
+        "dogfood": dogfood,
+        "max_iters": max_iters,
+        "eval_limit": eval_limit,
+        "stability_passed": not blockers,
+        "verdict": "ML_CORE_PASS" if not blockers else "ML_CORE_PARTIAL",
+        "stability_blockers": blockers,
+        "runs": runs,
+    }
+    _write_json(stability_dir / "stability_report.json", summary)
+    _write_stability_report(stability_dir / "stability_report.md", summary)
+    latest = project_root / ".morpheus" / "lab" / "LATEST_STABILITY_REPORT.md"
+    latest.write_text((stability_dir / "stability_report.md").read_text())
+    return summary
+
+
 def strict_lab_accept_candidates(project_root: Path) -> dict:
     """Return strict machine-accepted candidates without mutating review state."""
     return _strict_accept_for_project(_safe_project_root(project_root))
@@ -357,6 +416,39 @@ def _strict_accept_for_project(project_root: Path) -> dict:
         "rejected_reasons": rejected_reasons,
         "review_meta": review_meta,
     }
+
+
+def _stability_run_summary(index: int, result: dict) -> dict:
+    adapter = result.get("eval", {}).get("adapter", {})
+    coverage = result.get("eval_coverage") or {}
+    return {
+        "index": index,
+        "lab_id": result.get("lab_id"),
+        "lab_dir": result.get("lab_dir"),
+        "verdict": result.get("verdict"),
+        "production_ready": bool(result.get("production_ready")),
+        "production_blockers": result.get("production_blockers") or [],
+        "full_eval_coverage": bool(coverage.get("full_eval_coverage")),
+        "coverage_rate": coverage.get("coverage_rate"),
+        "adapter_pass_rate": adapter.get("pass_rate"),
+        "adapter_hallucination_rate": adapter.get("hallucination_rate"),
+        "critical_failures": adapter.get("critical_failures"),
+    }
+
+
+def _stability_blockers(runs: list[dict]) -> list[str]:
+    blockers = []
+    for run in runs:
+        index = run["index"]
+        if run.get("verdict") != "ML_CORE_PASS":
+            blockers.append(f"run_{index}_not_ml_core_pass")
+        if not run.get("production_ready"):
+            blockers.append(f"run_{index}_not_production_ready")
+        if not run.get("full_eval_coverage"):
+            blockers.append(f"run_{index}_eval_coverage_incomplete")
+        if run.get("critical_failures"):
+            blockers.append(f"run_{index}_critical_failures")
+    return blockers
 
 
 def _load_or_generate_candidates(project_root: Path) -> tuple[list[SemanticCandidate], dict]:
@@ -1301,6 +1393,45 @@ def _write_report(path: Path, summary: dict) -> None:
     if summary.get("dogfood_blocked_reason"):
         lines.extend(["## Dogfood Blocker", "", summary["dogfood_blocked_reason"], ""])
     path.write_text("\n".join(lines))
+
+
+def _write_stability_report(path: Path, summary: dict) -> None:
+    lines = [
+        "# Morpheus Lab Stability Report",
+        "",
+        f"- Stability ID: `{summary['stability_id']}`",
+        f"- Runs: `{summary['runs_count']}`",
+        f"- Backend: `{summary['backend']}`",
+        f"- Model: `{summary['model']}`",
+        f"- Eval limit: `{summary['eval_limit']}`",
+        f"- Stability passed: `{summary['stability_passed']}`",
+        f"- Verdict: `{summary['verdict']}`",
+        "",
+        "## Blockers",
+        "",
+    ]
+    blockers = summary.get("stability_blockers") or []
+    if blockers:
+        lines.extend(f"- `{blocker}`" for blocker in blockers)
+    else:
+        lines.append("- none")
+    lines.extend(["", "## Runs", ""])
+    for run in summary.get("runs", []):
+        lines.extend([
+            f"### Run {run['index']}",
+            "",
+            f"- Lab ID: `{run.get('lab_id')}`",
+            f"- Verdict: `{run.get('verdict')}`",
+            f"- Production ready: `{run.get('production_ready')}`",
+            f"- Full eval coverage: `{run.get('full_eval_coverage')}`",
+            f"- Coverage rate: `{run.get('coverage_rate')}`",
+            f"- Adapter pass rate: `{run.get('adapter_pass_rate')}`",
+            f"- Adapter hallucination rate: `{run.get('adapter_hallucination_rate')}`",
+            f"- Critical failures: `{run.get('critical_failures')}`",
+            f"- Lab dir: `{run.get('lab_dir')}`",
+            "",
+        ])
+    path.write_text("\n".join(lines).rstrip() + "\n")
 
 
 def _copy_dataset_dir(source: Path, dest: Path) -> None:

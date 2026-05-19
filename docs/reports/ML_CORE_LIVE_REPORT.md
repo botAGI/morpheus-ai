@@ -4,8 +4,8 @@ Date: 2026-05-19
 
 ## Slice
 
-Dataset/eval quality hardening and full live eval gating for the autonomous MLX
-learning lab.
+Dataset/eval quality hardening, full live eval gating, and repeated stability
+checks for the autonomous MLX learning lab.
 
 ## Problem Found
 
@@ -23,6 +23,8 @@ claims. This produced command-fact confusion across similar AGENTS.md entries.
 - `--eval-limit 0` now means full eval coverage.
 - Sampled eval can pass the ML core smoke gate, but it cannot mark an adapter
   production-ready.
+- `--repeat N` runs repeated lab experiments and writes an aggregate stability
+  report.
 - Critical safety eval categories are always selected:
   - `outdated_claim_correction`
   - `unsupported_claim_refusal`
@@ -80,6 +82,35 @@ Adapter path:
 
 The adapter was not activated automatically.
 
+## Stability Result
+
+Command:
+
+```bash
+morpheus learn lab . --dogfood --backend mlx --eval-limit 0 --repeat 2
+```
+
+Raw JSON:
+
+```text
+.morpheus/lab/live_runs/dogfood_mlx_fulleval_repeat2_20260519T151120Z.json
+```
+
+Stability report:
+
+```text
+.morpheus/lab/stability/stability_20260519T151115381491Z/stability_report.md
+```
+
+| Run | Verdict | Production ready | Coverage | Adapter pass rate | Hallucination | Critical failures |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| 1 | `ML_CORE_PASS` | `true` | 1.0 | 1.0 | 0.0 | 0 |
+| 2 | `ML_CORE_PASS` | `true` | 1.0 | 1.0 | 0.0 | 0 |
+
+Stability verdict: `ML_CORE_PASS`
+
+Stability blockers: none
+
 ## Prior Failing Run
 
 Before claim-aware prompts, the same live dogfood lane produced
@@ -93,8 +124,8 @@ The full 63-item eval above is the first live run with complete coverage.
 
 ## Verdict
 
-`ML_CORE_PASS` for the current full dogfood gate.
+`ML_CORE_PASS` for the current repeated full dogfood gate.
 
 This is still an autonomous lab result, not a release or automatic production
-activation. Repeated full-eval runs and held-out eval expansion should be the
-next quality step before treating adapter activation as production-safe.
+activation. Held-out eval expansion should be the next quality step before
+treating adapter activation as production-safe.

@@ -41,6 +41,7 @@ from morpheus.core.learning.lab import (
     DEFAULT_LAB_MAX_ITERS,
     lab_auto_accept,
     run_autonomous_lab,
+    run_autonomous_lab_stability,
 )
 from morpheus.core.learning.registry import learning_status
 from morpheus.core.learning.train import plan_training_run
@@ -1462,19 +1463,37 @@ def learn_lab(
         "--eval-limit",
         help="Maximum non-critical eval items for MLX lab eval; 0 means full eval; critical safety items are always included",
     ),
+    repeat: int = typer.Option(
+        1,
+        "--repeat",
+        help="Run repeated lab experiments and aggregate a stability report",
+    ),
 ):
     """Run an autonomous source-grounded learning lab without activating adapters."""
     try:
-        result = run_autonomous_lab(
-            project,
-            backend=backend,
-            model=model,
-            no_train=no_train,
-            fixture_only=fixture_only,
-            dogfood=dogfood,
-            max_iters=max_iters,
-            eval_limit=eval_limit,
-        )
+        if repeat > 1:
+            result = run_autonomous_lab_stability(
+                project,
+                repeat=repeat,
+                backend=backend,
+                model=model,
+                no_train=no_train,
+                fixture_only=fixture_only,
+                dogfood=dogfood,
+                max_iters=max_iters,
+                eval_limit=eval_limit,
+            )
+        else:
+            result = run_autonomous_lab(
+                project,
+                backend=backend,
+                model=model,
+                no_train=no_train,
+                fixture_only=fixture_only,
+                dogfood=dogfood,
+                max_iters=max_iters,
+                eval_limit=eval_limit,
+            )
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         console.print(f"[red]Learning lab failed:[/red] {exc}")
         raise typer.Exit(2) from exc

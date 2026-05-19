@@ -340,6 +340,89 @@ def test_sampled_eval_blocks_production_even_when_adapter_passes(tmp_path, monke
     assert "eval_coverage_incomplete" in result["eval_gate"]["block_reasons"]
 
 
+def test_lab_stability_runs_repeats_and_blocks_incomplete_coverage(tmp_path, monkeypatch):
+    project_root = copy_autonomous_repo(tmp_path)
+    calls = []
+    fake_runs = [
+        {
+            "lab_id": "lab_one",
+            "lab_dir": str(project_root / ".morpheus" / "lab" / "lab_one"),
+            "verdict": "ML_CORE_PASS",
+            "production_ready": True,
+            "production_blockers": [],
+            "eval_coverage": {"full_eval_coverage": True, "coverage_rate": 1.0},
+            "eval_gate": {"activation_allowed": True},
+            "eval": {"adapter": {"pass_rate": 1.0, "hallucination_rate": 0.0, "critical_failures": 0}},
+        },
+        {
+            "lab_id": "lab_two",
+            "lab_dir": str(project_root / ".morpheus" / "lab" / "lab_two"),
+            "verdict": "ML_CORE_PASS",
+            "production_ready": False,
+            "production_blockers": ["eval_coverage_incomplete"],
+            "eval_coverage": {"full_eval_coverage": False, "coverage_rate": 0.5},
+            "eval_gate": {"activation_allowed": False},
+            "eval": {"adapter": {"pass_rate": 1.0, "hallucination_rate": 0.0, "critical_failures": 0}},
+        },
+    ]
+
+    def fake_run(project, **kwargs):
+        calls.append((project, kwargs))
+        return fake_runs[len(calls) - 1]
+
+    monkeypatch.setattr(lab_module, "run_autonomous_lab", fake_run)
+
+    result = lab_module.run_autonomous_lab_stability(
+        project_root,
+        repeat=2,
+        backend="fake",
+        no_train=False,
+        dogfood=True,
+        eval_limit=0,
+    )
+
+    assert len(calls) == 2
+    assert result["runs_count"] == 2
+    assert result["stability_passed"] is False
+    assert result["verdict"] == "ML_CORE_PARTIAL"
+    assert "run_2_not_production_ready" in result["stability_blockers"]
+    assert "run_2_eval_coverage_incomplete" in result["stability_blockers"]
+    report_dir = Path(result["stability_dir"])
+    assert (report_dir / "stability_report.json").is_file()
+    assert (report_dir / "stability_report.md").is_file()
+    assert (project_root / ".morpheus" / "lab" / "LATEST_STABILITY_REPORT.md").is_file()
+
+
+def test_cli_learn_lab_repeat_uses_stability_runner(tmp_path, monkeypatch):
+    project_root = copy_autonomous_repo(tmp_path)
+    captured = {}
+
+    def fake_stability(project, **kwargs):
+        captured["project"] = project
+        captured.update(kwargs)
+        return {
+            "verdict": "ML_CORE_PASS",
+            "runs_count": 2,
+            "stability_passed": True,
+            "stability_blockers": [],
+            "runs": [],
+        }
+
+    monkeypatch.setattr("morpheus.cli.run_autonomous_lab_stability", fake_stability)
+
+    result = CliRunner().invoke(
+        app,
+        ["learn", "lab", str(project_root), "--repeat", "2", "--dogfood", "--eval-limit", "0"],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output[result.output.index("{"):])
+    assert payload["runs_count"] == 2
+    assert captured["repeat"] == 2
+    assert captured["dogfood"] is True
+    assert captured["eval_limit"] == 0
+
+
 def test_mlx_training_uses_python_module_when_entrypoint_missing(tmp_path, monkeypatch):
     calls = []
 

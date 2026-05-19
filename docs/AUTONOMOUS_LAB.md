@@ -26,6 +26,7 @@ morpheus learn lab . --backend mlx
 morpheus learn lab . --backend mlx --max-iters 400
 morpheus learn lab . --backend mlx --eval-limit 12
 morpheus learn lab . --backend mlx --eval-limit 0
+morpheus learn lab . --backend mlx --eval-limit 0 --repeat 2
 ```
 
 Each run writes a timestamped report under `.morpheus/lab/<lab_id>/REPORT.md`
@@ -34,6 +35,8 @@ sample for live smoke runs, but critical safety categories such as outdated
 claim correction and unsupported-claim refusal must stay in the evaluated set.
 Use `--eval-limit 0` for full live eval coverage. Sampled eval can pass the
 ML core smoke gate, but it must not mark an adapter production-ready.
+Use `--repeat N` to run repeated lab experiments and write an aggregate
+stability report under `.morpheus/lab/stability/<stability_id>/`.
 
 Safety rules:
 
