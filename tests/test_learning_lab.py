@@ -254,6 +254,27 @@ def test_learn_lab_reports_eval_coverage_metrics(tmp_path):
     assert "All critical items evaluated" in report
 
 
+def test_learn_status_reports_latest_lab_run(tmp_path):
+    project_root = copy_autonomous_repo(tmp_path)
+    runner = CliRunner()
+
+    lab = runner.invoke(
+        app,
+        ["learn", "lab", str(project_root), "--fixture-only", "--no-train"],
+    )
+    status = runner.invoke(app, ["learn", "status", str(project_root), "--json"])
+
+    assert lab.exit_code == 0, lab.output
+    assert status.exit_code == 0, status.output
+    payload = json.loads(status.output)
+    latest_lab = payload["latest_lab"]
+    assert latest_lab["source"] == "fixture"
+    assert latest_lab["strict_accepted_candidates"] >= 20
+    assert latest_lab["examples_count"] >= 100
+    assert latest_lab["training_ran"] is False
+    assert latest_lab["production_ready"] is False
+
+
 def test_lab_eval_gate_blocks_missing_heldout_eval(tmp_path, monkeypatch):
     project_root = copy_autonomous_repo(tmp_path)
 

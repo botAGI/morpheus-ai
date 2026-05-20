@@ -399,6 +399,7 @@ def _finish_lab(
         "eval": eval_result,
     }
     _write_json(lab_dir / "source_inventory.json", _source_inventory(source_project, accepted, rejected_reasons))
+    _write_json(lab_dir / "lab_summary.json", _lab_status_summary(summary))
     _write_report(lab_dir / "REPORT.md", summary)
     latest = project_root / ".morpheus" / "lab" / "LATEST_REPORT.md"
     latest.write_text((lab_dir / "REPORT.md").read_text())
@@ -443,6 +444,47 @@ def _stability_run_summary(index: int, result: dict) -> dict:
         "adapter_pass_rate": adapter.get("pass_rate"),
         "adapter_hallucination_rate": adapter.get("hallucination_rate"),
         "critical_failures": adapter.get("critical_failures"),
+    }
+
+
+def _lab_status_summary(summary: dict) -> dict:
+    eval_gate = summary.get("eval_gate") or {}
+    dataset_quality = summary.get("dataset_quality") or {}
+    return {
+        "lab_id": summary.get("lab_id"),
+        "lab_dir": summary.get("lab_dir"),
+        "source": summary.get("source"),
+        "source_is_real_project_data": summary.get("source_is_real_project_data"),
+        "verdict": summary.get("verdict"),
+        "production_ready": bool(summary.get("production_ready")),
+        "production_blockers": summary.get("production_blockers") or [],
+        "strict_accepted_candidates": summary.get("strict_accepted_candidates"),
+        "examples_count": summary.get("examples_count"),
+        "eval_items_count": summary.get("eval_items_count"),
+        "heldout_items_count": summary.get("heldout_items_count"),
+        "dataset_id": summary.get("dataset_id"),
+        "dataset_sha256": summary.get("dataset_sha256"),
+        "training_backend": summary.get("training_backend"),
+        "model": summary.get("model"),
+        "training_ran": bool(summary.get("training_ran")),
+        "adapter_path": summary.get("adapter_path"),
+        "train_allowed": bool(summary.get("train_allowed")),
+        "eval_gate": {
+            "activation_allowed": bool(eval_gate.get("activation_allowed")),
+            "adapter_evaluated": bool(eval_gate.get("adapter_evaluated")),
+            "adapter_pass_rate": eval_gate.get("adapter_pass_rate"),
+            "adapter_hallucination_rate": eval_gate.get("adapter_hallucination_rate"),
+            "critical_failures": eval_gate.get("critical_failures"),
+            "regression_count": eval_gate.get("regression_count"),
+            "block_reasons": eval_gate.get("block_reasons") or [],
+        },
+        "dataset_quality": {
+            "accepted_candidates": dataset_quality.get("accepted_candidates"),
+            "examples_count": dataset_quality.get("examples_count"),
+            "eval_items_count": dataset_quality.get("eval_items_count"),
+            "examples_per_candidate": dataset_quality.get("examples_per_candidate"),
+            "source_path_count": dataset_quality.get("source_path_count"),
+        },
     }
 
 

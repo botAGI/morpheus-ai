@@ -1416,20 +1416,30 @@ def learn_status(
     if json_output:
         console.out(json.dumps(status, indent=2, sort_keys=True))
         return
+    latest_lab = status.get("latest_lab")
     if not status["has_datasets"]:
         console.print("No learning datasets found.")
-        active = status.get("active_adapter")
-        if active:
-            console.print(f"active adapter: {active['adapter_id']} score={active.get('eval_score')}")
-        return
-    manifest = status["latest_manifest"]
+    else:
+        manifest = status["latest_manifest"]
+        console.print(
+            "latest dataset: "
+            f"{manifest['dataset_id']} "
+            f"examples={manifest['examples_count']} "
+            f"skipped={manifest['skipped_count']}"
+        )
+    if latest_lab:
+        console.print(
+            "latest lab: "
+            f"{latest_lab['lab_id']} "
+            f"source={latest_lab.get('source')} "
+            f"accepted={latest_lab.get('strict_accepted_candidates')} "
+            f"examples={latest_lab.get('examples_count')} "
+            f"verdict={latest_lab.get('verdict')} "
+            f"production_ready={latest_lab.get('production_ready')}"
+        )
+    else:
+        console.print("latest lab: none")
     active = status.get("active_adapter")
-    console.print(
-        "latest dataset: "
-        f"{manifest['dataset_id']} "
-        f"examples={manifest['examples_count']} "
-        f"skipped={manifest['skipped_count']}"
-    )
     if active:
         console.print(
             "active adapter: "
