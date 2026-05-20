@@ -273,6 +273,30 @@ def test_learn_status_reports_latest_lab_run(tmp_path):
     assert latest_lab["examples_count"] >= 100
     assert latest_lab["training_ran"] is False
     assert latest_lab["production_ready"] is False
+    effective = payload["effective_dataset"]
+    assert effective["source"] == "lab"
+    assert effective["dataset_id"] == latest_lab["dataset_id"]
+    assert effective["examples_count"] >= 100
+    assert "lab_" in effective["dataset_dir"]
+
+
+def test_learn_train_uses_latest_lab_dataset_when_no_standalone_dataset_exists(tmp_path):
+    project_root = copy_autonomous_repo(tmp_path)
+    runner = CliRunner()
+
+    lab = runner.invoke(
+        app,
+        ["learn", "lab", str(project_root), "--fixture-only", "--no-train"],
+    )
+    train = runner.invoke(app, ["learn", "train", str(project_root), "--dry-run"])
+
+    assert lab.exit_code == 0, lab.output
+    assert train.exit_code == 0, train.output
+    payload = json.loads(train.output[train.output.index("{"):])
+    run_manifest = json.loads(Path(payload["run_manifest_path"]).read_text())
+    assert run_manifest["dataset_examples_count"] >= 100
+    assert "lab_" in run_manifest["dataset_manifest_path"]
+    assert run_manifest["dataset_source"] == "lab"
 
 
 def test_lab_eval_gate_blocks_missing_heldout_eval(tmp_path, monkeypatch):

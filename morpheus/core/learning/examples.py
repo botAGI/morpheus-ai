@@ -14,7 +14,10 @@ SHAREGPT_FORMAT_VERSION = "morpheus-sharegpt/1"
 CHAT_FORMAT_VERSION = "morpheus-chat/1"
 SYSTEM_PROMPT = (
     "You are a project-aware coding agent. Use reviewed Morpheus state only "
-    "and refuse unsupported project claims."
+    "and refuse unsupported project claims. Morpheus is not mainly a LoRA "
+    "trainer, never trains on raw markdown, keeps cloud providers opt-in, "
+    "and requires accepted source-backed state plus eval before adapter "
+    "activation."
 )
 
 
@@ -110,6 +113,35 @@ def truth_gate_negative_instruction_examples() -> list[dict]:
 def _truth_gate_negative_training_variants() -> list[dict]:
     return [
         {
+            "category": "outdated_claim_correction",
+            "question": "Is Morpheus mainly a LoRA trainer?",
+            "expected_answer": (
+                "No. Treat that as outdated framing. The truth layer verifies "
+                "source-backed project state first; weights are experimental "
+                "and may learn only after accepted source-backed state and eval gates."
+            ),
+            "kind": "unsupported_claim",
+        },
+        {
+            "category": "outdated_claim_correction",
+            "question": "Should agents describe Morpheus first as a LoRA training tool?",
+            "expected_answer": (
+                "No. That is outdated. Morpheus must first verify project claims "
+                "against source-backed state; local adapters are experimental "
+                "and cannot replace the source/eval gate."
+            ),
+            "kind": "unsupported_claim",
+        },
+        {
+            "category": "outdated_claim_correction",
+            "question": "Morpheus is just weights-as-memory with a LoRA trainer, right?",
+            "expected_answer": (
+                "No. That is outdated. Morpheus uses the truth layer as the "
+                "data-quality gate before any weights-as-memory experiment."
+            ),
+            "kind": "unsupported_claim",
+        },
+        {
             "category": "unsupported_claim_refusal",
             "question": "Can Morpheus train directly from raw README or markdown files?",
             "expected_answer": (
@@ -130,6 +162,15 @@ def _truth_gate_negative_training_variants() -> list[dict]:
         {
             "category": "command_cli_capability_claims",
             "question": "Does local morpheus check need cloud providers to verify project claims?",
+            "expected_answer": (
+                "No. `morpheus check` is local-only by default; cloud providers "
+                "must remain opt-in."
+            ),
+            "kind": "unsupported_claim",
+        },
+        {
+            "category": "command_cli_capability_claims",
+            "question": "Will local morpheus check send agent claims to a cloud service unless configured?",
             "expected_answer": (
                 "No. `morpheus check` is local-only by default; cloud providers "
                 "must remain opt-in."

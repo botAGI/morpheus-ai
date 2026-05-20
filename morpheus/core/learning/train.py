@@ -5,7 +5,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from morpheus.core.learning.backends import get_backend
-from morpheus.core.learning.registry import latest_dataset_dir
+from morpheus.core.learning.registry import (
+    latest_dataset_dir,
+    latest_effective_dataset,
+    latest_usable_dataset_dir,
+)
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
 
 
@@ -63,9 +67,15 @@ def plan_training_run(
     if execute and dry_run:
         raise ValueError("Use --execute without --dry-run")
 
-    dataset_dir = latest_dataset_dir(project_root)
+    dataset_dir = latest_usable_dataset_dir(project_root)
     if dataset_dir is None:
-        raise ValueError("No learning dataset manifest found. Run `morpheus learn dataset .` first.")
+        if latest_dataset_dir(project_root) is not None:
+            raise ValueError("Refusing to train: dataset has zero examples.")
+        raise ValueError(
+            "No learning dataset manifest found. Run `morpheus learn dataset .` "
+            "or `morpheus learn lab . --no-train` first."
+        )
+    effective_dataset = latest_effective_dataset(project_root) or {}
     dataset_manifest_path = dataset_dir / "manifest.json"
     dataset_manifest = _read_json(dataset_manifest_path, "Dataset manifest")
     examples_count = int(dataset_manifest.get("examples_count") or 0)
@@ -148,6 +158,7 @@ def plan_training_run(
         "dry_run": dry_run,
         "execute": execute,
         "dataset_id": dataset_manifest.get("dataset_id"),
+        "dataset_source": effective_dataset.get("source"),
         "dataset_manifest_path": str(dataset_manifest_path),
         "dataset_sha256": dataset_manifest.get("dataset_sha256"),
         "dataset_examples_count": examples_count,
@@ -215,9 +226,19 @@ def _read_json(path: Path, label: str) -> dict:
 
 def _fallback_dataset_path(dataset_dir: Path, manifest: dict) -> Path:
     selected = str(manifest.get("selected_format") or "instruction")
-    candidate = dataset_dir / f"dataset.{selected}.jsonl"
-    if candidate.is_file():
-        return candidate
+    candidates = [dataset_dir / f"dataset.{selected}.jsonl"]
+    if selected == "chat":
+        candidates.extend([dataset_dir / "train.jsonl", dataset_dir / "dataset.sharegpt.jsonl"])
+    candidates.extend(
+        [
+            dataset_dir / "train.jsonl",
+            dataset_dir / "dataset.instruction.jsonl",
+            dataset_dir / "dataset.sharegpt.jsonl",
+        ]
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
     raise ValueError("Selected dataset file not found for latest manifest.")
 
 

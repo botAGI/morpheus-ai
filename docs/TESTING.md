@@ -105,3 +105,50 @@ Expected result:
 - all tests pass,
 - source distribution and wheel build,
 - `twine check dist/*` passes.
+
+## ML Core Live Gate
+
+Run before claiming the learning core improved the project adapter:
+
+```bash
+.venv/bin/morpheus learn lab . --dogfood --backend mlx --eval-limit 0 --repeat 2
+.venv/bin/morpheus learn status
+.venv/bin/morpheus learn train . --dry-run
+```
+
+Expected result:
+
+- the lab uses strict source-backed dogfood candidates,
+- the dataset has at least 20 accepted candidates and 100 examples,
+- base and adapter are both evaluated on the full eval set,
+- adapter pass rate meets the configured threshold,
+- hallucination rate stays under threshold,
+- regression count is zero for a production-ready lab verdict,
+- dry-run training selects the latest trainable dataset and creates run
+  artifacts,
+- no adapter is activated automatically.
+
+## MCP Truth Tools Live Smoke
+
+Run before claiming MCP truth-layer readiness:
+
+```bash
+.venv/bin/python scripts/mcp_truth_tools_smoke.py . --port 8765
+```
+
+The script starts a local API server and calls `/mcp` with JSON-RPC:
+
+- `tools/list`,
+- `tools/call` for `morpheus_check_text`,
+- `tools/call` for `morpheus_get_active_state`,
+- `tools/call` for `morpheus_get_evidence_for_claim`,
+- `tools/call` for `morpheus_get_wake`.
+
+Expected result:
+
+- truth tools are listed,
+- stale project claims are classified as `stale`,
+- active state returns local claims,
+- evidence lookup returns source spans,
+- WAKE fetch returns `.morpheus/WAKE.md`,
+- API binds to `127.0.0.1` unless explicitly testing a trusted LAN setup.

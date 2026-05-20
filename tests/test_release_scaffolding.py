@@ -64,7 +64,7 @@ def test_distribution_name_avoids_existing_pypi_project():
     pyproject = read_project_file("pyproject.toml")
 
     assert 'name = "morpheus-wake"' in pyproject
-    assert 'version = "0.1.1"' in pyproject
+    assert 'version = "0.2.0b1"' in pyproject
     assert 'name = "morpheus-ai"' not in pyproject
     assert 'morpheus = "morpheus.cli:app"' in pyproject
     assert '"typer>=0.12.0"' in pyproject
@@ -179,14 +179,28 @@ def test_project_has_release_security_and_contributor_docs():
         ],
     )
     assert_contains_all(changelog, ["## [Unreleased]", "A2A", "MCP", "Quickstart"])
-    assert_contains_all(makefile, ["install-dev:", "lint:", "test:", "verify:", "build:", "serve:"])
+    assert_contains_all(
+        makefile,
+        [
+            "install-dev:",
+            "lint:",
+            "test:",
+            "verify:",
+            "build:",
+            "serve:",
+            "UV ?=",
+            "pip install --python",
+        ],
+    )
 
 
-def test_changelog_has_v011_and_v010_release_sections():
+def test_changelog_has_v020b1_v011_and_v010_release_sections():
     changelog = read_project_file("CHANGELOG.md")
 
     assert "## [Unreleased]" in changelog
+    assert "## [0.2.0b1] - 2026-05-20" in changelog
     assert "Review-gated semantic compile alpha" in changelog
+    assert "Repeat-2 dogfood MLX stability report" in changelog
     assert "## [0.1.1] - 2026-05-18" in changelog
     assert "## [0.1.0] - 2026-05-17" in changelog
     assert "### Added" in changelog
@@ -270,5 +284,50 @@ def test_demo_scaffold_is_safe_and_self_contained():
         ],
     )
     forbidden = ["OPENAI_API_KEY", "OBSIDIAN", "OpenClaw", "Hermes", "curl http"]
+    for snippet in forbidden:
+        assert snippet not in script
+
+
+def test_daily_training_script_uses_safe_learning_lab_gate():
+    script_path = ROOT / "scripts" / "daily_training.sh"
+    script = read_project_file("scripts/daily_training.sh")
+
+    assert os.access(script_path, os.X_OK), "scripts/daily_training.sh should be executable"
+    assert_contains_all(
+        script,
+        [
+            "morpheus wake . --private",
+            "morpheus verify --all",
+            "morpheus learn lab . --dogfood --no-train",
+            "morpheus learn status",
+        ],
+    )
+    forbidden = [
+        "morpheus consolidate",
+        "morpheus train",
+        "dataset.jsonl",
+        "morpheus_adapters/daily",
+    ]
+    for snippet in forbidden:
+        assert snippet not in script
+
+
+def test_mcp_truth_tools_smoke_script_is_local_and_complete():
+    script_path = ROOT / "scripts" / "mcp_truth_tools_smoke.py"
+    script = read_project_file("scripts/mcp_truth_tools_smoke.py")
+
+    assert os.access(script_path, os.X_OK), "scripts/mcp_truth_tools_smoke.py should be executable"
+    assert_contains_all(
+        script,
+        [
+            "127.0.0.1",
+            "morpheus_check_text",
+            "morpheus_get_active_state",
+            "morpheus_get_evidence_for_claim",
+            "morpheus_get_wake",
+            "MCP_TRUTH_TOOLS_SMOKE_PASS",
+        ],
+    )
+    forbidden = ["OPENAI_API_KEY", "anthropic", "api.openai.com", "0.0.0.0"]
     for snippet in forbidden:
         assert snippet not in script

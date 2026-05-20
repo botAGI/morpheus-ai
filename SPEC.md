@@ -318,18 +318,29 @@ Local tokens and caches should stay outside the repository by default.
   `morpheus_check_text`, `morpheus_get_active_state`,
   `morpheus_get_evidence_for_claim`, and `morpheus_get_wake`.
 
-## 12. Launch Acceptance Criteria
+## 12. Alpha Release Acceptance Criteria
 
-- [x] First README screen frames Morpheus as `WAKE.md for AI agents`.
+- [x] First README screen frames Morpheus as a source-grounded truth layer:
+  "First verify. Then learn."
 - [x] Root `WAKE.md` is committed as a public showcase.
 - [x] `morpheus wake .` provides a one-command demo path.
+- [x] `morpheus check` verifies local agent text from file or stdin and returns
+  deterministic exit codes.
 - [x] `morpheus stale .` detects known stale positioning claims.
 - [x] SPEC avoids agent, training, and legal-overclaim positioning.
-- [x] LoRA/training is documented as experimental.
+- [x] LoRA/training is documented as experimental and downstream of source spans,
+  review, check, and eval.
 - [x] Receipts are ed25519 signed and verifiable.
 - [x] `morpheus verify --all` validates receipt chain and artifacts.
 - [x] UI exposes setup, diagnostics, integrations, FAQ, MCP probe, and handoff.
 - [x] Public hygiene tests reject local assistant artifacts.
 - [x] Semantic compiler mode is implemented and review-gated in v0.2 alpha.
+- [x] Autonomous learning lab can build a real dogfood dataset from strict
+  source-backed candidates.
+- [x] Repeat-2 live MLX dogfood lab reaches `ML_CORE_PASS` without activating
+  an adapter.
 - [x] Before/after visual demo or GIF is published.
 - [x] First GitHub release is cut.
+
+Release candidates must still run package build checks, CI, and PyPI trusted
+publishing verification before any tag is pushed.

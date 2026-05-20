@@ -151,7 +151,7 @@ def build_receipt(
     if not private_key_path.exists():
         raise FileNotFoundError(f"private signing key not found: {private_key_path}")
 
-    tool_info = {"name": "morpheus", "version": "0.1.1"}
+    tool_info = {"name": "morpheus", "version": "0.2.0b1"}
 
     claim_counts = {"active": 0, "superseded": 0, "unverified": 0}
     for c in _list_or_empty(state_dict.get("claims")):

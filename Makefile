@@ -1,4 +1,5 @@
-PYTHON ?= python3
+PYTHON ?= $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; else echo python3; fi)
+UV ?= $(shell command -v uv 2>/dev/null)
 HOST ?= 127.0.0.1
 PORT ?= 8000
 UI_PORT ?= 5173
@@ -7,8 +8,12 @@ IMAGE ?= morpheus-wake:local
 .PHONY: install-dev lint test verify build serve docker-build docker-run clean
 
 install-dev:
-	$(PYTHON) -m pip install --upgrade pip
-	$(PYTHON) -m pip install -e ".[dev]"
+	@if [ -n "$(UV)" ]; then \
+		$(UV) pip install --python "$(PYTHON)" -e ".[dev]"; \
+	else \
+		$(PYTHON) -m pip install --upgrade pip; \
+		$(PYTHON) -m pip install -e ".[dev]"; \
+	fi
 
 lint:
 	ruff check .
@@ -19,7 +24,11 @@ test:
 verify: lint test
 
 build:
-	$(PYTHON) -m pip install --upgrade build twine
+	@if [ -n "$(UV)" ]; then \
+		$(UV) pip install --python "$(PYTHON)" --upgrade build twine; \
+	else \
+		$(PYTHON) -m pip install --upgrade build twine; \
+	fi
 	rm -rf dist
 	$(PYTHON) -m build
 	$(PYTHON) -m twine check dist/*

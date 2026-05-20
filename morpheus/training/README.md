@@ -1,73 +1,48 @@
-# Morpheus Training Pipeline
+# Morpheus Training Legacy Notes
 
-Experimental Phase 3: optional LoRA fine-tuning for stable, reviewed memory.
+The old root-level `morpheus consolidate`, `morpheus train`, and `morpheus eval`
+commands are retained for compatibility and dry-run script generation.
 
-Training is not the core Morpheus memory path. The default path is compile,
-retrieve, cite evidence, and verify receipts. Use LoRA only for distilled
-preferences, durable project conventions, and stable behavior patterns that you
-are comfortable baking into an adapter.
+They are not the beta learning path.
 
-## Quick Start
+The safe path is:
 
 ```bash
-cd morpheus-ai
-
-# 1. Consolidate last 7 days of sessions into dataset
-morpheus consolidate --days 7 --output dataset.jsonl
-
-# 2. Train LoRA adapter
-morpheus train --base-model qwen2.5:7b --dataset dataset.jsonl --output-dir morpheus_adapters/daily
-
-# 3. Evaluate
-morpheus eval --adapter-path morpheus_adapters/daily
+morpheus wake . --private
+morpheus verify --all
+morpheus learn lab . --dogfood --no-train
+morpheus learn status
+morpheus learn train . --dry-run
+morpheus learn eval .
 ```
 
-## Pipeline
+## Current Rule
 
-```
-sessions/*.jsonl  →  consolidate.py  →  dataset.jsonl
-                                            ↓
-                                       train.py  →  adapter/
-                                            ↓
-                                       eval.py  →  results.jsonl
+```text
+No accepted source span -> no training example.
+No eval pass -> no adapter activation.
+No rollback -> no production use.
 ```
 
-## How It Works
+Do not train on raw Markdown, raw private vaults, raw chat logs, pending review
+candidates, rejected candidates, `needs_review` candidates, inferred-only
+candidates, ignored files, or secret-like content.
 
-1. **Consolidate**: Reads OpenClaw sessions, extracts Q&A pairs, filters system/infrastructure messages
-2. **Train**: QLoRA fine-tuning via LlamaFactory (4-bit, DoRA)
-3. **Eval**: Tests adapter on held-out questions
+## Legacy Command Safety
 
-## Scheduled Automation
-
-Add to crontab only after you have reviewed the generated dataset:
+`morpheus train` now defaults to dry-run script generation. Executing the legacy
+raw-dataset training path requires:
 
 ```bash
-# Edit crontab
-crontab -e
-
-# Add line:
-0 23 * * * /path/to/morpheus-ai/scripts/daily_training.sh
+morpheus train --execute --yes-i-know-this-is-legacy-raw-training
 ```
 
-Or use launchd on macOS:
+Use this only for old local experiments. New learning work should use
+`morpheus learn dataset`, `morpheus learn train`, `morpheus learn eval`, and
+`morpheus learn lab`.
 
-```bash
-cp scripts/com.morpheus.daily.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.morpheus.daily.plist
-```
+## Daily Script
 
-## Requirements
-
-- Python 3.10+
-- llamafactory-cli: `pip install llamafactory`
-- Ollama with qwen2.5:7b model
-- GPU with 8GB+ VRAM (for 7B model training)
-
-## Safety Notes
-
-- Do not train directly on a whole private vault or raw chat log.
-- Review `dataset.jsonl` before training.
-- Keep generated datasets and adapters out of git.
-- Prefer retrieval with source links for volatile facts, secrets, and current
-  project state.
+`scripts/daily_training.sh` is now a safe daily lab gate. It refreshes private
+WAKE state, verifies receipts, runs `morpheus learn lab . --dogfood --no-train`,
+and prints learning status. It does not train or activate adapters.

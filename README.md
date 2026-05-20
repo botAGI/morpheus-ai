@@ -14,12 +14,16 @@ distilled into local model weights.
 
 [Русская версия](https://github.com/botAGI/morpheus-ai/blob/main/README.ru.md)
 
-> Status: alpha. Latest packaged release: v0.1.1. The deterministic compiler,
-> receipts, CLI, API, UI launchpad, MCP endpoint, A2A-style discovery, and
-> cache-backed integrations are usable. Main includes review-gated v0.2
-> semantic/check work and an experimental autonomous learning lab. Local adapter
-> learning is experimental until eval passes; source spans remain the source of
-> truth.
+> Status: beta prerelease candidate. Current package version: v0.2.0b1. The
+> deterministic compiler, local claim checker, receipts, CLI, API, UI
+> launchpad, MCP truth tools, A2A-style discovery, cache-backed integrations,
+> and autonomous learning lab are usable. Local adapter learning is
+> experimental until eval passes; source spans remain the source of truth.
+>
+> Latest live dogfood stability gate on main: repeat-2 `ML_CORE_PASS` with 69
+> strict source-backed candidates, 290 training examples, full base-vs-adapter
+> eval coverage, zero critical failures, and no adapter activation. See
+> [`docs/reports/ML_CORE_LIVE_REPORT.md`](docs/reports/ML_CORE_LIVE_REPORT.md).
 
 ![Morpheus terminal demo](https://raw.githubusercontent.com/botAGI/morpheus-ai/main/demo/morpheus-demo.gif)
 
@@ -153,6 +157,28 @@ Morpheus verifies current project claims before any learning experiment.
 - **Integration cache readers**: GitHub, Gmail, Calendar, Slack, and Linear can
   contribute evidence from local caches or token-backed adapters.
 
+## Tested On Current Main
+
+The current local gate has been run against this repository, not only fixtures:
+
+| Capability | Tested result |
+| --- | --- |
+| `ruff check .` | passes |
+| `pytest tests/ -q` | 678 tests pass |
+| `morpheus wake . --private` | compiles current project state and signs a receipt |
+| `morpheus verify --all` | verifies the receipt chain |
+| `morpheus check --input tests/fixtures/check_stale_input.txt --local` | exits 1 and reports the stale claim |
+| `morpheus check --input tests/fixtures/check_correct_input.txt --local` | exits 0 and verifies the claim |
+| `morpheus learn lab . --dogfood --backend mlx --eval-limit 0 --repeat 2` | repeat-2 `ML_CORE_PASS` on real repo dogfood data |
+| `morpheus learn train . --dry-run` | plans from the latest trainable lab dataset when standalone dataset is empty |
+| local `/mcp` truth tools smoke | lists tools and verifies check/state/evidence/WAKE calls on `127.0.0.1` |
+
+The live MLX stability run used `mlx-community/Qwen2.5-7B-Instruct-4bit`,
+trained a local adapter from strict source-backed candidates, evaluated 148 base
+and adapter items in each of two runs, improved pass rate from 0.7973 to
+0.9932, and recorded zero regressions or critical failures. This is a lab gate,
+not automatic production activation.
+
 ## Deterministic Core, Check, And Learning Alpha
 
 v0.1 is deterministic by design. It extracts explicit markers:
@@ -267,6 +293,7 @@ complete handoff bundle.
 ```text
 morpheus/
   core/          compiler, models, receipts, verification, safe IO
+  core/learning/ reviewed datasets, eval, registry, autonomous lab
   integrations/  filesystem and cache-backed external sources
   api/           FastAPI, agent connect, diagnostics, MCP, A2A card
   training/      experimental consolidation and LoRA helpers

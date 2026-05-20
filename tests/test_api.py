@@ -48,7 +48,7 @@ def test_health_returns_version():
     response = client.get("/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.1.1"}
+    assert response.json() == {"status": "ok", "version": "0.2.0b1"}
 
 
 def test_cors_preflight_does_not_allow_credentials_for_wildcard_origins():
@@ -75,7 +75,7 @@ def test_well_known_morpheus_manifest_exposes_agent_connect_url():
     assert response.status_code == 200
     payload = response.json()
     assert payload["service"] == "morpheus"
-    assert payload["version"] == "0.1.1"
+    assert payload["version"] == "0.2.0b1"
     assert payload["connect_url"] == "http://testserver/agent/connect"
     assert payload["handoff_url"] == "http://testserver/agent/handoff"
     assert payload["handoff_markdown_url"] == "http://testserver/agent/handoff.md"
@@ -140,7 +140,7 @@ def test_a2a_agent_card_endpoint_describes_morpheus_interfaces():
     assert "max-age" in response.headers["cache-control"]
     payload = response.json()
     assert payload["name"] == "Morpheus AI"
-    assert payload["version"] == "0.1.1"
+    assert payload["version"] == "0.2.0b1"
     assert payload["capabilities"]["streaming"] is False
     assert payload["defaultInputModes"] == ["application/json", "text/plain"]
     assert payload["defaultOutputModes"] == ["application/json", "text/markdown", "text/plain"]

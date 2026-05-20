@@ -56,11 +56,11 @@ def test_root_wake_includes_source_references():
 def test_root_wake_next_work_is_launch_ordered():
     wake = Path("WAKE.md").read_text()
 
-    lab = wake.index("1. Run autonomous lab on fixture benchmark and dogfood candidates.")
-    accepted = wake.index("2. Increase strict accepted source-backed candidates")
-    eval_quality = wake.index("3. Improve eval quality")
+    lab = wake.index("1. Preserve the repeat-2 live dogfood MLX pass")
+    mcp = wake.index("2. Keep the dedicated live MCP truth-tools smoke gate")
+    stability = wake.index("3. Prepare beta release notes and CI confirmation")
     split = wake.index("4. Keep CLI/API split")
-    assert lab < accepted < eval_quality < split
+    assert lab < mcp < stability < split
 
 
 def test_readme_first_screen_uses_wake_framing():

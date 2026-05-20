@@ -1,6 +1,6 @@
 # Morpheus ML Core Live Report
 
-Date: 2026-05-19
+Date: 2026-05-20
 
 ## Slice
 
@@ -22,6 +22,10 @@ polished until the adapter passes the full gate."
 - Rejected truncated Markdown/source-line fragments during strict lab accept.
 - Normalized dataset/eval answer text by removing leading Markdown list
   markers, so the adapter learns the fact instead of a bare `-`.
+- Strengthened hard-negative training examples and the lab system prompt for
+  the critical positioning/safety claims: Morpheus is not mainly a LoRA
+  trainer, raw markdown is never training data, `morpheus check` stays local by
+  default, and adapters require accepted source-backed state plus eval.
 
 ## Live Run Progression
 
@@ -38,43 +42,48 @@ morpheus learn lab . --dogfood --backend mlx --eval-limit 0
 | Prompt/scoring polish | `.morpheus/lab/live_runs/dogfood_mlx_promptscore_fulleval_20260519T161710Z.json` | `ML_CORE_PARTIAL` | 0.9597 | 0.8065 | +0.1532 | 2 | blocked |
 | Strict data gate | `.morpheus/lab/live_runs/dogfood_mlx_datagate_fulleval_20260519T163715Z.json` | `ML_CORE_PARTIAL` | 0.9732 | 0.8125 | +0.1607 | 1 | blocked |
 | Answer normalization | `.morpheus/lab/live_runs/dogfood_mlx_answerclean_fulleval_20260519T165319Z.json` | `ML_CORE_PASS` | 1.0 | 0.8125 | +0.1875 | 0 | allowed |
+| Current main revalidation | `.morpheus/lab/live_runs/dogfood_mlx_prod_20260520T142318Z.json` | `ML_CORE_PASS` | 1.0 | 0.8125 | +0.1875 | 0 | allowed |
+| Repeat stability, run 1 | `.morpheus/lab/live_runs/dogfood_mlx_stability_fixed_20260520T161542Z.json` | `ML_CORE_PASS` | 0.9932 | 0.7973 | +0.1959 | 0 | allowed |
+| Repeat stability, run 2 | `.morpheus/lab/live_runs/dogfood_mlx_stability_fixed_20260520T161542Z.json` | `ML_CORE_PASS` | 0.9932 | 0.7973 | +0.1959 | 0 | allowed |
 
 ## Current Passing Dogfood Result
 
-Raw JSON:
+Repeat-2 stability JSON:
 
 ```text
-.morpheus/lab/live_runs/dogfood_mlx_answerclean_fulleval_20260519T165319Z.json
+.morpheus/lab/live_runs/dogfood_mlx_stability_fixed_20260520T161542Z.json
 ```
 
-Lab report:
+Stability report:
 
 ```text
-.morpheus/lab/lab_20260519T165324095828Z/REPORT.md
+.morpheus/lab/stability/stability_20260520T161542494930Z/stability_report.md
 ```
 
-Adapter path:
+Run reports:
 
 ```text
-.morpheus/lab/lab_20260519T165324095828Z/training/adapter
+.morpheus/lab/lab_20260520T161542495419Z/REPORT.md
+.morpheus/lab/lab_20260520T163443316809Z/REPORT.md
 ```
 
 Metrics:
 
 | Metric | Value |
 | --- | ---: |
-| Verdict | `ML_CORE_PASS` |
-| Production ready | `true` |
-| Eval gate activation allowed | `true` |
-| Strict accepted candidates | 51 |
-| Training examples | 214 |
-| Eval seed items | 57 |
-| Held-out eval items | 55 |
+| Stability verdict | `ML_CORE_PASS` |
+| Stability passed | `true` |
+| Stability blockers | `[]` |
+| Runs | `2` |
+| Strict accepted candidates per run | 69 |
+| Training examples per run | 290 |
+| Eval seed items per run | 75 |
+| Held-out eval items per run | 73 |
 | Full eval coverage | 1.0 |
 | All held-out items evaluated | `true` |
-| Adapter pass rate | 1.0 |
-| Base pass rate | 0.8125 |
-| Adapter delta | +0.1875 |
+| Adapter pass rate | 0.9932 |
+| Base pass rate | 0.7973 |
+| Adapter delta | +0.1959 |
 | Adapter hallucination rate | 0.0 |
 | Critical failures | 0 |
 | Regressions | 0 |
@@ -102,12 +111,12 @@ Summary:
 This confirms the lab can filter weak source-line fragments without collapsing
 the real dogfood dataset below training thresholds.
 
-## Remaining Reliability Work
+## Reliability Revalidation
 
 The previous live full-eval command wrote final JSON only after completion.
 During long MLX runs the output file stayed empty because stdout was buffered.
-
-That reliability gap is now addressed with incremental eval progress artifacts:
+That reliability gap is now addressed and revalidated on the current main
+branch with incremental eval progress artifacts:
 
 - `eval/eval_progress.jsonl` records `eval_started`, `mode_started`,
   `item_evaluated`, `mode_completed`, `mode_skipped`, and `eval_completed`
@@ -139,11 +148,18 @@ Observed progress metrics:
 - Status: `adapter_not_run`
 - All held-out items evaluated: `true`
 
-Next reliability slice:
+Current full MLX revalidation:
 
-- Run a full MLX eval and verify progress artifacts update during both
-  `base` and `adapter` modes.
-- Add optional stderr progress lines for humans watching a terminal.
+- Run: `.morpheus/lab/live_runs/dogfood_mlx_prod_20260520T142318Z.json`
+- Progress log:
+  `.morpheus/lab/lab_20260520T142318839346Z/eval/eval_progress.jsonl`
+- Progress summary:
+  `.morpheus/lab/lab_20260520T142318839346Z/eval/progress_summary.json`
+- Base evaluated: `112`
+- Adapter evaluated: `112`
+- Full eval coverage: `true`
+- All held-out items evaluated: `true`
+- Progress artifacts updated during both `base` and `adapter` modes.
 
 ## Verdict
 

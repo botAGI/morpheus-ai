@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from morpheus.core.learning.registry import latest_dataset_dir
+from morpheus.core.learning.registry import latest_usable_dataset_dir
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
 
 
@@ -45,9 +45,12 @@ def run_learning_eval(
     fake_quality: str = "passing",
 ) -> dict:
     project_root = _safe_project_root(project_root)
-    dataset_dir = latest_dataset_dir(project_root)
+    dataset_dir = latest_usable_dataset_dir(project_root)
     if dataset_dir is None:
-        raise ValueError("No learning dataset manifest found. Run `morpheus learn dataset .` first.")
+        raise ValueError(
+            "No trainable learning dataset manifest found. Run `morpheus learn dataset .` "
+            "or `morpheus learn lab . --no-train` first."
+        )
     dataset_manifest = _read_json(dataset_dir / "manifest.json", "Dataset manifest")
     eval_seed_path = dataset_dir / "eval.seed.jsonl"
     if not eval_seed_path.is_file():

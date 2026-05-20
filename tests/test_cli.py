@@ -28,7 +28,7 @@ def test_package_module_entrypoint_runs_cli_version():
     )
 
     assert result.returncode == 0, result.stderr
-    assert "Morpheus AI v0.1.1" in result.stdout
+    assert "Morpheus AI v0.2.0b1" in result.stdout
 
 
 def test_version_json_outputs_machine_readable_payload():
@@ -37,7 +37,7 @@ def test_version_json_outputs_machine_readable_payload():
     assert result.exit_code == 0, result.output
     assert json.loads(result.output) == {
         "service": "morpheus",
-        "version": "0.1.1",
+        "version": "0.2.0b1",
     }
 
 
@@ -45,7 +45,7 @@ def test_root_version_option_outputs_version():
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0, result.output
-    assert "Morpheus AI v0.1.1" in result.output
+    assert "Morpheus AI v0.2.0b1" in result.output
 
 
 def write_out_of_filename_order_receipt_chain(morpheus_dir: Path):
@@ -1350,8 +1350,24 @@ def test_stale_reports_known_outdated_positioning_claims(tmp_path):
         assert "SPEC.md:3" in result.output
         assert "personal AI agent" in result.output
         assert "Agent State Compiler" in result.output
-        assert "LoRA is experimental" in result.output
+        assert "Truth-layer verification" in result.output
         assert "Designed for provenance" in result.output
+
+
+def test_stale_allows_weights_as_memory_when_truth_layer_is_gate(tmp_path):
+    runner = CliRunner()
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        Path("AGENTS.md").write_text(
+            "# Agent Rules\n\n"
+            "The truth layer is the data-quality gate before weights-as-memory.\n"
+            "No accepted source span means no training example.\n"
+        )
+
+        result = runner.invoke(app, ["stale", "."])
+
+        assert result.exit_code == 0, result.output
+        assert "No stale launch-positioning claims found" in result.output
 
 
 def test_stale_json_reports_machine_readable_findings(tmp_path):
@@ -1406,6 +1422,24 @@ def test_train_dry_run_accepts_lora_alpha_option(tmp_path, monkeypatch):
 
         assert result.exit_code == 0, result.output
         assert "--lora_alpha 256" in Path("morpheus_train.sh").read_text()
+
+
+def test_legacy_train_execution_requires_explicit_unsafe_confirmation(tmp_path, monkeypatch):
+    runner = CliRunner()
+
+    def fail_dependency_check():
+        raise AssertionError("blocked legacy execution must not check dependencies")
+
+    monkeypatch.setattr(cli_module, "check_dependencies", fail_dependency_check)
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        Path("dataset.jsonl").write_text('{"instruction":"Q","output":"A"}\n')
+
+        result = runner.invoke(app, ["train", "--dataset", "dataset.jsonl", "--execute"])
+
+        assert result.exit_code == 2, result.output
+        assert "legacy raw-dataset training is blocked" in result.output
+        assert "morpheus learn train" in result.output
 
 
 def test_eval_command_forwards_options(monkeypatch):

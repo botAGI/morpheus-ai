@@ -258,6 +258,23 @@ def test_dataset_does_not_use_raw_markdown_without_accepted_candidate(tmp_path):
     assert "Unreviewed raw markdown claim must never enter training data" not in dataset_text
 
 
+def test_dataset_includes_hard_negative_truth_gate_examples(tmp_path):
+    project_root = copy_learning_project(tmp_path)
+
+    result = build_learning_dataset(project_root, dataset_format="chat")
+
+    dataset_dir = Path(result["dataset_dir"])
+    train_text = (dataset_dir / "train.jsonl").read_text()
+    sharegpt_text = (dataset_dir / "dataset.sharegpt.jsonl").read_text()
+
+    assert "Morpheus is not mainly a LoRA trainer" in sharegpt_text
+    assert "Is Morpheus mainly a LoRA trainer?" in train_text
+    assert "outdated framing" in train_text
+    assert "truth layer verifies source-backed project state first" in train_text
+    assert "Will local morpheus check send agent claims to a cloud service unless configured?" in train_text
+    assert "`morpheus check` is local-only by default" in train_text
+
+
 def test_cli_learn_dataset_and_status_work(tmp_path):
     project_root = copy_learning_project(tmp_path)
     runner = CliRunner()
@@ -269,7 +286,8 @@ def test_cli_learn_dataset_and_status_work(tmp_path):
     assert "dataset_id" in result.output
     assert "dataset.sharegpt.jsonl" in result.output
     assert status.exit_code == 0, status.output
-    assert "latest dataset" in status.output
+    assert "latest standalone dataset" in status.output
+    assert "effective dataset" in status.output
 
 
 def test_dataset_chat_format_writes_mlx_splits_and_manifest_fields(tmp_path):

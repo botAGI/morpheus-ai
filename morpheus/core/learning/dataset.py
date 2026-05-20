@@ -52,10 +52,10 @@ TRAIN_REQUIRED_EXAMPLE_TYPES = {
 }
 TRAIN_EXAMPLE_REPEATS = {
     "eval_aligned_recall": 3,
-    "outdated_claim_correction": 8,
-    "unsupported_claim_refusal": 8,
+    "outdated_claim_correction": 24,
+    "unsupported_claim_refusal": 16,
     "agent_rule_adherence": 8,
-    "command_cli_capability_claims": 8,
+    "command_cli_capability_claims": 12,
 }
 
 

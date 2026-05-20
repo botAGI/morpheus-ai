@@ -128,12 +128,12 @@ STALE_POSITIONING_RULES = [
     {
         "rule_id": "daily_lora_core",
         "pattern": re.compile(
-            r"\b(daily training|daily memory consolidation|weights-as-memory)\b",
+            r"\b(daily training|daily memory consolidation)\b",
             re.IGNORECASE,
         ),
         "suggested_replacement": (
-            "LoRA is experimental; compile, retrieve, cite evidence, and verify receipts "
-            "are the core path."
+            "Truth-layer verification is the data-quality gate before any "
+            "weights-as-memory experiment."
         ),
     },
     {
@@ -1417,16 +1417,27 @@ def learn_status(
         console.out(json.dumps(status, indent=2, sort_keys=True))
         return
     latest_lab = status.get("latest_lab")
+    effective_dataset = status.get("effective_dataset")
     if not status["has_datasets"]:
-        console.print("No learning datasets found.")
+        console.print("latest standalone dataset: none")
     else:
         manifest = status["latest_manifest"]
         console.print(
-            "latest dataset: "
+            "latest standalone dataset: "
             f"{manifest['dataset_id']} "
             f"examples={manifest['examples_count']} "
             f"skipped={manifest['skipped_count']}"
         )
+    if effective_dataset:
+        console.print(
+            "effective dataset: "
+            f"{effective_dataset.get('dataset_id')} "
+            f"source={effective_dataset.get('source')} "
+            f"examples={effective_dataset.get('examples_count')} "
+            f"trainable={effective_dataset.get('trainable')}"
+        )
+    else:
+        console.print("effective dataset: none")
     if latest_lab:
         console.print(
             "latest lab: "
@@ -1737,7 +1748,7 @@ def check(
 
     if semantic:
         console.print(
-            "[red]Semantic check provider is not available in v0.2.0a1.[/red] "
+            "[red]Semantic check provider is not available in v0.2.0b1.[/red] "
             "Use local default or --local."
         )
         raise typer.Exit(2)
@@ -1933,20 +1944,42 @@ def train(
     lora_rank: int = typer.Option(64, help="LoRA rank"),
     lora_alpha: int = typer.Option(128, help="LoRA alpha"),
     epochs: int = typer.Option(3, help="Training epochs"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Generate script without running")
+    dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Generate script without running"),
+    execute: bool = typer.Option(False, "--execute", help="Run legacy raw-dataset training"),
+    confirm_legacy_raw_training: bool = typer.Option(
+        False,
+        "--yes-i-know-this-is-legacy-raw-training",
+        help="Required with --execute for the deprecated root train command",
+    ),
 ):
-    """Run QLoRA fine-tuning on session dataset.
+    """Deprecated legacy QLoRA fine-tuning on a raw dataset.
     
-    Requires llamafactory-cli installed.
+    Prefer `morpheus learn train . --dry-run`, which uses reviewed source-backed
+    datasets. This command is kept for old dry-run script generation only.
     """
     from morpheus.training.train import train as run_train
-    
-    if not dry_run:
+
+    resolved_dry_run = dry_run and not execute
+    if execute and not confirm_legacy_raw_training:
+        console.print(
+            "[red]legacy raw-dataset training is blocked by default.[/red]\n"
+            "Use `morpheus learn train . --dry-run` for reviewed source-backed "
+            "datasets. To run this deprecated command anyway, pass "
+            "`--execute --yes-i-know-this-is-legacy-raw-training`."
+        )
+        raise typer.Exit(2)
+
+    if not resolved_dry_run:
         ok, missing = check_dependencies()
         if not ok:
             console.print(f"[red]Missing: {', '.join(missing)}[/red]")
             console.print("[yellow]Install: pip install llamafactory[/yellow]")
             raise typer.Exit(1)
+    else:
+        console.print(
+            "[yellow]warning:[/yellow] root `morpheus train` is deprecated. "
+            "Use `morpheus learn train . --dry-run` for reviewed source-backed datasets."
+        )
     
     run_train(
         base_model=base_model,
@@ -1955,7 +1988,7 @@ def train(
         lora_rank=lora_rank,
         lora_alpha=lora_alpha,
         epochs=epochs,
-        dry_run=dry_run
+        dry_run=resolved_dry_run,
     )
 
 

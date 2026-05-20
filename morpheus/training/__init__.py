@@ -1,10 +1,8 @@
-"""
-Morpheus Training — Daily LoRA fine-tuning pipeline.
+"""Legacy Morpheus training helpers.
 
-Modules:
-    consolidate: Convert OpenClaw sessions to training dataset
-    train: QLoRA fine-tuning script
-    eval: Evaluation harness
+New learning work should use ``morpheus.core.learning`` and the ``morpheus learn``
+CLI group, which only trains from reviewed source-backed datasets. These
+helpers remain for compatibility and dry-run script generation.
 """
 from .consolidate import consolidate_sessions
 from .train import train, generate_training_script

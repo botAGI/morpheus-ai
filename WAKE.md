@@ -12,6 +12,12 @@ It compiles `WAKE.md`, checks coding-agent claims against local source-backed
 state, and can run a local experiment that turns strictly accepted claims into a
 training dataset and adapter smoke test.
 
+The latest live dogfood MLX stability gate on main reached repeat-2
+`ML_CORE_PASS`: 69 strict source-backed candidates, 290 training examples,
+148/148 base-vs-adapter eval coverage in both runs, adapter pass rate 0.9932
+versus base pass rate 0.7973, zero critical failures, zero regressions, and no
+automatic adapter activation.
+
 ## Active Decisions
 
 - Public framing is now: "First verify. Then learn."
@@ -63,9 +69,9 @@ training dataset and adapter smoke test.
 
 ## Next Product Work
 
-1. Run autonomous lab on fixture benchmark and dogfood candidates.
-2. Increase strict accepted source-backed candidates without human bypass.
-3. Improve eval quality for base vs adapter comparison.
+1. Preserve the repeat-2 live dogfood MLX pass while broadening eval difficulty.
+2. Keep the dedicated live MCP truth-tools smoke gate in release checks.
+3. Prepare beta release notes and CI confirmation before any tag.
 4. Keep CLI/API split and broader integrations behind core truth-layer work.
 
 ## Verification
@@ -75,8 +81,11 @@ Latest verified local gate for this state:
 ```bash
 ruff check .
 pytest tests/ -q
-morpheus compile
+morpheus wake . --private
 morpheus verify --all
+morpheus check --input tests/fixtures/check_stale_input.txt --local
+morpheus check --input tests/fixtures/check_correct_input.txt --local
+morpheus learn status
 ```
 
 Generated private receipts remain in `.morpheus/` and are intentionally not

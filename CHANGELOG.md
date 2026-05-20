@@ -4,12 +4,25 @@ All notable changes to Morpheus will be documented in this file.
 
 ## [Unreleased]
 
+## [0.2.0b1] - 2026-05-20
+
 ### Added
 
 - Review-gated semantic compile alpha for `morpheus compile --semantic --review`
   and `morpheus wake . --semantic --review`.
 - Semantic review CLI for listing, accepting, rejecting, diffing, and applying
   source-backed candidates.
+- Local `morpheus check` for file/stdin claim verification with
+  `verified`, `stale`, `incorrect`, and `unknown` statuses.
+- Learning core commands for dataset generation, dry-run training artifacts,
+  eval, adapter registry/status, and autonomous lab runs.
+- Learning status now reports the effective trainable dataset across standalone
+  and lab datasets.
+- Live dogfood MLX lab report showing `ML_CORE_PASS` on current main with
+  strict source-backed candidates and full base-vs-adapter eval coverage.
+- Repeat-2 dogfood MLX stability report showing 69 strict accepted candidates,
+  290 examples, 148/148 eval coverage per run, zero critical failures, and zero
+  regressions.
 - Local, fake, null, and explicit local Ollama semantic providers.
 
 ### Fixed
@@ -17,6 +30,21 @@ All notable changes to Morpheus will be documented in this file.
 - Hardened semantic review outputs and apply receipts against symlinked paths.
 - Capped local Ollama semantic prompt source content before sending it to the
   local model endpoint.
+- Fixed `morpheus check` no-input behavior so an interactive terminal does not
+  hang waiting for stdin.
+- Updated stale-positioning scan so the valid "truth layer before
+  weights-as-memory" framing is no longer reported as stale.
+- Made `make build` prefer the project `.venv` and `uv pip install --python`
+  so macOS externally-managed Python environments do not block release builds.
+- Let dry-run training and eval use the latest trainable lab dataset when no
+  standalone reviewed dataset exists.
+- Deprecated root `morpheus train` execution by default; legacy raw-dataset
+  training now requires an explicit unsafe confirmation flag.
+- Replaced the old scheduled raw-training script with a safe daily learning-lab gate
+  that does not train or activate adapters.
+- Strengthened hard-negative learning examples and the lab system prompt so the
+  adapter preserves the "truth layer before weights" framing instead of drifting
+  back to a LoRA-trainer framing.
 - Added root `morpheus --version` support.
 - Updated public docs and package URLs so main no longer reads like v0.1.0.
 
