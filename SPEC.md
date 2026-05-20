@@ -120,19 +120,19 @@ morpheus-ai/
 ```markdown
 # WAKE.md - Project State
 
-**Compiled:** 2026-05-17T17:16:59Z
-**Receipt:** rcpt_20260517T171659Z_da4bf751
-**Morpheus:** v0.1.1
+**Compiled:** 2026-05-20T18:14:59Z
+**Receipt:** rcpt_20260520T181459Z_c6e9028d
+**Morpheus:** v0.2.0b1
 
 ---
 
 ## Current State
 
 ### Active Decisions
-- DECISION: The public primitive is WAKE.md. *(src:src_001:12)*
+- DECISION: Morpheus verifies source-grounded project truth before learning. *(src:src_001:12)*
 
 ### Open Tasks
-- TODO: Expand richer stale-claim detection. *(src:src_002:8)*
+- TODO: Harden beta exit gates before stable v0.2.0. *(src:src_002:8)*
 
 ## Source References
 - src_001: `SPEC.md`
@@ -163,9 +163,9 @@ decisions or tasks explicitly.
 
 ### Semantic Compiler Alpha
 
-`morpheus compile --semantic` should read high-signal sources such as README,
-SPEC, AGENTS, CHANGELOG, issues, and notes. It should create candidate claims
-with one of these labels:
+`morpheus compile --semantic --review` reads high-signal sources such as README,
+SPEC, AGENTS, CHANGELOG, issues, and notes. It creates candidate claims with one
+of these labels:
 
 - `source_backed`: directly supported by cited source text.
 - `inferred`: derived by model reasoning from source-backed material.
@@ -342,5 +342,5 @@ Local tokens and caches should stay outside the repository by default.
 - [x] Before/after visual demo or GIF is published.
 - [x] First GitHub release is cut.
 
-Release candidates must still run package build checks, CI, and PyPI trusted
+Prerelease builds must still run package build checks, CI, and PyPI trusted
 publishing verification before any tag is pushed.

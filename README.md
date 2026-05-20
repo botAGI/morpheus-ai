@@ -14,7 +14,7 @@ distilled into local model weights.
 
 [Русская версия](https://github.com/botAGI/morpheus-ai/blob/main/README.ru.md)
 
-> Status: beta prerelease candidate. Current package version: v0.2.0b1. The
+> Status: beta prerelease. Current package version: v0.2.0b1. The
 > deterministic compiler, local claim checker, receipts, CLI, API, UI
 > launchpad, MCP truth tools, A2A-style discovery, cache-backed integrations,
 > and autonomous learning lab are usable. Local adapter learning is
