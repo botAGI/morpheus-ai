@@ -93,8 +93,8 @@ def test_quickstart_uses_distribution_name_and_morpheus_command():
     assert "](WAKE.md)" not in readme
     assert "](demo/morpheus-demo.gif)" not in readme
     for content in [readme, readme_ru]:
-        assert "uvx --from morpheus-wake morpheus wake ." in content
-        assert "pipx run --spec morpheus-wake morpheus wake ." in content
+        assert "uvx --from 'morpheus-wake==0.2.0b1' morpheus wake ." in content
+        assert "pipx run --spec 'morpheus-wake==0.2.0b1' morpheus wake ." in content
         assert "python -m pip install -e \".[dev]\"" in content
 
 

@@ -35,24 +35,34 @@ memory helped or hurt without automatic activation.
 
 ## Current Status
 
-- Truth-layer CLI: beta candidate.
-- WAKE compile and receipts: beta candidate.
-- MCP truth tools: beta candidate after the local live smoke on 2026-05-20.
+- Truth-layer CLI: beta release in `v0.2.0b1`.
+- WAKE compile and receipts: beta release in `v0.2.0b1`.
+- MCP truth tools: beta release after the local live smoke on 2026-05-20.
 - Semantic review: alpha, review-gated.
-- Learning dataset/status/train dry-run: beta candidate after effective dataset
+- Learning dataset/status/train dry-run: beta release after effective dataset
   status support.
-- Live MLX dogfood lab: beta candidate as an experiment lane, not adapter
+- Live MLX dogfood lab: beta release as an experiment lane, not adapter
   production activation. Repeat-2 stability passed on 2026-05-20 with full eval
   coverage, zero critical failures, zero regressions, and no production blockers.
 - Adapter activation/rollback: implemented, but beta release should keep
   activation conservative and explicitly gated.
 
+## Published Beta
+
+- `v0.2.0b1` is tagged and published.
+- GitHub Release points to `v0.2.0b1`.
+- PyPI contains `morpheus-wake==0.2.0b1`.
+- `uvx --from 'morpheus-wake==0.2.0b1' morpheus wake . --private` has passed
+  post-publish smoke.
+
 ## Remaining Beta Work
 
-1. Push the release candidate to `main` and confirm CI green.
-2. Tag `v0.2.0b1` only after explicit release approval.
-3. Watch the release workflow and verify PyPI/uvx only after the tag is pushed.
-4. Create the GitHub prerelease only after PyPI publish is verified.
+1. Run the beta on more real repositories, not only this dogfood repo.
+2. Harden MCP truth tools against more client payload shapes.
+3. Improve human review throughput so accepted real candidates are not stuck at
+   zero outside autonomous lab mode.
+4. Repeat MLX dogfood stability after any learning-core change.
+5. Cut stable `v0.2.0` only after broader no-regression evidence.
 
 ## Non-Negotiables
 
@@ -61,4 +71,4 @@ memory helped or hurt without automatic activation.
 - No hidden auto-accept of ambiguous candidates.
 - No adapter activation without eval.
 - No production claim based only on fixture data.
-- No tag, publish, or release without explicit instruction.
+- No new tag, publish, or release without explicit instruction.

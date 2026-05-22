@@ -95,9 +95,11 @@ def test_quickstart_endpoint_returns_human_and_agent_launch_plan(tmp_path):
     assert payload["service"] == "morpheus"
     assert payload["project_root"] == str(tmp_path)
     assert payload["human_path"][0]["id"] == "install"
-    assert payload["commands"]["install"][0] == "uvx --from morpheus-wake morpheus wake ."
+    assert payload["commands"]["install"][0] == (
+        "uvx --from 'morpheus-wake==0.2.0b1' morpheus wake ."
+    )
     assert payload["commands"]["install"][1] == (
-        "pipx run --spec morpheus-wake morpheus wake ."
+        "pipx run --spec 'morpheus-wake==0.2.0b1' morpheus wake ."
     )
     assert "pip install -e" in payload["commands"]["development_install"][2]
     assert payload["commands"]["run_local"] == (

@@ -106,6 +106,22 @@ Expected result:
 - source distribution and wheel build,
 - `twine check dist/*` passes.
 
+## Published Package Smoke
+
+Run after a beta publish:
+
+```bash
+uvx --from 'morpheus-wake==0.2.0b1' morpheus --version
+uvx --from 'morpheus-wake==0.2.0b1' morpheus wake . --private
+uvx --from 'morpheus-wake==0.2.0b1' morpheus verify --all
+```
+
+Expected result:
+
+- version output is `Morpheus AI v0.2.0b1`,
+- private wake compiles local project state,
+- receipt verification passes.
+
 ## ML Core Live Gate
 
 Run before claiming the learning core improved the project adapter:

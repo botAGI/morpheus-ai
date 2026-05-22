@@ -2,8 +2,8 @@
 
 ## Current Stage
 
-Morpheus is a beta-candidate source-grounded truth-layer path and a working
-local ML-core lab on Apple Silicon.
+Morpheus is a published `v0.2.0b1` beta for the source-grounded truth-layer path
+and a working local ML-core lab on Apple Silicon.
 
 The correct public framing is:
 
@@ -76,32 +76,24 @@ Run 2:
 
 The adapter was not activated automatically.
 
-## Before Release
+## Published Release
 
-Selected release candidate:
+Published beta:
 
 - version: `v0.2.0b1`
 - package version: `0.2.0b1`
 - release notes: `docs/release-notes/v0.2.0b1.md`
+- GitHub Release: `https://github.com/botAGI/morpheus-ai/releases/tag/v0.2.0b1`
+- PyPI: `https://pypi.org/project/morpheus-wake/`
 
-Required before any tag or PyPI publish:
+Post-publish smoke:
 
-- confirm the committed release candidate still has `pyproject.toml` version
-  `0.2.0b1`,
-- confirm `CHANGELOG.md` contains `## [0.2.0b1] - 2026-05-20`,
-- run `ruff check .`,
-- run `pytest tests/ -q`,
-- run `morpheus wake . --private`,
-- run `morpheus verify --all`,
-- run stale/correct `morpheus check` fixtures,
-- run `morpheus learn lab . --dogfood --backend mlx --eval-limit 0 --repeat 2`
-  if claiming repeated ML-core progress in release notes,
-- clean and rebuild package artifacts with `rm -rf dist build *.egg-info`,
-- run `make build` and `twine check dist/*`,
-- confirm CI green on `main`,
-- confirm PyPI Trusted Publishing for the target workflow/environment.
+- `uvx --from 'morpheus-wake==0.2.0b1' morpheus --version` reports
+  `Morpheus AI v0.2.0b1`.
+- `uvx --from 'morpheus-wake==0.2.0b1' morpheus wake . --private` passes.
+- `uvx --from 'morpheus-wake==0.2.0b1' morpheus verify --all` passes.
 
-Do not tag, publish, or activate adapters from this report alone.
+Do not activate adapters from this report alone.
 
 ## Repository Garbage Audit
 

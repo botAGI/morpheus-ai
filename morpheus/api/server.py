@@ -419,8 +419,8 @@ def quickstart_payload(request: Request, project_root: Path) -> dict:
         "commands": {
             "clone": "git clone https://github.com/botAGI/morpheus-ai && cd morpheus-ai",
             "install": [
-                "uvx --from morpheus-wake morpheus wake .",
-                "pipx run --spec morpheus-wake morpheus wake .",
+                "uvx --from 'morpheus-wake==0.2.0b1' morpheus wake .",
+                "pipx run --spec 'morpheus-wake==0.2.0b1' morpheus wake .",
             ],
             "development_install": [
                 "python3 -m venv .venv",
@@ -444,7 +444,7 @@ def quickstart_payload(request: Request, project_root: Path) -> dict:
             {
                 "id": "install",
                 "label": "Run once",
-                "detail": "Use uvx or pipx with the morpheus-wake package.",
+                "detail": "Use uvx or pipx with the pinned morpheus-wake beta package.",
             },
             {
                 "id": "run",

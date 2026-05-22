@@ -14,11 +14,13 @@ distilled into local model weights.
 
 [Русская версия](https://github.com/botAGI/morpheus-ai/blob/main/README.ru.md)
 
-> Status: beta prerelease. Current package version: v0.2.0b1. The
+> Status: beta release. Latest GitHub release and beta package: v0.2.0b1. The
 > deterministic compiler, local claim checker, receipts, CLI, API, UI
 > launchpad, MCP truth tools, A2A-style discovery, cache-backed integrations,
 > and autonomous learning lab are usable. Local adapter learning is
 > experimental until eval passes; source spans remain the source of truth.
+> Pin `morpheus-wake==0.2.0b1` for v0.2 features; unpinned PyPI tools may still
+> choose the latest stable v0.1.1 instead of this beta.
 >
 > Latest live dogfood stability gate on main: repeat-2 `ML_CORE_PASS` with 69
 > strict source-backed candidates, 290 training examples, full base-vs-adapter
@@ -59,22 +61,22 @@ Private projects can keep `WAKE.md` inside `.morpheus/`.
 
 ## Quick Start
 
-Install:
+Install the v0.2 beta:
 
 ```bash
-uvx --from morpheus-wake morpheus wake .
+uvx --from 'morpheus-wake==0.2.0b1' morpheus wake .
 ```
 
 With pipx:
 
 ```bash
-pipx run --spec morpheus-wake morpheus wake .
+pipx run --spec 'morpheus-wake==0.2.0b1' morpheus wake .
 ```
 
 For private workspaces:
 
 ```bash
-uvx --from morpheus-wake morpheus wake . --private
+uvx --from 'morpheus-wake==0.2.0b1' morpheus wake . --private
 ```
 
 That keeps the compiled state at `.morpheus/WAKE.md`.
@@ -82,14 +84,15 @@ That keeps the compiled state at `.morpheus/WAKE.md`.
 Three-command alpha loop:
 
 ```bash
-uvx --from morpheus-wake morpheus wake .
-gh pr view 42 --json body -q .body | morpheus check
-morpheus learn lab . --backend mlx
+uvx --from 'morpheus-wake==0.2.0b1' morpheus wake .
+gh pr view 42 --json body -q .body | uvx --from 'morpheus-wake==0.2.0b1' morpheus check
+uvx --from 'morpheus-wake==0.2.0b1' morpheus learn lab . --no-train
 ```
 
 `morpheus learn lab` is experimental. It can use a strict autonomous benchmark
 lane, but it never activates adapters automatically and it does not use raw
-Markdown fine-tuning.
+Markdown fine-tuning. On Apple Silicon with MLX installed, add `--backend mlx`
+when you intentionally want to run local adapter training.
 
 Development install:
 
@@ -179,9 +182,10 @@ and adapter items in each of two runs, improved pass rate from 0.7973 to
 0.9932, and recorded zero regressions or critical failures. This is a lab gate,
 not automatic production activation.
 
-## Deterministic Core, Check, And Learning Alpha
+## Deterministic Core, Check, And Learning Beta
 
-v0.1 is deterministic by design. It extracts explicit markers:
+The deterministic compiler remains simple by design. It extracts explicit
+markers:
 
 ```text
 TODO: DECISION: FIXME: NOTE: HACK: XXX:
@@ -189,10 +193,10 @@ TODO: DECISION: FIXME: NOTE: HACK: XXX:
 
 That makes receipts reproducible and easy to verify.
 
-`morpheus check` is local-only by default in the v0.2 alpha slice. It does not
-send agent text or project source excerpts to cloud providers.
+`morpheus check` is local-only by default. It does not send agent text or
+project source excerpts to cloud providers.
 
-Main includes an alpha semantic review path:
+The beta includes a review-gated semantic path:
 
 ```bash
 morpheus wake . --semantic --review
