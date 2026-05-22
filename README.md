@@ -59,6 +59,25 @@ This repository intentionally commits
 example.
 Private projects can keep `WAKE.md` inside `.morpheus/`.
 
+## Roadmap
+
+Morpheus is not trying to become another review bot. The next product axis is a
+verified classification-to-training pipeline:
+
+- **v0.3**: semantic classifier for architecture, implementation, product,
+  security, command, integration, stale, convention, task, and temporary facts.
+- **v0.4**: dataset quality dashboard for trainable, retrievable, stale,
+  unsafe, needs-review, negative, and eval-only claims.
+- **v0.5**: adapter memory benchmark with category-level base-vs-adapter deltas.
+- **v0.6**: agent memory routing across prompt, retrieval, adapter training,
+  eval, negative examples, stale archive, and human review.
+- **v0.7**: team learning loop from PR comments, rejected agent claims, human
+  corrections, accepted candidates, and check results.
+
+See [docs/ROADMAP.md](docs/ROADMAP.md). The invariant stays strict: no accepted
+source span means no training example, no eval pass means no adapter activation,
+and adapter output is not source of truth.
+
 ## Quick Start
 
 Install the v0.2 beta:

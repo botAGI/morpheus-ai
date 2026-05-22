@@ -305,7 +305,31 @@ Integrations contribute evidence. They do not change the product identity.
 
 Local tokens and caches should stay outside the repository by default.
 
-## 11. Security Model
+## 11. Product Roadmap
+
+Morpheus should not evolve into another generic review bot. The product core is
+a verified classification-to-training pipeline:
+
+- **v0.3 Semantic classifier**: classify source-backed claims as architecture,
+  implementation, product identity, security, command facts, integration facts,
+  stale claims, team conventions, open tasks, or temporary facts.
+- **v0.4 Dataset quality dashboard**: expose trainable, retrievable, stale,
+  unsafe, needs-review, negative, and eval-only state.
+- **v0.5 Adapter memory benchmark**: evaluate product identity, commands,
+  architecture, safety rules, team conventions, stale correction, and
+  unsupported-claim refusal separately.
+- **v0.6 Agent memory routing**: route facts to prompt context, retrieval,
+  adapter training, eval-only, negative examples, stale archive, or human review.
+- **v0.7 Team learning loop**: convert PR comments, rejected agent claims, human
+  corrections, accepted candidates, and check results into reviewed continual
+  learning candidates.
+
+The public claim is not "fine-tune an AI model on your codebase." The claim is:
+Morpheus builds a verified learning layer for agents, classifies project
+knowledge, proves what is source-backed, and distills stable truth into local
+model memory experiments.
+
+## 12. Security Model
 
 - Default bind address should be `127.0.0.1`.
 - `.morpheus/`, receipts, caches, generated datasets, model outputs, and token
@@ -318,7 +342,7 @@ Local tokens and caches should stay outside the repository by default.
   `morpheus_check_text`, `morpheus_get_active_state`,
   `morpheus_get_evidence_for_claim`, and `morpheus_get_wake`.
 
-## 12. Alpha Release Acceptance Criteria
+## 13. Beta Release Acceptance Criteria
 
 - [x] First README screen frames Morpheus as a source-grounded truth layer:
   "First verify. Then learn."

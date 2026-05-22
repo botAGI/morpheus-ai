@@ -60,6 +60,25 @@ adapter memory.
 публичный пример. Приватные проекты могут хранить `WAKE.md` внутри
 `.morpheus/`.
 
+## Roadmap
+
+Morpheus не пытается стать ещё одним review bot. Следующая продуктовая ось -
+verified classification-to-training pipeline:
+
+- **v0.3**: semantic classifier для architecture, implementation, product,
+  security, command, integration, stale, convention, task и temporary facts.
+- **v0.4**: dataset quality dashboard для trainable, retrievable, stale, unsafe,
+  needs-review, negative и eval-only claims.
+- **v0.5**: adapter memory benchmark с category-level base-vs-adapter deltas.
+- **v0.6**: agent memory routing между prompt, retrieval, adapter training,
+  eval, negative examples, stale archive и human review.
+- **v0.7**: team learning loop из PR comments, rejected agent claims, human
+  corrections, accepted candidates и check results.
+
+См. [docs/ROADMAP.md](docs/ROADMAP.md). Инвариант строгий: нет accepted source
+span - нет training example, нет успешного eval - нет adapter activation, а
+adapter output не является source of truth.
+
 ## Быстрый Старт
 
 Установка v0.2 beta:

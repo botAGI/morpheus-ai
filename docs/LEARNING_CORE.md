@@ -32,3 +32,21 @@ the adapter.
 `morpheus learn activate`, and `morpheus learn rollback` are the production lane
 building blocks.
 
+## Roadmap Alignment
+
+The learning core should become the center of the product, but not as raw
+fine-tuning.
+
+The next milestones are:
+
+- v0.3 semantic classifier: classify source-backed project knowledge before it
+  enters check, retrieval, eval, or training.
+- v0.4 dataset quality dashboard: expose trainable, retrievable, stale, unsafe,
+  needs-review, negative, and eval-only state.
+- v0.5 adapter memory benchmark: measure category-level base-vs-adapter deltas.
+- v0.6 agent memory routing: choose prompt, retrieval, adapter training, eval,
+  negative example, stale archive, or human review per claim.
+- v0.7 team learning loop: turn corrections and review outcomes into continual
+  learning candidates.
+
+See `docs/ROADMAP.md` for the public roadmap.

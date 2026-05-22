@@ -5,8 +5,8 @@ Private projects can keep generated `WAKE.md` inside `.morpheus/`.
 
 ## Current State
 
-Morpheus is becoming a source-grounded truth layer with an autonomous learning
-lab.
+Morpheus is a published `v0.2.0b1` beta and is moving toward a verified
+classification-to-training pipeline.
 
 It compiles `WAKE.md`, checks coding-agent claims against local source-backed
 state, and can run a local experiment that turns strictly accepted claims into a
@@ -60,6 +60,7 @@ automatic adapter activation.
 
 - `README.md` - public framing, install story, and quick start.
 - `README.ru.md` - Russian public framing and quick start.
+- `docs/ROADMAP.md` - staged product direction from classifier to team learning.
 - `SPEC.md` - product frame, architecture, non-goals, and release criteria.
 - `AGENTS.md` - agent bootstrap behavior.
 - `docs/WHY_WAKE.md` - category rationale for `WAKE.md`.
@@ -69,10 +70,19 @@ automatic adapter activation.
 
 ## Next Product Work
 
-1. Preserve the repeat-2 live dogfood MLX pass while broadening eval difficulty.
-2. Keep the dedicated live MCP truth-tools smoke gate in release checks.
-3. Prepare beta release notes and CI confirmation before any tag.
-4. Keep CLI/API split and broader integrations behind core truth-layer work.
+1. v0.3 semantic classifier as product core: classify architecture,
+   implementation, product, security, command, integration, stale, convention,
+   task, and temporary facts.
+2. v0.4 dataset quality dashboard: show trainable, retrievable, stale, unsafe,
+   needs-review, negative, and eval-only claims.
+3. v0.5 adapter memory benchmark: report category-level base-vs-adapter deltas
+   and critical regressions.
+4. v0.6 agent memory routing: decide whether a fact belongs in prompt,
+   retrieval, adapter training, eval, negative examples, stale archive, or human
+   review.
+5. v0.7 team learning loop: turn PR comments, rejected agent claims, human
+   corrections, accepted candidates, and check results into reviewed continual
+   learning data.
 
 ## Verification
 

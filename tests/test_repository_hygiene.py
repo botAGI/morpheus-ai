@@ -45,6 +45,7 @@ def test_root_wake_includes_source_references():
     for source in [
         "README.md",
         "README.ru.md",
+        "docs/ROADMAP.md",
         "SPEC.md",
         "docs/WHY_WAKE.md",
         "docs/RELEASE.md",
@@ -56,11 +57,12 @@ def test_root_wake_includes_source_references():
 def test_root_wake_next_work_is_launch_ordered():
     wake = Path("WAKE.md").read_text()
 
-    lab = wake.index("1. Preserve the repeat-2 live dogfood MLX pass")
-    mcp = wake.index("2. Keep the dedicated live MCP truth-tools smoke gate")
-    stability = wake.index("3. Prepare beta release notes and CI confirmation")
-    split = wake.index("4. Keep CLI/API split")
-    assert lab < mcp < stability < split
+    classifier = wake.index("1. v0.3 semantic classifier as product core")
+    dashboard = wake.index("2. v0.4 dataset quality dashboard")
+    benchmark = wake.index("3. v0.5 adapter memory benchmark")
+    routing = wake.index("4. v0.6 agent memory routing")
+    team_loop = wake.index("5. v0.7 team learning loop")
+    assert classifier < dashboard < benchmark < routing < team_loop
 
 
 def test_readme_first_screen_uses_wake_framing():

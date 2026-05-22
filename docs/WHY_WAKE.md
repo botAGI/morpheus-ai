@@ -55,11 +55,17 @@ The same primitive works in both cases.
 
 ## What Comes Next
 
-v0.1 is deterministic and marker-based. The next step is review-gated semantic
-compilation:
+`v0.2.0b1` proves the first source-grounded loop: compile state, check agent
+claims, build a strict learning dataset, and run a local adapter lab without
+automatic activation.
 
-- `source_backed`: directly supported by cited source text.
-- `inferred`: derived from sources but needs human or agent review.
-- `needs_review`: useful candidate state that should not become active yet.
+The next step is not another review bot. It is a verified
+classification-to-training pipeline:
+
+- classify project knowledge by kind and safety,
+- decide what is trainable, retrievable, stale, unsafe, or eval-only,
+- benchmark adapter memory by category,
+- route each accepted fact to prompt, retrieval, training, eval, or review,
+- turn team corrections into continual learning candidates.
 
 The invariant stays the same: agents can continue, and humans can verify.
