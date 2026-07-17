@@ -32,6 +32,11 @@ the adapter.
 `morpheus learn activate`, and `morpheus learn rollback` are the production lane
 building blocks.
 
+The current deterministic fake evaluator is a diagnostic benchmark building
+block, not production evidence. Its category reports are always marked
+activation-ineligible, and `morpheus learn activate --force` cannot bypass a
+failed or diagnostic eval gate.
+
 ## Roadmap Alignment
 
 The learning core should become the center of the product, but not as raw

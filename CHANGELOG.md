@@ -16,6 +16,9 @@ All notable changes to Morpheus will be documented in this file.
 
 ### Fixed
 
+- Made adapter activation fail closed: deterministic fake/dry-run evals are
+  diagnostic-only, activation requires exact paired artifacts with consistent
+  metrics, and the legacy force flag no longer bypasses a failed gate.
 - Preserved reviewed and correction candidates across semantic rescans, made
   repeated check-correction creation idempotent, and hardened correction artifact
   writes against symlink targets.

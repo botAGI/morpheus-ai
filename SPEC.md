@@ -318,6 +318,8 @@ The API returns `422` for malformed JSON or an invalid outer request shape and
 `400` for a parsed feedback event rejected by the local ingestion policy.
 
 Activation requires eval. Production use requires rollback.
+Deterministic fake/dry-run eval artifacts are diagnostic only and cannot satisfy
+the activation gate. A force flag must never bypass a failed eval gate.
 
 ## 10. Integrations
 

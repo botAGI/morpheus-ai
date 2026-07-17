@@ -1792,14 +1792,18 @@ def learn_list_adapters(
 def learn_activate(
     adapter_id: str = typer.Argument(..., help="Adapter id to activate"),
     project: Path = typer.Option(Path("."), "--project", help="Project path"),
-    force: bool = typer.Option(False, "--force", help="Bypass eval gate"),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Legacy flag; cannot bypass the eval gate",
+    ),
     confirm_force: bool = typer.Option(
         False,
         "--yes-i-know-this-can-degrade",
         help="Required with --force",
     ),
 ):
-    """Activate an adapter only after passing eval, unless explicitly forced."""
+    """Activate an adapter only after an activation-eligible eval passes."""
     try:
         result = activate_adapter(
             project,

@@ -241,6 +241,11 @@ morpheus learn lab . --no-train
 Нет accepted source span - нет training example. Нет успешного eval - нет
 activation. Нет rollback - нет production use.
 
+Сейчас `morpheus learn eval` записывает deterministic fake diagnostic results
+для локальной разработки benchmark. Они могут показывать category deltas, но
+никогда не дают право на activation. Legacy option
+`morpheus learn activate --force` не обходит eval gate.
+
 ## Obsidian И Личная База
 
 Obsidian vault можно использовать как context source, потому что это папка с

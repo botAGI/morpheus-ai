@@ -99,7 +99,61 @@ def test_benchmark_report_creates_matching_base_eval_for_adapter_comparison(tmp_
     assert result["latest_base_eval"]["dataset_id"] == result["dataset_id"]
     assert result["latest_adapter_eval"]["dataset_id"] == result["dataset_id"]
     assert result["category_deltas"]
+    assert result["activation_ready"] is False
+    assert result["activation_gate"]["reason"] == (
+        "diagnostic_eval_not_activation_eligible"
+    )
+
+
+def test_benchmark_report_uses_the_same_paired_eval_as_activation_gate(tmp_path):
+    project_root = create_balanced_benchmark_project(tmp_path)
+    adapter_id = "adapter_paired"
+    (project_root / ".morpheus/training/adapters" / adapter_id).mkdir(parents=True)
+    base_eval = run_learning_eval(project_root, base_only=True, dry_run=True)
+    adapter_eval = run_learning_eval(
+        project_root,
+        adapter_id=adapter_id,
+        dry_run=True,
+    )
+    _mark_eval_activation_eligible(Path(base_eval["eval_dir"]))
+    _mark_eval_activation_eligible(Path(adapter_eval["eval_dir"]))
+    _write_eval_result(
+        project_root,
+        eval_id="eval_zzzz_unpaired_adapter",
+        dataset_id="20260522T000000Z",
+        adapter_id=adapter_id,
+        base_only=False,
+    )
+
+    result = write_benchmark_report(project_root, dry_run=True)
+
+    assert result["latest_adapter_eval"]["eval_id"] == adapter_eval["eval_id"]
+    assert result["activation_gate"]["eval_id"] == adapter_eval["eval_id"]
     assert result["activation_ready"] is True
+
+
+def test_benchmark_report_keeps_legacy_paired_category_deltas(tmp_path):
+    project_root = create_balanced_benchmark_project(tmp_path)
+    adapter_id = "adapter_legacy_diagnostic"
+    (project_root / ".morpheus/training/adapters" / adapter_id).mkdir(parents=True)
+    base_eval = run_learning_eval(project_root, base_only=True, dry_run=True)
+    adapter_eval = run_learning_eval(
+        project_root,
+        adapter_id=adapter_id,
+        dry_run=True,
+    )
+    for evaluation in (base_eval, adapter_eval):
+        results_path = Path(evaluation["eval_results_path"])
+        results = json.loads(results_path.read_text())
+        results["metrics"].pop("hallucinated_items")
+        results_path.write_text(json.dumps(results))
+
+    result = write_benchmark_report(project_root, dry_run=True)
+
+    assert result["latest_base_eval"]["eval_id"] == base_eval["eval_id"]
+    assert result["latest_adapter_eval"]["eval_id"] == adapter_eval["eval_id"]
+    assert result["category_deltas"]
+    assert result["activation_ready"] is False
 
 
 def test_benchmark_report_ignores_newer_evals_from_another_dataset(tmp_path):
@@ -223,3 +277,22 @@ def _write_eval_result(
         },
     }
     (eval_dir / "eval_results.json").write_text(json.dumps(result))
+
+
+def _mark_eval_activation_eligible(eval_dir: Path) -> None:
+    config_path = eval_dir / "eval_config.json"
+    config = json.loads(config_path.read_text())
+    config.update({
+        "activation_eligible": True,
+        "dry_run": False,
+        "evaluation_mode": "heldout_external",
+        "provider": {"name": "external-heldout"},
+    })
+    config_path.write_text(json.dumps(config))
+    results_path = eval_dir / "eval_results.json"
+    results = json.loads(results_path.read_text())
+    results.update({
+        "activation_eligible": True,
+        "evaluation_mode": "heldout_external",
+    })
+    results_path.write_text(json.dumps(results))

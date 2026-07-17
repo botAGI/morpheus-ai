@@ -240,6 +240,11 @@ morpheus learn lab . --no-train
 No accepted source span means no training example. No eval pass means no adapter
 activation. No rollback means no production use.
 
+`morpheus learn eval` currently writes deterministic fake diagnostic results for
+local benchmark development. Those results can show category deltas, but they
+are never activation-eligible. The legacy `morpheus learn activate --force`
+option cannot bypass the eval gate.
+
 ## Obsidian And Personal Notes
 
 An Obsidian vault can be used as a Morpheus context source because it is a

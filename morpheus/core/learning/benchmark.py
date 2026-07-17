@@ -56,6 +56,7 @@ def write_benchmark_report(
         activation_gate = check_activation_gate(
             project_root,
             str(latest_adapter_eval["adapter_id"]),
+            eval_id=str(latest_adapter_eval["eval_id"]),
         )
     activation_ready = bool(benchmark_allowed and activation_gate["allowed"])
     next_command = (

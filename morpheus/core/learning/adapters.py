@@ -62,7 +62,12 @@ def activate_adapter(
         raise ValueError("--force requires --yes-i-know-this-can-degrade")
     adapter_dir = _adapter_dir_or_error(project_root, adapter_id)
     gate = check_activation_gate(project_root, adapter_id)
-    if not gate["allowed"] and not force:
+    if not gate["allowed"]:
+        if force:
+            raise ValueError(
+                f"Cannot activate adapter {adapter_id}: force cannot bypass the eval gate "
+                f"({gate['reason']})"
+            )
         raise ValueError(f"Cannot activate adapter {adapter_id}: {gate['reason']}")
 
     previous = _read_active_adapter(project_root)

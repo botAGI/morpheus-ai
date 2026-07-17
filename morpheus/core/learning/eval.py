@@ -1,5 +1,6 @@
 """Evaluation harness for reviewed Morpheus learning adapters."""
 import json
+import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -90,6 +91,8 @@ def run_learning_eval(
         "base_only": resolved_base_only,
         "dry_run": dry_run,
         "provider": {"name": provider.name, "quality": provider.quality},
+        "evaluation_mode": "diagnostic_fake",
+        "activation_eligible": False,
         "categories": sorted(EVAL_CATEGORIES),
     }
     results_items = [_score_item(item, provider.infer(item)) for item in seed_items]
@@ -100,6 +103,8 @@ def run_learning_eval(
         "adapter_id": resolved_adapter_id,
         "base_only": resolved_base_only,
         "dataset_id": dataset_manifest.get("dataset_id"),
+        "evaluation_mode": "diagnostic_fake",
+        "activation_eligible": False,
         "metrics": metrics,
         "items": results_items,
     }
@@ -139,16 +144,52 @@ def check_activation_gate(
     *,
     pass_rate_threshold: float = DEFAULT_PASS_RATE_THRESHOLD,
     hallucination_rate_threshold: float = DEFAULT_HALLUCINATION_RATE_THRESHOLD,
+    eval_id: str | None = None,
 ) -> dict:
     project_root = _safe_project_root(project_root)
-    latest_eval = _latest_eval_for_adapter(project_root, adapter_id)
+    latest_eval = _latest_eval_for_adapter(
+        project_root,
+        adapter_id,
+        eval_id=eval_id,
+    )
     if latest_eval is None:
         return {"allowed": False, "reason": "missing_eval", "adapter_id": adapter_id}
+    config = _read_json(latest_eval / "eval_config.json", "Eval config")
     results = _read_json(latest_eval / "eval_results.json", "Eval results")
+    if not _eval_artifact_identity_is_valid(
+        latest_eval,
+        config,
+        results,
+        expected_adapter_id=adapter_id,
+        expected_base_only=False,
+    ):
+        return {
+            "allowed": False,
+            "reason": "eval_artifact_identity_mismatch",
+            "adapter_id": adapter_id,
+            "eval_dir": str(latest_eval),
+        }
+    if not _eval_is_activation_eligible(config, results):
+        provider = config.get("provider") if isinstance(config.get("provider"), dict) else {}
+        return {
+            "allowed": False,
+            "reason": "diagnostic_eval_not_activation_eligible",
+            "adapter_id": adapter_id,
+            "eval_id": results.get("eval_id") or config.get("eval_id"),
+            "evaluation_mode": config.get("evaluation_mode") or "unknown",
+            "provider": str(provider.get("name") or "") or None,
+        }
     metrics = results.get("metrics") if isinstance(results.get("metrics"), dict) else {}
-    pass_rate = float(metrics.get("pass_rate") or 0)
-    hallucination_rate = float(metrics.get("hallucination_rate") or 0)
-    critical_outdated_failures = int(metrics.get("critical_outdated_claim_failures") or 0)
+    if not _eval_metrics_are_valid(metrics):
+        return {
+            "allowed": False,
+            "reason": "invalid_eval_metrics",
+            "adapter_id": adapter_id,
+            "eval_id": results.get("eval_id"),
+        }
+    pass_rate = float(metrics["pass_rate"])
+    hallucination_rate = float(metrics["hallucination_rate"])
+    critical_outdated_failures = int(metrics["critical_outdated_claim_failures"])
     if pass_rate < pass_rate_threshold:
         return {
             "allowed": False,
@@ -183,12 +224,8 @@ def check_activation_gate(
             "dataset_id": dataset_id,
             "metrics": metrics,
         }
-    comparison = latest_eval_category_comparison(
-        project_root,
-        dataset_id=dataset_id,
-        adapter_id=adapter_id,
-    )
-    if comparison["base_eval"] is None:
+    base_eval = _latest_base_eval_for_dataset(project_root, dataset_id)
+    if base_eval is None:
         return {
             "allowed": False,
             "reason": "missing_base_eval",
@@ -197,6 +234,50 @@ def check_activation_gate(
             "dataset_id": dataset_id,
             "metrics": metrics,
         }
+    base_config = _read_json(base_eval / "eval_config.json", "Base eval config")
+    base_results = _read_json(base_eval / "eval_results.json", "Base eval results")
+    if not _eval_artifact_identity_is_valid(
+        base_eval,
+        base_config,
+        base_results,
+        expected_adapter_id=None,
+        expected_base_only=True,
+    ):
+        return {
+            "allowed": False,
+            "reason": "base_eval_artifact_identity_mismatch",
+            "adapter_id": adapter_id,
+            "eval_id": results.get("eval_id"),
+            "dataset_id": dataset_id,
+            "base_eval_dir": str(base_eval),
+            "metrics": metrics,
+        }
+    if not _eval_is_activation_eligible(base_config, base_results):
+        return {
+            "allowed": False,
+            "reason": "diagnostic_base_eval_not_activation_eligible",
+            "adapter_id": adapter_id,
+            "eval_id": results.get("eval_id"),
+            "base_eval_id": base_results.get("eval_id") or base_config.get("eval_id"),
+            "dataset_id": dataset_id,
+            "metrics": metrics,
+        }
+    base_metrics = (
+        base_results.get("metrics")
+        if isinstance(base_results.get("metrics"), dict)
+        else {}
+    )
+    if not _eval_metrics_are_valid(base_metrics):
+        return {
+            "allowed": False,
+            "reason": "invalid_base_eval_metrics",
+            "adapter_id": adapter_id,
+            "eval_id": results.get("eval_id"),
+            "base_eval_id": base_results.get("eval_id"),
+            "dataset_id": dataset_id,
+            "metrics": metrics,
+        }
+    comparison = _eval_category_comparison(base_results, results)
     if comparison["critical_regressions"]:
         return {
             "allowed": False,
@@ -220,6 +301,157 @@ def check_activation_gate(
     }
 
 
+def _eval_artifact_identity_is_valid(
+    eval_dir: Path,
+    config: dict,
+    results: dict,
+    *,
+    expected_adapter_id: str | None,
+    expected_base_only: bool,
+) -> bool:
+    eval_id = config.get("eval_id")
+    dataset_id = config.get("dataset_id")
+    adapter_id = config.get("adapter_id")
+    base_only = config.get("base_only")
+    return bool(
+        isinstance(eval_id, str)
+        and eval_id
+        and eval_id == eval_dir.name
+        and results.get("eval_id") == eval_id
+        and isinstance(dataset_id, str)
+        and dataset_id
+        and results.get("dataset_id") == dataset_id
+        and adapter_id == expected_adapter_id
+        and results.get("adapter_id") == adapter_id
+        and type(base_only) is bool
+        and base_only is expected_base_only
+        and type(results.get("base_only")) is bool
+        and results.get("base_only") is base_only
+    )
+
+
+def _eval_is_activation_eligible(config: dict, results: dict) -> bool:
+    provider = config.get("provider") if isinstance(config.get("provider"), dict) else {}
+    provider_name = provider.get("name")
+    evaluation_mode = config.get("evaluation_mode")
+    return bool(
+        config.get("activation_eligible") is True
+        and results.get("activation_eligible") is True
+        and config.get("dry_run") is False
+        and isinstance(provider_name, str)
+        and provider_name.strip()
+        and not provider_name.casefold().startswith("fake-")
+        and isinstance(evaluation_mode, str)
+        and evaluation_mode.strip()
+        and evaluation_mode != "diagnostic_fake"
+        and results.get("evaluation_mode") == evaluation_mode
+    )
+
+
+def _eval_metrics_are_valid(metrics: dict) -> bool:
+    total_items = metrics.get("total_items")
+    passed_items = metrics.get("passed_items")
+    hallucinated_items = metrics.get("hallucinated_items")
+    critical_failures = metrics.get("critical_outdated_claim_failures")
+    if not _is_positive_int(total_items):
+        return False
+    if not all(
+        _count_fits_total(value, total_items)
+        for value in (passed_items, hallucinated_items, critical_failures)
+    ):
+        return False
+    if not _rate_matches_count(metrics.get("pass_rate"), passed_items, total_items):
+        return False
+    if not _rate_matches_count(
+        metrics.get("hallucination_rate"),
+        hallucinated_items,
+        total_items,
+    ):
+        return False
+    by_category = metrics.get("by_category")
+    if not isinstance(by_category, dict) or not by_category:
+        return False
+    category_totals = {
+        "total_items": 0,
+        "passed_items": 0,
+        "hallucinated_items": 0,
+        "critical_failures": 0,
+    }
+    for category_metrics in by_category.values():
+        if not isinstance(category_metrics, dict):
+            return False
+        category_total = category_metrics.get("total_items")
+        category_passed = category_metrics.get("passed_items")
+        category_hallucinated = category_metrics.get("hallucinated_items")
+        category_critical = category_metrics.get("critical_failures")
+        if not _is_positive_int(category_total):
+            return False
+        if not all(
+            _count_fits_total(value, category_total)
+            for value in (
+                category_passed,
+                category_hallucinated,
+                category_critical,
+            )
+        ):
+            return False
+        if not _rate_matches_count(
+            category_metrics.get("pass_rate"),
+            category_passed,
+            category_total,
+        ):
+            return False
+        if not _rate_matches_count(
+            category_metrics.get("hallucination_rate"),
+            category_hallucinated,
+            category_total,
+        ):
+            return False
+        category_totals["total_items"] += category_total
+        category_totals["passed_items"] += category_passed
+        category_totals["hallucinated_items"] += category_hallucinated
+        category_totals["critical_failures"] += category_critical
+    return bool(
+        category_totals["total_items"] == total_items
+        and category_totals["passed_items"] == passed_items
+        and category_totals["hallucinated_items"] == hallucinated_items
+        and category_totals["critical_failures"] == critical_failures
+    )
+
+
+def _is_bounded_rate(value: object) -> bool:
+    return bool(
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(float(value))
+        and 0.0 <= float(value) <= 1.0
+    )
+
+
+def _rate_matches_count(rate: object, count: int, total: int) -> bool:
+    return bool(
+        _is_bounded_rate(rate)
+        and math.isclose(
+            float(rate),
+            round(count / total, 4),
+            rel_tol=0.0,
+            abs_tol=1e-9,
+        )
+    )
+
+
+def _count_fits_total(value: object, total: int) -> bool:
+    return _is_non_negative_int(value) and value <= total
+
+
+def _is_positive_int(value: object) -> bool:
+    return _is_non_negative_int(value) and value > 0
+
+
+def _is_non_negative_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
 def latest_eval_category_comparison(
     project_root: Path,
     *,
@@ -232,6 +464,13 @@ def latest_eval_category_comparison(
         dataset_id=dataset_id,
         adapter_id=adapter_id,
     )
+    return _eval_category_comparison(base_eval, adapter_eval)
+
+
+def _eval_category_comparison(
+    base_eval: dict | None,
+    adapter_eval: dict | None,
+) -> dict:
     base_categories = _category_metrics(base_eval)
     adapter_categories = _category_metrics(adapter_eval)
     category_deltas = {}
@@ -275,21 +514,49 @@ def _latest_eval_results_for_dataset(
         return None, None
     base_results = []
     adapter_results = []
-    result_paths = sorted(
-        evals_root.glob("*/eval_results.json"),
+    config_paths = sorted(
+        evals_root.glob("*/eval_config.json"),
         key=lambda item: item.as_posix(),
     )
-    for results_path in result_paths:
-        if results_path.is_symlink():
+    for config_path in config_paths:
+        results_path = config_path.parent / "eval_results.json"
+        if (
+            config_path.is_symlink()
+            or config_path.parent.is_symlink()
+            or results_path.is_symlink()
+            or not results_path.is_file()
+        ):
             continue
+        config = _read_json(config_path, "Eval config")
         result = _read_json(results_path, "Eval results")
+        result_adapter_id = config.get("adapter_id")
+        result_base_only = config.get("base_only")
+        if result_base_only is True:
+            expected_adapter_id = None
+        elif (
+            result_base_only is False
+            and isinstance(result_adapter_id, str)
+            and result_adapter_id
+        ):
+            expected_adapter_id = result_adapter_id
+        else:
+            continue
+        if not _eval_artifact_identity_is_valid(
+            config_path.parent,
+            config,
+            result,
+            expected_adapter_id=expected_adapter_id,
+            expected_base_only=result_base_only,
+        ):
+            continue
+        result = _normalize_eval_results_for_reporting(result)
+        metrics = result.get("metrics")
+        if not isinstance(metrics, dict) or not _eval_metrics_are_valid(metrics):
+            continue
         if result.get("dataset_id") != dataset_id:
             continue
-        if result.get("base_only"):
+        if result_base_only:
             base_results.append(result)
-            continue
-        result_adapter_id = result.get("adapter_id")
-        if not result_adapter_id:
             continue
         if adapter_id is None or result_adapter_id == adapter_id:
             adapter_results.append(result)
@@ -297,6 +564,30 @@ def _latest_eval_results_for_dataset(
         base_results[-1] if base_results else None,
         adapter_results[-1] if adapter_results else None,
     )
+
+
+def _normalize_eval_results_for_reporting(result: dict) -> dict:
+    metrics = result.get("metrics")
+    if not isinstance(metrics, dict) or "hallucinated_items" in metrics:
+        return result
+    by_category = metrics.get("by_category")
+    if not isinstance(by_category, dict) or not by_category:
+        return result
+    hallucinated_counts = []
+    for category_metrics in by_category.values():
+        if not isinstance(category_metrics, dict):
+            return result
+        hallucinated_count = category_metrics.get("hallucinated_items")
+        if not _is_non_negative_int(hallucinated_count):
+            return result
+        hallucinated_counts.append(hallucinated_count)
+    return {
+        **result,
+        "metrics": {
+            **metrics,
+            "hallucinated_items": sum(hallucinated_counts),
+        },
+    }
 
 
 def _critical_category_regressions(
@@ -415,6 +706,7 @@ def _metrics(items: list[dict]) -> dict:
         "critical_outdated_claim_failures": outdated_failures,
         "total_items": total,
         "passed_items": passed,
+        "hallucinated_items": hallucinated,
         "by_category": _metrics_by_category(items),
     }
 
@@ -518,7 +810,12 @@ def _dataset_dir_for_eval(project_root: Path, dataset_id: str | None) -> Path | 
     return matches[-1]
 
 
-def _latest_eval_for_adapter(project_root: Path, adapter_id: str) -> Path | None:
+def _latest_eval_for_adapter(
+    project_root: Path,
+    adapter_id: str,
+    *,
+    eval_id: str | None = None,
+) -> Path | None:
     evals_root = project_root / ".morpheus" / "training" / "evals"
     if evals_root.is_symlink():
         raise ValueError(f"Eval registry must not be a symlink: {evals_root}")
@@ -527,8 +824,34 @@ def _latest_eval_for_adapter(project_root: Path, adapter_id: str) -> Path | None
         return None
     matches = []
     for config_path in sorted(evals_root.glob("*/eval_config.json"), key=lambda item: item.as_posix()):
+        if eval_id is not None and config_path.parent.name != eval_id:
+            continue
         config = _read_json(config_path, "Eval config")
         if config.get("adapter_id") == adapter_id and not config.get("base_only"):
+            matches.append(config_path.parent)
+    return matches[-1] if matches else None
+
+
+def _latest_base_eval_for_dataset(project_root: Path, dataset_id: str) -> Path | None:
+    evals_root = project_root / ".morpheus" / "training" / "evals"
+    if evals_root.is_symlink():
+        raise ValueError(f"Eval registry must not be a symlink: {evals_root}")
+    reject_symlink_components(evals_root, "Eval registry")
+    if not evals_root.is_dir():
+        return None
+    matches = []
+    for config_path in sorted(
+        evals_root.glob("*/eval_config.json"),
+        key=lambda item: item.as_posix(),
+    ):
+        config = _read_json(config_path, "Eval config")
+        if not config.get("base_only") or config.get("dataset_id") != dataset_id:
+            continue
+        results_path = config_path.parent / "eval_results.json"
+        if not results_path.is_file():
+            continue
+        results = _read_json(results_path, "Eval results")
+        if results.get("base_only") and results.get("dataset_id") == dataset_id:
             matches.append(config_path.parent)
     return matches[-1] if matches else None
 
