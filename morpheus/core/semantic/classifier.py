@@ -62,6 +62,13 @@ PRODUCT_TERMS = {
     "product",
     "verified learning",
 }
+TEMPORARY_TERMS = {
+    "expires after",
+    "for now",
+    "short-lived",
+    "temporary",
+    "until rollout",
+}
 
 
 def classify_candidate(candidate: SemanticCandidate) -> CandidateClass:
@@ -85,6 +92,8 @@ def classify_claim(*, kind: str, claim: str, source_path: str) -> CandidateClass
         return "open_task"
     if kind == "agent_rule":
         return "convention"
+    if _has_any(folded_claim, TEMPORARY_TERMS):
+        return "temporary"
     if _has_any(folded_claim, SECURITY_TERMS):
         return "security"
     if _path_in(path, "docs/architecture"):

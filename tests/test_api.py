@@ -488,6 +488,8 @@ def test_learning_quality_endpoint_writes_report(tmp_path):
     payload = response.json()
     assert payload["project_root"] == str(project_root)
     assert payload["report"]["review"]["by_trainability"]["trainable"] >= 1
+    assert payload["report"]["routing"]["policy_version"] == "morpheus-memory-routing/1"
+    assert len(payload["report"]["routing"]["decisions"]) == 11
     assert payload["paths"]["json_path"].endswith("quality_report.json")
     assert Path(payload["paths"]["json_path"]).is_file()
 
@@ -836,6 +838,26 @@ def test_agent_handoff_includes_wake_when_project_is_compiled(tmp_path):
     assert payload["wake_md"] is not None
     assert "TODO: handoff includes wake" in payload["wake_md"]
     assert "## WAKE.md" in payload["markdown"]
+
+
+def test_agent_handoff_includes_only_audited_prompt_context_routes(tmp_path):
+    project_root = copy_learning_project(tmp_path)
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.get("/agent/handoff", params={"project_root": str(project_root)})
+
+    assert response.status_code == 200
+    payload = response.json()
+    routing = payload["memory_routing"]
+    assert routing["policy_version"] == "morpheus-memory-routing/1"
+    assert routing["decision_count"] == 11
+    assert routing["by_route"]["prompt_context"] == 1
+    assert [item["id"] for item in routing["prompt_context"]] == ["c_task"]
+    assert routing["prompt_context"][0]["source_path"] == "README.md"
+    assert routing["prompt_context"][0]["line_start"] == 5
+    assert "## Memory Routing" in payload["markdown"]
+    assert "Build dataset compiler from accepted candidates. (`README.md:5`)" in payload["markdown"]
+    assert "Morpheus generates WAKE.md from reviewed project state." not in payload["markdown"]
 
 
 def test_agent_prepare_initializes_compiles_bootstraps_verifies_and_returns_handoff(tmp_path):

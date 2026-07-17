@@ -14,6 +14,7 @@ from typer.testing import CliRunner
 import morpheus.cli as cli_module
 from morpheus.cli import app
 from morpheus.core.provenance import build_receipt, compute_sha256_file, receipt_file_name
+from tests.test_learning_dataset import copy_learning_project
 
 
 def test_package_module_entrypoint_runs_cli_version():
@@ -463,6 +464,21 @@ def test_handoff_json_reports_bundle_without_server(tmp_path):
         assert "morpheus learn benchmark . --dry-run" in payload["markdown"]
         assert "morpheus bootstrap-agent --dry-run" in payload["markdown"]
         assert not Path("AGENTS.md").exists()
+
+
+def test_handoff_json_reports_audited_memory_routes(tmp_path, monkeypatch):
+    project_root = copy_learning_project(tmp_path)
+    monkeypatch.chdir(project_root)
+
+    result = CliRunner().invoke(app, ["handoff", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["memory_routing"]["policy_version"] == "morpheus-memory-routing/1"
+    assert payload["memory_routing"]["decision_count"] == 11
+    assert [
+        item["id"] for item in payload["memory_routing"]["prompt_context"]
+    ] == ["c_task"]
 
 
 def test_handoff_markdown_output_is_copyable_for_agents(tmp_path):

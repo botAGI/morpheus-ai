@@ -1288,6 +1288,14 @@
               <div class="stat-value" id="learning-benchmark-allowed">No</div>
               <div class="stat-label">Benchmark Gate</div>
             </div>
+            <div class="stat">
+              <div class="stat-value" id="learning-routing-policy">none</div>
+              <div class="stat-label">Routing Policy</div>
+            </div>
+            <div class="stat">
+              <div class="stat-value" id="learning-routing-decisions">0</div>
+              <div class="stat-label">Audited Routes</div>
+            </div>
           </div>
           <div class="card">
             <h4>Trainability</h4>
@@ -1409,6 +1417,8 @@
       const learningCandidatesTotal = document.getElementById('learning-candidates-total');
       const learningTrainAllowed = document.getElementById('learning-train-allowed');
       const learningBenchmarkAllowed = document.getElementById('learning-benchmark-allowed');
+      const learningRoutingPolicy = document.getElementById('learning-routing-policy');
+      const learningRoutingDecisions = document.getElementById('learning-routing-decisions');
       const learningTrainabilityList = document.getElementById('learning-trainability-list');
       const learningRoutesList = document.getElementById('learning-routes-list');
       const learningBlockersList = document.getElementById('learning-blockers-list');
@@ -1883,9 +1893,12 @@
       function renderLearningQuality(payload) {
         const report = payload.report || {};
         const review = report.review || {};
+        const routing = report.routing || {};
         learningCandidatesTotal.textContent = String(review.candidates_total || 0);
         learningTrainAllowed.textContent = report.train_allowed ? 'Yes' : 'No';
         learningBenchmarkAllowed.textContent = report.benchmark_allowed ? 'Yes' : 'No';
+        learningRoutingPolicy.textContent = routing.policy_version || 'none';
+        learningRoutingDecisions.textContent = String((routing.decisions || []).length);
         renderCountList(learningTrainabilityList, review.by_trainability || {}, 'No trainability data');
         renderCountList(learningRoutesList, review.by_route || {}, 'No route data');
         const blockers = {};

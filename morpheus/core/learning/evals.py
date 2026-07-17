@@ -6,6 +6,7 @@ from morpheus.core.semantic.models import SemanticCandidate
 
 
 def eval_items_for_candidate(candidate: SemanticCandidate) -> list[dict]:
+    routing = _routing_metadata(candidate)
     if candidate.kind == "outdated_claim":
         return [{
             "category": "outdated_claim_correction",
@@ -16,6 +17,7 @@ def eval_items_for_candidate(candidate: SemanticCandidate) -> list[dict]:
             "source_candidate_id": candidate.id,
             "source_path": candidate.source_path,
             "kind": candidate.kind,
+            **routing,
             "must_answer_without_source": False,
         }]
 
@@ -30,11 +32,13 @@ def eval_items_for_candidate(candidate: SemanticCandidate) -> list[dict]:
         "source_candidate_id": candidate.id,
         "source_path": candidate.source_path,
         "kind": candidate.kind,
+        **routing,
         "must_answer_without_source": False,
     }]
 
 
 def heldout_eval_items_for_candidate(candidate: SemanticCandidate) -> list[dict]:
+    routing = _routing_metadata(candidate)
     if candidate.kind == "outdated_claim":
         return [{
             "category": "outdated_claim_correction",
@@ -45,6 +49,7 @@ def heldout_eval_items_for_candidate(candidate: SemanticCandidate) -> list[dict]
             "source_candidate_id": candidate.id,
             "source_path": candidate.source_path,
             "kind": candidate.kind,
+            **routing,
             "must_answer_without_source": False,
             "eval_split": "heldout",
         }]
@@ -60,9 +65,19 @@ def heldout_eval_items_for_candidate(candidate: SemanticCandidate) -> list[dict]
         "source_candidate_id": candidate.id,
         "source_path": candidate.source_path,
         "kind": candidate.kind,
+        **routing,
         "must_answer_without_source": False,
         "eval_split": "heldout",
     }]
+
+
+def _routing_metadata(candidate: SemanticCandidate) -> dict:
+    return {
+        "semantic_class": candidate.semantic_class,
+        "trainability_status": candidate.trainability_status,
+        "trainability_reason": candidate.trainability_reason,
+        "memory_route": candidate.memory_route,
+    }
 
 
 def candidate_recall_question(candidate: SemanticCandidate) -> str:

@@ -193,16 +193,35 @@ def test_dataset_builds_examples_manifest_and_eval_seed_from_accepted_source_bac
         item["metadata"]["source_candidate_id"] == "c_current"
         for item in instruction_examples
     )
+    instruction_candidate_ids = {
+        item["metadata"].get("source_candidate_id")
+        for item in instruction_examples
+    }
+    assert "c_rule" in instruction_candidate_ids
+    assert "c_outdated" in instruction_candidate_ids
+    assert "c_decision" in instruction_candidate_ids
+    assert "c_task" not in instruction_candidate_ids
+    assert "c_reference" not in instruction_candidate_ids
     assert any(
         message["role"] == "system"
         for item in sharegpt_examples
         for message in item["messages"]
     )
     assert any(item["source_candidate_id"] == "c_decision" for item in eval_items)
+    assert any(item["source_candidate_id"] == "c_task" for item in eval_items)
+    assert any(item["source_candidate_id"] == "c_reference" for item in eval_items)
+    eval_routes = {
+        item["source_candidate_id"]: item["memory_route"]
+        for item in eval_items
+        if item.get("source_candidate_id")
+    }
+    assert eval_routes["c_decision"] == "adapter_training"
+    assert eval_routes["c_task"] == "prompt_context"
+    assert eval_routes["c_reference"] == "retrieval"
     assert any(item["source_candidate_id"] == "c_decision" for item in heldout_items)
     assert all(item["eval_split"] == "heldout" for item in heldout_items)
     assert manifest["candidate_count"] == 11
-    assert manifest["trainable_candidate_count"] == 5
+    assert manifest["trainable_candidate_count"] == 3
     assert manifest["heldout_eval_items_count"] == len(heldout_items)
     assert manifest["examples_count"] == len(instruction_examples)
     assert manifest["dataset_sha256"]
@@ -210,6 +229,9 @@ def test_dataset_builds_examples_manifest_and_eval_seed_from_accepted_source_bac
     assert manifest["format_versions"]["instruction"] == "morpheus-instruction/1"
     assert manifest["class_counts"]["product"] >= 1
     assert manifest["trainability_counts"]["trainable"] >= 1
+    assert manifest["route_counts"]["adapter_training"] == 3
+    assert manifest["route_counts"]["prompt_context"] == 1
+    assert manifest["route_counts"]["retrieval"] == 1
     current_metadata = next(
         item["metadata"]
         for item in instruction_examples
@@ -364,7 +386,7 @@ def test_dataset_trains_on_eval_aligned_prompts_and_truth_gate_negatives(tmp_pat
 
     candidate_eval_items = [
         item for item in eval_items
-        if item.get("source_candidate_id") and item["kind"] != "outdated_claim"
+        if item.get("source_candidate_id") and item["memory_route"] == "adapter_training"
     ]
     assert candidate_eval_items
     for item in candidate_eval_items:

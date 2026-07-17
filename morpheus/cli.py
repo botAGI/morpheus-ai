@@ -1519,6 +1519,9 @@ def learn_quality(
         f"pending={review['pending']} "
         f"rejected={review['rejected']}"
     )
+    routing = result["report"]["routing"]
+    console.print(f"routing_policy={routing['policy_version']}")
+    console.print(f"audited_decisions={len(routing['decisions'])}")
     console.print(f"train_allowed={result['report']['train_allowed']}")
     if result["report"]["train_blockers"]:
         console.print("blockers: " + ", ".join(result["report"]["train_blockers"]))

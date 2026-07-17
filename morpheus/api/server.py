@@ -61,7 +61,7 @@ from morpheus.core.config import MorpheusConfig
 from morpheus.core.check import check_text
 from morpheus.core.compiler import compile_project
 from morpheus.core.learning.benchmark import write_benchmark_report
-from morpheus.core.learning.quality import write_quality_report
+from morpheus.core.learning.quality import build_quality_report, write_quality_report
 from morpheus.core.wake import generate_wake_md
 from morpheus.core.provenance import (
     compute_sha256_file,
@@ -1323,6 +1323,15 @@ def agent_handoff_markdown(payload: dict) -> str:
     ]
     wake_md = payload.get("wake_md")
     wake_section = wake_md if wake_md else "WAKE.md is not compiled yet. Run `morpheus compile` first."
+    memory_routing = payload["memory_routing"]
+    route_lines = [
+        f"- `{route}`: {count}"
+        for route, count in sorted(memory_routing["by_route"].items())
+    ] or ["- No audited route decisions"]
+    prompt_context_lines = [
+        f"- {item['claim']} (`{item['source_path']}:{item['line_start']}`)"
+        for item in memory_routing["prompt_context"]
+    ] or ["- No audited prompt-context facts"]
 
     return "\n".join([
         "# Morpheus Agent Handoff",
@@ -1345,6 +1354,16 @@ def agent_handoff_markdown(payload: dict) -> str:
         "## Commands",
         "",
         *command_lines,
+        "",
+        "## Memory Routing",
+        "",
+        f"- Policy: `{memory_routing['policy_version']}`",
+        f"- Audited decisions: {memory_routing['decision_count']}",
+        *route_lines,
+        "",
+        "### Prompt Context",
+        "",
+        *prompt_context_lines,
         "",
         "## Agent Prompt",
         "",
@@ -1392,10 +1411,32 @@ def agent_handoff_payload(request: Request, project_root: Path) -> dict:
         "diagnostics": diagnostics_payload(request, project_root),
         "agent_bootstrap_preview": preview_agent_bootstrap(request, project_root).model_dump(),
         "wake_md": project_wake_or_none(project_root),
+        "memory_routing": agent_memory_routing(project_root),
         "commands": commands,
     }
     payload["markdown"] = agent_handoff_markdown(payload)
     return payload
+
+
+def agent_memory_routing(project_root: Path) -> dict:
+    routing = build_quality_report(project_root)["routing"]
+    prompt_context = [
+        {
+            "id": item["id"],
+            "claim": item["claim"],
+            "semantic_class": item["semantic_class"],
+            "source_path": item["source_path"],
+            "line_start": item["line_start"],
+            "line_end": item["line_end"],
+        }
+        for item in routing["prompt_context"]
+    ]
+    return {
+        "policy_version": routing["policy_version"],
+        "by_route": routing["by_route"],
+        "decision_count": len(routing["decisions"]),
+        "prompt_context": prompt_context,
+    }
 
 
 def prepare_step(step_id: str, label: str, ok: bool, detail: str) -> dict:

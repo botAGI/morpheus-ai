@@ -18,9 +18,9 @@ def test_quality_report_counts_review_routes_dataset_and_blockers(tmp_path):
     report = build_quality_report(project_root)
 
     assert report["review"]["candidates_total"] == 11
-    assert report["review"]["by_trainability"]["trainable"] == 4
+    assert report["review"]["by_trainability"]["trainable"] == 3
     assert report["review"]["by_trainability"]["negative_example"] == 1
-    assert report["review"]["by_trainability"]["eval_only"] == 1
+    assert report["review"]["by_trainability"]["retrievable"] == 2
     assert report["review"]["by_trainability"]["excluded"] >= 3
     assert report["review"]["top_blockers"]["status_rejected"] == 1
     assert report["review"]["top_blockers"]["label_inferred"] == 1
@@ -41,6 +41,54 @@ def test_quality_report_counts_review_routes_dataset_and_blockers(tmp_path):
     assert "class command < 2" in report["benchmark_blockers"]
     assert report["benchmark_gate"]["eval_category_counts"]["unsupported_claim_refusal"] >= 1
     assert report["benchmark_gate"]["requirements"]["class_counts"]["product"]["count"] >= 1
+    routing = report["routing"]
+    assert routing["policy_version"] == "morpheus-memory-routing/1"
+    assert len(routing["decisions"]) == 11
+    assert routing["by_route"] == report["review"]["by_route"]
+    assert {item["id"] for item in routing["prompt_context"]} == {"c_task"}
+
+
+def test_quality_routing_audit_downgrades_stale_and_invalid_source_evidence(tmp_path):
+    project_root = copy_learning_project(tmp_path)
+    candidates_path = project_root / ".morpheus/review/semantic_candidates.jsonl"
+    candidates = [
+        json.loads(line)
+        for line in candidates_path.read_text().splitlines()
+        if line.strip()
+    ]
+    by_id = {item["id"]: item for item in candidates}
+    by_id["c_decision"]["source_sha256"] = "0" * 64
+    by_id["c_rule"]["line_start"] = 999
+    by_id["c_rule"]["line_end"] = 999
+    candidates_path.write_text(
+        "\n".join(json.dumps(item, sort_keys=True) for item in candidates) + "\n"
+    )
+
+    report = build_quality_report(project_root)
+
+    decisions = {item["id"]: item for item in report["routing"]["decisions"]}
+    assert decisions["c_current"]["memory_route"] == "adapter_training"
+    assert decisions["c_current"]["trainability_status"] == "trainable"
+    assert decisions["c_decision"]["memory_route"] == "human_review"
+    assert decisions["c_decision"]["trainability_reason"] == "source_sha256_mismatch"
+    assert decisions["c_rule"]["memory_route"] == "human_review"
+    assert decisions["c_rule"]["trainability_reason"] == "invalid_source_span"
+    assert decisions["c_ignored"]["memory_route"] == "excluded"
+    assert decisions["c_ignored"]["trainability_reason"] == "ignored_path"
+    assert set(decisions["c_current"]) == {
+        "id",
+        "claim",
+        "status",
+        "label",
+        "kind",
+        "semantic_class",
+        "trainability_status",
+        "trainability_reason",
+        "memory_route",
+        "source_path",
+        "line_start",
+        "line_end",
+    }
 
 
 def test_write_quality_report_creates_json_and_markdown(tmp_path):
@@ -70,9 +118,22 @@ def test_cli_learn_quality_outputs_json_and_writes_report(tmp_path):
     payload = json.loads(result.output)
     assert payload["review"]["candidates_total"] == 11
     assert payload["dataset"]["freshness"]["fresh"] is True
+    assert payload["routing"]["policy_version"] == "morpheus-memory-routing/1"
+    assert len(payload["routing"]["decisions"]) == 11
     assert payload["benchmark_allowed"] is False
     assert payload["paths"]["json_path"].endswith("quality_report.json")
     assert Path(payload["paths"]["json_path"]).is_file()
+
+
+def test_cli_learn_quality_prints_routing_audit_summary(tmp_path):
+    project_root = copy_learning_project(tmp_path)
+    build_learning_dataset(project_root)
+
+    result = CliRunner().invoke(app, ["learn", "quality", str(project_root)])
+
+    assert result.exit_code == 0, result.output
+    assert "routing_policy=morpheus-memory-routing/1" in result.output
+    assert "audited_decisions=11" in result.output
 
 
 def test_quality_report_blocks_dataset_after_source_changes(tmp_path, monkeypatch):
@@ -143,6 +204,8 @@ def test_quality_markdown_names_changed_dataset_sources(tmp_path):
     result = write_quality_report(project_root)
 
     markdown = Path(result["markdown_path"]).read_text()
+    assert "Policy: `morpheus-memory-routing/1`" in markdown
+    assert "Audited decisions: 11" in markdown
     assert "## Dataset Freshness" in markdown
     assert "Fresh: False" in markdown
     assert "Changed: `README.md`" in markdown

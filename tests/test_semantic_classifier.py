@@ -18,6 +18,7 @@ def candidate(
     source_path: str = "README.md",
     label: str = "source_backed",
     status: str = "pending",
+    semantic_class: str = "unknown",
 ) -> SemanticCandidate:
     return SemanticCandidate(
         id="cand_test",
@@ -34,6 +35,7 @@ def candidate(
         evidence_sha256=hashlib.sha256(claim.encode()).hexdigest(),
         confidence=0.91,
         label=label,
+        semantic_class=semantic_class,
         status=status,
         provider={"name": "test", "model": "fixture"},
         prompt_sha256=PROMPT_SHA,
@@ -104,8 +106,50 @@ def test_route_candidate_keeps_stale_and_open_tasks_out_of_positive_training():
 
     assert stale.trainability_status == "negative_example"
     assert stale.memory_route == "negative_example"
-    assert task.trainability_status == "eval_only"
-    assert task.memory_route == "eval_only"
+    assert task.trainability_status == "retrievable"
+    assert task.memory_route == "prompt_context"
+
+
+def test_route_candidate_assigns_every_public_memory_channel():
+    decisions = {
+        "active_decision": route_candidate(candidate(kind="active_decision", status="accepted")),
+        "open_task": route_candidate(candidate(kind="open_task", status="accepted")),
+        "source_reference": route_candidate(candidate(kind="source_reference", status="accepted")),
+        "temporary": route_candidate(candidate(status="accepted", semantic_class="temporary")),
+        "negative_example": route_candidate(candidate(kind="outdated_claim", status="accepted")),
+        "stale_archive": route_candidate(candidate(kind="outdated_claim", status="pending")),
+        "human_review": route_candidate(candidate(status="pending")),
+        "excluded_rejected": route_candidate(candidate(status="rejected", label="needs_review")),
+        "excluded_inferred": route_candidate(candidate(status="accepted", label="inferred")),
+        "excluded_unsafe": route_candidate(candidate(
+            status="accepted",
+            claim="The API token is secret-value-1234567890.",
+        )),
+        "adapter_training": route_candidate(candidate(status="accepted")),
+    }
+
+    assert decisions["active_decision"].memory_route == "adapter_training"
+    assert decisions["open_task"].memory_route == "prompt_context"
+    assert decisions["source_reference"].memory_route == "retrieval"
+    assert decisions["temporary"].memory_route == "eval_only"
+    assert decisions["negative_example"].memory_route == "negative_example"
+    assert decisions["stale_archive"].memory_route == "stale_archive"
+    assert decisions["human_review"].memory_route == "human_review"
+    assert decisions["excluded_rejected"].memory_route == "excluded"
+    assert decisions["excluded_inferred"].memory_route == "excluded"
+    assert decisions["excluded_unsafe"].memory_route == "excluded"
+    assert decisions["adapter_training"].memory_route == "adapter_training"
+
+
+def test_route_candidate_uses_freshly_classified_temporary_class():
+    routed = route_candidate(candidate(
+        status="accepted",
+        claim="This temporary migration fact expires after rollout.",
+    ))
+
+    assert routed.semantic_class == "temporary"
+    assert routed.trainability_status == "eval_only"
+    assert routed.memory_route == "eval_only"
 
 
 def test_semantic_report_counts_trainability_and_memory_routes():

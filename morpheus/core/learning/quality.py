@@ -8,7 +8,8 @@ from morpheus.core.learning.registry import dataset_manifest, latest_dataset_dir
 from morpheus.core.learning.safety import load_morpheusignore, path_is_ignored
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
 from morpheus.core.semantic.review import ReviewStore
-from morpheus.core.semantic.routing import route_candidate
+from morpheus.core.semantic.routing import ROUTING_POLICY_VERSION, route_candidate
+from morpheus.core.semantic.verifier import verify_candidate_span
 
 
 TRAIN_MIN_ACCEPTED = 20
@@ -38,7 +39,11 @@ def build_quality_report(project_root: Path) -> dict:
     project_root = project_root.expanduser().resolve()
     candidates = ReviewStore(project_root).load_candidates()
     ignore_patterns = load_morpheusignore(project_root)
-    routed = [_quality_candidate(project_root, candidate, ignore_patterns) for candidate in candidates]
+    routed = sorted(
+        (_quality_candidate(project_root, candidate, ignore_patterns) for candidate in candidates),
+        key=lambda item: item["id"],
+    )
+    route_counts = _counts(item["memory_route"] for item in routed)
     latest = latest_dataset_dir(project_root)
     latest_manifest = dataset_manifest(latest) if latest is not None else None
     freshness = _dataset_freshness(project_root, latest_manifest)
@@ -73,7 +78,7 @@ def build_quality_report(project_root: Path) -> dict:
             "source_path_count": len({item["source_path"] for item in routed}),
             "by_class": _counts(item["semantic_class"] for item in routed),
             "by_trainability": _counts(item["trainability_status"] for item in routed),
-            "by_route": _counts(item["memory_route"] for item in routed),
+            "by_route": route_counts,
             "top_blockers": _counts(
                 item["trainability_reason"]
                 for item in routed
@@ -85,6 +90,14 @@ def build_quality_report(project_root: Path) -> dict:
             "latest_dataset_dir": str(latest) if latest is not None else None,
             "latest_manifest": latest_manifest,
             "freshness": freshness,
+        },
+        "routing": {
+            "policy_version": ROUTING_POLICY_VERSION,
+            "decisions": routed,
+            "by_route": route_counts,
+            "prompt_context": [
+                item for item in routed if item["memory_route"] == "prompt_context"
+            ],
         },
         "train_allowed": not train_blockers,
         "train_blockers": train_blockers,
@@ -134,6 +147,8 @@ def render_quality_report(report: dict) -> str:
     for key, value in review["by_trainability"].items():
         lines.append(f"- `{key}`: {value}")
     lines.extend(["", "## Memory Routes", ""])
+    lines.append(f"- Policy: `{report['routing']['policy_version']}`")
+    lines.append(f"- Audited decisions: {len(report['routing']['decisions'])}")
     for key, value in review["by_route"].items():
         lines.append(f"- `{key}`: {value}")
     lines.extend(["", "## Top Blockers", ""])
@@ -266,6 +281,7 @@ def _quality_candidate(project_root: Path, candidate, ignore_patterns: set[str])
     reason = routed.trainability_reason
     status = routed.trainability_status
     route = routed.memory_route
+    label = routed.label
     rel_path = Path(routed.source_path)
     if rel_path.is_absolute() or ".." in rel_path.parts:
         status = "excluded"
@@ -275,20 +291,53 @@ def _quality_candidate(project_root: Path, candidate, ignore_patterns: set[str])
         status = "excluded"
         route = "excluded"
         reason = "ignored_path"
-    elif not (project_root / rel_path).is_file():
-        status = "excluded"
-        route = "excluded"
-        reason = "missing_source_path"
+    elif route != "excluded":
+        source_path = project_root / rel_path
+        try:
+            if source_path.is_symlink():
+                raise ValueError("source path is a symlink")
+            reject_symlink_components(source_path, "Routing source path")
+        except ValueError:
+            status = "excluded"
+            route = "excluded"
+            reason = "unsafe_source_path"
+        else:
+            if not source_path.is_file():
+                status = "excluded"
+                route = "excluded"
+                reason = "missing_source_path"
+            else:
+                try:
+                    actual_sha = hashlib.sha256(source_path.read_bytes()).hexdigest()
+                except OSError:
+                    status = "needs_review"
+                    route = "human_review"
+                    reason = "unreadable_source_path"
+                    label = "needs_review"
+                else:
+                    if actual_sha != routed.source_sha256:
+                        status = "needs_review"
+                        route = "human_review"
+                        reason = "source_sha256_mismatch"
+                        label = "needs_review"
+                    elif verify_candidate_span(project_root, routed).label != "source_backed":
+                        status = "needs_review"
+                        route = "human_review"
+                        reason = "invalid_source_span"
+                        label = "needs_review"
     return {
         "id": routed.id,
+        "claim": routed.claim,
         "status": routed.status,
-        "label": routed.label,
+        "label": label,
         "kind": routed.kind,
         "semantic_class": routed.semantic_class,
         "trainability_status": status,
         "trainability_reason": reason,
         "memory_route": route,
         "source_path": routed.source_path,
+        "line_start": routed.line_start,
+        "line_end": routed.line_end,
     }
 
 

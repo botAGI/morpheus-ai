@@ -17,6 +17,7 @@ from morpheus.core.safe_io import reject_symlink_components, reject_symlink_path
 from morpheus.core.semantic.classifier import classify_claim
 from morpheus.core.semantic.models import SemanticCandidate
 from morpheus.core.semantic.review import ReviewStore
+from morpheus.core.semantic.routing import ROUTING_POLICY_VERSION, route_check_result
 
 
 CLAIM_SPLIT_RE = re.compile(r"(?:\n+|(?<=[.!?])\s+)")
@@ -73,7 +74,7 @@ def check_text(
     project_root = discover_project_root(project_root)
     context = _load_check_context(project_root)
     claims = _extract_claims(text)
-    results = [_classify_claim(claim, context) for claim in claims]
+    results = [_route_check_claim(_classify_claim(claim, context)) for claim in claims]
     freshness, warning = _state_freshness(project_root)
     receipt_id = context["state"].get("receipt_id") or context["latest_receipt_id"]
     payload = {
@@ -89,10 +90,24 @@ def check_text(
         "claims_stale": sum(1 for item in results if item["status"] == "stale"),
         "claims_not_found": sum(1 for item in results if item["status"] == "unknown"),
         "by_class": dict(sorted(Counter(item["semantic_class"] for item in results).items())),
+        "by_route": dict(sorted(Counter(item["memory_route"] for item in results).items())),
+        "routing_policy_version": ROUTING_POLICY_VERSION,
         "fail_on_unknown": fail_on_unknown,
         "results": results,
     }
     return payload
+
+
+def _route_check_claim(result: dict) -> dict:
+    route, reason = route_check_result(
+        str(result.get("status") or "unknown"),
+        str(result.get("semantic_class") or "unknown"),
+    )
+    return {
+        **result,
+        "memory_route": route,
+        "routing_reason": reason,
+    }
 
 
 def render_check_summary(result: dict) -> str:

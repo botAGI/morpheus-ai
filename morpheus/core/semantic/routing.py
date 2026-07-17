@@ -9,8 +9,8 @@ STABLE_TRAINING_KINDS = {
     "current_state",
     "active_decision",
     "agent_rule",
-    "source_reference",
 }
+ROUTING_POLICY_VERSION = "morpheus-memory-routing/1"
 SECRET_PATTERN = re.compile(
     r"(?i)\b(api[_ -]?key|secret|token|cookie|password|credential)\b"
 )
@@ -20,9 +20,9 @@ def route_candidate(candidate: SemanticCandidate) -> SemanticCandidate:
     semantic_class = candidate.semantic_class
     if semantic_class == "unknown":
         semantic_class = classify_candidate(candidate)
-    status, route, reason = _route(candidate)
-    return candidate.model_copy(update={
-        "semantic_class": semantic_class,
+    classified = candidate.model_copy(update={"semantic_class": semantic_class})
+    status, route, reason = _route(classified)
+    return classified.model_copy(update={
         "trainability_status": status,
         "trainability_reason": reason,
         "memory_route": route,
@@ -31,6 +31,17 @@ def route_candidate(candidate: SemanticCandidate) -> SemanticCandidate:
 
 def route_candidates(candidates: list[SemanticCandidate]) -> list[SemanticCandidate]:
     return [route_candidate(candidate) for candidate in candidates]
+
+
+def route_check_result(status: str, semantic_class: str) -> tuple[MemoryRoute, str]:
+    """Route an unreviewed check result without promoting it to training."""
+    if status == "verified":
+        if semantic_class in {"security", "convention", "open_task", "temporary"}:
+            return "prompt_context", "verified_immediate_agent_context"
+        return "retrieval", "verified_project_knowledge"
+    if status == "stale":
+        return "stale_archive", "checked_claim_is_stale"
+    return "human_review", f"checked_claim_{status}_requires_review"
 
 
 def _route(candidate: SemanticCandidate) -> tuple[TrainabilityStatus, MemoryRoute, str]:
@@ -49,7 +60,11 @@ def _route(candidate: SemanticCandidate) -> tuple[TrainabilityStatus, MemoryRout
     if candidate.status != "accepted":
         return "needs_review", "human_review", f"status_{candidate.status}"
     if candidate.kind == "open_task":
-        return "eval_only", "eval_only", "open_task_not_stable_training_fact"
+        return "retrievable", "prompt_context", f"{candidate.kind}_current_context"
+    if candidate.kind == "source_reference":
+        return "retrievable", "retrieval", "source_reference_lookup"
+    if candidate.semantic_class == "temporary":
+        return "eval_only", "eval_only", "temporary_fact_not_stable_training_fact"
     if candidate.kind in STABLE_TRAINING_KINDS:
         return "trainable", "adapter_training", "accepted_source_backed_stable_claim"
     return "retrievable", "retrieval", f"kind_{candidate.kind}"

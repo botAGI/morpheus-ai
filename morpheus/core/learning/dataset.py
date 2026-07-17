@@ -112,7 +112,8 @@ def build_learning_dataset(
     eval_items: list[dict] = []
     heldout_items: list[dict] = []
     for item in eligible:
-        instruction_examples.extend(instruction_examples_for_candidate(item.candidate))
+        if item.candidate.memory_route in {"adapter_training", "negative_example"}:
+            instruction_examples.extend(instruction_examples_for_candidate(item.candidate))
         eval_items.extend(eval_items_for_candidate(item.candidate))
         heldout_items.extend(heldout_eval_items_for_candidate(item.candidate))
     if eligible and include_refusals:
@@ -258,9 +259,10 @@ def _eligible_candidate(
     if contains_secret_like_text(candidate.claim) or contains_secret_like_text(candidate.evidence_excerpt):
         return None, "secret_like", current_sha
 
+    verified = route_candidate(verified)
     return Eligibility(
         candidate=verified,
-        trainable_positive=verified.kind in POSITIVE_KINDS,
+        trainable_positive=verified.memory_route == "adapter_training",
     ), "", current_sha
 
 
