@@ -4,7 +4,11 @@ import hashlib
 import json
 from pathlib import Path
 
-from morpheus.core.learning.registry import dataset_manifest, latest_dataset_dir
+from morpheus.core.learning.dataset_validation import (
+    manifest_count,
+    validation_blocker_messages,
+)
+from morpheus.core.learning.registry import dataset_manifest, latest_effective_dataset
 from morpheus.core.learning.safety import (
     contains_secret_like_text,
     load_morpheusignore,
@@ -49,24 +53,60 @@ def build_quality_report(project_root: Path) -> dict:
         key=lambda item: item["id"],
     )
     route_counts = _counts(item["memory_route"] for item in routed)
-    latest = latest_dataset_dir(project_root)
-    latest_manifest = dataset_manifest(latest) if latest is not None else None
-    freshness = _dataset_freshness(project_root, latest_manifest)
-    accepted_trainable = sum(
+    effective_dataset = latest_effective_dataset(project_root)
+    latest = (
+        Path(str(effective_dataset["dataset_dir"]))
+        if effective_dataset is not None
+        else None
+    )
+    try:
+        raw_latest_manifest = dataset_manifest(latest) if latest is not None else None
+    except (OSError, ValueError, json.JSONDecodeError):
+        raw_latest_manifest = None
+    validation = (
+        effective_dataset["validation"]
+        if latest is not None
+        else {
+            "available": False,
+            "valid": False,
+            "blockers": [],
+            "source_freshness": {
+                "available": False,
+                "fresh": False,
+                "checked_paths": 0,
+                "changed_paths": [],
+                "missing_paths": [],
+                "missing_hash_paths": [],
+                "invalid_paths": [],
+            },
+        }
+    )
+    freshness = validation["source_freshness"]
+    latest_manifest = raw_latest_manifest if validation["valid"] else None
+    root_accepted_trainable = sum(
         1 for item in routed if item["trainability_status"] == "trainable"
     )
-    examples_count = int((latest_manifest or {}).get("examples_count") or 0)
+    dataset_trainable = (
+        manifest_count(raw_latest_manifest, "trainable_candidate_count")
+        if latest is not None
+        else root_accepted_trainable
+    )
+    examples_count = manifest_count(raw_latest_manifest, "examples_count")
     eval_category_counts = _eval_category_counts(latest / "eval.seed.jsonl") if latest is not None else {}
-    benchmark_gate = _benchmark_gate(latest_manifest, eval_category_counts, freshness)
+    benchmark_gate = _benchmark_gate(
+        raw_latest_manifest,
+        eval_category_counts,
+        validation,
+    )
     train_blockers = []
-    if accepted_trainable < TRAIN_MIN_ACCEPTED:
+    if dataset_trainable < TRAIN_MIN_ACCEPTED:
         train_blockers.append("accepted candidates < 20")
     if examples_count < TRAIN_MIN_EXAMPLES:
         train_blockers.append("examples < 100")
-    if latest_manifest is not None and not freshness["fresh"]:
-        train_blockers.append("dataset sources changed")
+    if effective_dataset is not None and not validation["valid"]:
+        train_blockers.extend(validation_blocker_messages(validation))
     next_actions = []
-    if accepted_trainable < TRAIN_MIN_ACCEPTED:
+    if dataset_trainable < TRAIN_MIN_ACCEPTED:
         next_actions.extend([
             "morpheus review propose --max 30",
             "morpheus review accept-proposed --max 30",
@@ -95,6 +135,9 @@ def build_quality_report(project_root: Path) -> dict:
             "latest_dataset_dir": str(latest) if latest is not None else None,
             "latest_manifest": latest_manifest,
             "freshness": freshness,
+            "validation": validation,
+            "effective_dataset": effective_dataset,
+            "trainable_candidate_count": dataset_trainable,
         },
         "routing": {
             "policy_version": ROUTING_POLICY_VERSION,
@@ -164,9 +207,9 @@ def render_quality_report(report: dict) -> str:
         "## Latest Dataset",
         "",
         f"- Dataset id: {manifest.get('dataset_id') or 'none'}",
-        f"- Examples: {manifest.get('examples_count') or 0}",
-        f"- Eval items: {manifest.get('eval_items_count') or 0}",
-        f"- Skipped: {manifest.get('skipped_count') or 0}",
+        f"- Examples: {manifest_count(manifest, 'examples_count')}",
+        f"- Eval items: {manifest_count(manifest, 'eval_items_count')}",
+        f"- Skipped: {manifest_count(manifest, 'skipped_count')}",
         "",
         "## Dataset Freshness",
         "",
@@ -205,80 +248,6 @@ def render_quality_report(report: dict) -> str:
         for action in report["next_actions"]:
             lines.append(f"- `{action}`")
     return "\n".join(lines).rstrip() + "\n"
-
-
-def _dataset_freshness(project_root: Path, manifest: dict | None) -> dict:
-    result = {
-        "available": manifest is not None,
-        "fresh": manifest is not None,
-        "checked_paths": 0,
-        "changed_paths": [],
-        "missing_paths": [],
-        "missing_hash_paths": [],
-        "invalid_paths": [],
-    }
-    if manifest is None:
-        return result
-
-    source_paths = manifest.get("source_paths")
-    if not isinstance(source_paths, list):
-        result["invalid_paths"].append("source_paths")
-        result["fresh"] = False
-        return result
-    source_hashes = manifest.get("source_hashes")
-    if not isinstance(source_hashes, dict):
-        source_hashes = {}
-
-    for raw_path in source_paths:
-        if not isinstance(raw_path, str) or not raw_path.strip():
-            result["invalid_paths"].append(_invalid_path_label(raw_path))
-            continue
-        rel_path = Path(raw_path)
-        if not rel_path.parts or rel_path.is_absolute() or ".." in rel_path.parts:
-            result["invalid_paths"].append(raw_path)
-            continue
-
-        source_path = project_root / rel_path
-        try:
-            if source_path.is_symlink():
-                raise ValueError("dataset source is a symlink")
-            reject_symlink_components(source_path, "Dataset source")
-        except ValueError:
-            result["invalid_paths"].append(raw_path)
-            continue
-        if not source_path.is_file():
-            result["missing_paths"].append(raw_path)
-            continue
-
-        expected_sha = source_hashes.get(raw_path)
-        if not _valid_sha256(expected_sha):
-            result["missing_hash_paths"].append(raw_path)
-            continue
-
-        actual_sha = hashlib.sha256(source_path.read_bytes()).hexdigest()
-        result["checked_paths"] += 1
-        if actual_sha != expected_sha:
-            result["changed_paths"].append(raw_path)
-
-    for key in ("changed_paths", "missing_paths", "missing_hash_paths", "invalid_paths"):
-        result[key] = sorted(set(result[key]))
-    result["fresh"] = not any(
-        result[key]
-        for key in ("changed_paths", "missing_paths", "missing_hash_paths", "invalid_paths")
-    )
-    return result
-
-
-def _invalid_path_label(value: object) -> str:
-    if value == "":
-        return "<empty>"
-    return json.dumps(value, sort_keys=True, default=str)
-
-
-def _valid_sha256(value: object) -> bool:
-    if not isinstance(value, str) or len(value) != 64:
-        return False
-    return all(character in "0123456789abcdefABCDEF" for character in value)
 
 
 def _quality_candidate(project_root: Path, candidate, ignore_patterns: set[str]) -> dict:
@@ -363,15 +332,18 @@ def _counts(values) -> dict:
 def _benchmark_gate(
     manifest: dict | None,
     eval_category_counts: dict[str, int],
-    freshness: dict,
+    validation: dict,
 ) -> dict:
-    manifest = manifest or {}
-    class_counts = manifest.get("class_counts") or {}
-    route_counts = manifest.get("route_counts") or {}
-    source_paths = manifest.get("source_paths") or []
-    trainable_count = int(manifest.get("trainable_candidate_count") or 0)
-    examples_count = int(manifest.get("examples_count") or 0)
-    eval_items_count = int(manifest.get("eval_items_count") or 0)
+    manifest = manifest if isinstance(manifest, dict) else {}
+    raw_class_counts = manifest.get("class_counts")
+    class_counts = raw_class_counts if isinstance(raw_class_counts, dict) else {}
+    raw_route_counts = manifest.get("route_counts")
+    route_counts = raw_route_counts if isinstance(raw_route_counts, dict) else {}
+    raw_source_paths = manifest.get("source_paths")
+    source_paths = raw_source_paths if isinstance(raw_source_paths, list) else []
+    trainable_count = manifest_count(manifest, "trainable_candidate_count")
+    examples_count = manifest_count(manifest, "examples_count")
+    eval_items_count = manifest_count(manifest, "eval_items_count")
     blockers = []
     if trainable_count < BENCHMARK_MIN_TRAINABLE:
         blockers.append("trainable_candidate_count < 20")
@@ -381,19 +353,22 @@ def _benchmark_gate(
         blockers.append("eval_items < 30")
     if len(source_paths) < BENCHMARK_MIN_SOURCE_PATHS:
         blockers.append("source_paths < 3")
-    if manifest is not None and not freshness["fresh"]:
-        blockers.append("dataset sources changed")
+    if not validation["valid"] and validation.get("blockers"):
+        blockers.extend(validation_blocker_messages(validation))
 
     class_requirements = {}
     for class_name, minimum in BENCHMARK_CLASS_MINIMUMS.items():
-        count = int(class_counts.get(class_name) or 0)
+        count = manifest_count(class_counts, class_name)
         class_requirements[class_name] = {"count": count, "minimum": minimum}
         if count < minimum:
             blockers.append(f"class {class_name} < {minimum}")
 
     class_group_requirements = {}
     for group_name, config in BENCHMARK_CLASS_GROUPS.items():
-        count = sum(int(class_counts.get(class_name) or 0) for class_name in config["classes"])
+        count = sum(
+            manifest_count(class_counts, class_name)
+            for class_name in config["classes"]
+        )
         minimum = int(config["minimum"])
         class_group_requirements[group_name] = {
             "classes": list(config["classes"]),
@@ -405,7 +380,7 @@ def _benchmark_gate(
 
     eval_requirements = {}
     for category, minimum in BENCHMARK_EVAL_CATEGORY_MINIMUMS.items():
-        count = int(eval_category_counts.get(category) or 0)
+        count = manifest_count(eval_category_counts, category)
         eval_requirements[category] = {"count": count, "minimum": minimum}
         if count < minimum:
             blockers.append(f"eval_category {category} < {minimum}")
@@ -420,7 +395,7 @@ def _benchmark_gate(
             "eval_categories": eval_requirements,
             "route_counts": {
                 "adapter_training": {
-                    "count": int(route_counts.get("adapter_training") or 0),
+                    "count": manifest_count(route_counts, "adapter_training"),
                     "minimum": BENCHMARK_MIN_TRAINABLE,
                 },
             },
@@ -433,16 +408,22 @@ def _benchmark_gate(
 
 
 def _eval_category_counts(eval_path: Path) -> dict[str, int]:
-    if eval_path.is_symlink() or not eval_path.is_file():
+    try:
+        if eval_path.is_symlink() or not eval_path.is_file():
+            return {}
+        reject_symlink_components(eval_path, "Learning eval seed")
+        lines = eval_path.read_text().splitlines()
+    except (OSError, ValueError):
         return {}
-    reject_symlink_components(eval_path, "Learning eval seed")
     counts = Counter()
-    for line in eval_path.read_text().splitlines():
+    for line in lines:
         if not line.strip():
             continue
         try:
             item = json.loads(line)
         except json.JSONDecodeError:
+            continue
+        if not isinstance(item, dict):
             continue
         category = item.get("category")
         if isinstance(category, str) and category:

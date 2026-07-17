@@ -317,9 +317,41 @@ The team loop never builds a dataset, trains, evaluates, or activates an adapter
 The API returns `422` for malformed JSON or an invalid outer request shape and
 `400` for a parsed feedback event rejected by the local ingestion policy.
 
+Dataset manifests use a versioned provenance binding over the complete canonical
+review snapshot, current routing policy, source/context hashes, and every
+authority-derived train/eval artifact. Dataset and eval registries publish only
+complete entries via hidden private staging plus atomic rename. Training, eval,
+benchmark, and activation must
+revalidate that binding. A post-build review transition or artifact mutation
+invalidates the dataset; a legacy unbound manifest remains inspectable but is
+not executable. Lab review snapshots and active-state receipts are explicit
+source authorities rather than implicit compatibility exceptions. Active-state
+datasets require the signed receipt-chain tail, and adapter eval/activation must
+match the exact dataset binding stored in the adapter manifest.
+`morpheus learn train` is a preview-only planner and must reject direct
+execution. The local MLX lab must use a sealed artifact snapshot; its execution
+guard must pin validated artifact bytes and the output parent in file-descriptor
+authority, hold state and review authority for the complete backend run, and
+revalidate before and after execution. The authenticated MLX loader must decode
+the exact inherited split descriptors and their hashes rather than reopen the
+mutable dataset view, original snapshot, or output path. Active state compilation,
+semantic apply, capture, activation, and rollback share one cross-process
+state-authority lock.
+Activation and rollback must also include base and adapter eval artifacts plus
+current dataset authority in their receipt identity and use a durable recovery
+journal with the atomically written active pointer as the final commit point.
+Preview adapter manifests remain `training_status=planned` with no weight
+artifact. Activation and rollback targets must instead declare one registered,
+trained, non-empty regular `.safetensors` artifact whose exact path, size, and
+SHA-256 are revalidated and bound into the activation authority and receipt.
+
 Activation requires eval. Production use requires rollback.
 Deterministic fake/dry-run eval artifacts are diagnostic only and cannot satisfy
-the activation gate. A force flag must never bypass a failed eval gate.
+the activation gate. An activation-capable base or adapter eval additionally
+requires a local Ed25519 receipt binding evaluator/provider identity, the exact
+dataset and eval-seed item identities, and the complete config/results hashes;
+editing diagnostic JSON cannot create that provenance. A force flag must never
+bypass a failed eval gate.
 
 ## 10. Integrations
 

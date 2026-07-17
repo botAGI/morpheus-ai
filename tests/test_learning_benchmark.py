@@ -1,15 +1,22 @@
 import json
-import hashlib
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from morpheus.cli import app
 from morpheus.core.learning.benchmark import write_benchmark_report
 from morpheus.core.learning.dataset import build_learning_dataset
 from morpheus.core.learning.eval import run_learning_eval
+from morpheus.core.learning.lab import run_autonomous_lab
 from morpheus.core.learning.train import plan_training_run
+from morpheus.core.semantic.review import ReviewStore
 from tests.test_learning_dataset import copy_learning_project
+from tests.test_learning_eval import (
+    mark_eval_activation_eligible,
+    register_test_adapter_weights,
+)
+from tests.test_learning_lab import copy_autonomous_repo
 
 
 def test_benchmark_report_blocks_unbalanced_fixture_dataset(tmp_path):
@@ -26,54 +33,16 @@ def test_benchmark_report_blocks_unbalanced_fixture_dataset(tmp_path):
 
 
 def create_balanced_benchmark_project(tmp_path):
-    project_root = tmp_path / "balanced"
-    dataset_dir = project_root / ".morpheus/training/datasets/20260522T000000Z"
-    dataset_dir.mkdir(parents=True)
-    source_paths = ["README.md", "SPEC.md", "AGENTS.md"]
-    source_hashes = {}
-    for source_path in source_paths:
-        source_text = f"Source-backed benchmark fixture: {source_path}\n"
-        (project_root / source_path).write_text(source_text)
-        source_hashes[source_path] = hashlib.sha256(source_text.encode()).hexdigest()
-    manifest = {
-        "dataset_id": "20260522T000000Z",
-        "created_at": "2026-05-22T00:00:00+00:00",
-        "examples_count": 120,
-        "eval_items_count": 35,
-        "skipped_count": 0,
-        "trainable_candidate_count": 22,
-        "dataset_sha256": "a" * 64,
-        "class_counts": {
-            "architecture": 2,
-            "command": 4,
-            "convention": 2,
-            "product": 3,
-        },
-        "route_counts": {"adapter_training": 22},
-        "source_paths": source_paths,
-        "source_hashes": source_hashes,
-    }
-    (dataset_dir / "manifest.json").write_text(json.dumps(manifest))
-    (dataset_dir / "eval.seed.jsonl").write_text(
-        "\n".join([
-            json.dumps({
-                "category": "unsupported_claim_refusal",
-                "question": "Can an unsupported claim be confirmed?",
-                "expected_answer": "No",
-            }),
-            json.dumps({
-                "category": "outdated_claim_correction",
-                "question": "Is this stale claim current?",
-                "expected_answer": "No. This claim is outdated.",
-            }),
-            json.dumps({
-                "category": "agent_rule_adherence",
-                "question": "What rule applies?",
-                "expected_answer": "Follow AGENTS.md.",
-            }),
-        ])
-        + "\n"
+    project_root = copy_autonomous_repo(tmp_path)
+    lab = run_autonomous_lab(
+        project_root,
+        backend="fake",
+        no_train=True,
+        fixture_only=True,
     )
+    lab_store = ReviewStore(Path(lab["lab_dir"]) / "workspace")
+    ReviewStore(project_root).save_candidates(lab_store.load_candidates())
+    build_learning_dataset(project_root)
     return project_root
 
 
@@ -84,14 +53,14 @@ def test_benchmark_report_allows_balanced_manifest(tmp_path):
 
     assert result["benchmark_allowed"] is True
     assert result["benchmark_blockers"] == []
-    assert result["latest_base_eval"]["dataset_id"] == "20260522T000000Z"
+    assert result["latest_base_eval"]["dataset_id"] == result["dataset_id"]
     assert result["next_command"] == "morpheus learn lab . --backend mlx --max-iters 50"
 
 
 def test_benchmark_report_creates_matching_base_eval_for_adapter_comparison(tmp_path):
     project_root = create_balanced_benchmark_project(tmp_path)
     adapter_id = "adapter_balanced"
-    (project_root / ".morpheus/training/adapters" / adapter_id).mkdir(parents=True)
+    _write_adapter_manifest(project_root, adapter_id)
     run_learning_eval(project_root, adapter_id=adapter_id, dry_run=True)
 
     result = write_benchmark_report(project_root, dry_run=True)
@@ -108,7 +77,7 @@ def test_benchmark_report_creates_matching_base_eval_for_adapter_comparison(tmp_
 def test_benchmark_report_uses_the_same_paired_eval_as_activation_gate(tmp_path):
     project_root = create_balanced_benchmark_project(tmp_path)
     adapter_id = "adapter_paired"
-    (project_root / ".morpheus/training/adapters" / adapter_id).mkdir(parents=True)
+    _write_adapter_manifest(project_root, adapter_id)
     base_eval = run_learning_eval(project_root, base_only=True, dry_run=True)
     adapter_eval = run_learning_eval(
         project_root,
@@ -135,7 +104,7 @@ def test_benchmark_report_uses_the_same_paired_eval_as_activation_gate(tmp_path)
 def test_benchmark_report_keeps_legacy_paired_category_deltas(tmp_path):
     project_root = create_balanced_benchmark_project(tmp_path)
     adapter_id = "adapter_legacy_diagnostic"
-    (project_root / ".morpheus/training/adapters" / adapter_id).mkdir(parents=True)
+    _write_adapter_manifest(project_root, adapter_id)
     base_eval = run_learning_eval(project_root, base_only=True, dry_run=True)
     adapter_eval = run_learning_eval(
         project_root,
@@ -159,7 +128,7 @@ def test_benchmark_report_keeps_legacy_paired_category_deltas(tmp_path):
 def test_benchmark_report_ignores_newer_evals_from_another_dataset(tmp_path):
     project_root = create_balanced_benchmark_project(tmp_path)
     adapter_id = "adapter_balanced"
-    (project_root / ".morpheus/training/adapters" / adapter_id).mkdir(parents=True)
+    _write_adapter_manifest(project_root, adapter_id)
     run_learning_eval(project_root, base_only=True, dry_run=True)
     run_learning_eval(project_root, adapter_id=adapter_id, dry_run=True)
     _write_eval_result(
@@ -179,11 +148,50 @@ def test_benchmark_report_ignores_newer_evals_from_another_dataset(tmp_path):
 
     result = write_benchmark_report(project_root, dry_run=True)
 
-    assert result["latest_base_eval"]["dataset_id"] == "20260522T000000Z"
-    assert result["latest_adapter_eval"]["dataset_id"] == "20260522T000000Z"
+    assert result["latest_base_eval"]["dataset_id"] == result["dataset_id"]
+    assert result["latest_adapter_eval"]["dataset_id"] == result["dataset_id"]
 
 
-def test_benchmark_base_eval_uses_report_dataset_instead_of_newer_lab_dataset(tmp_path):
+@pytest.mark.parametrize("invalid_role", ["adapter", "base"])
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing_config",
+        "missing_results",
+        "corrupt_config",
+        "corrupt_results",
+        "mismatched_results",
+    ],
+)
+def test_benchmark_does_not_report_older_eval_past_newer_invalid_entry(
+    tmp_path,
+    invalid_role,
+    mutation,
+):
+    project_root = create_balanced_benchmark_project(tmp_path)
+    adapter_id = "adapter_invalid_latest"
+    _write_adapter_manifest(project_root, adapter_id)
+    run_learning_eval(project_root, base_only=True, dry_run=True)
+    run_learning_eval(project_root, adapter_id=adapter_id, dry_run=True)
+    newest = run_learning_eval(
+        project_root,
+        base_only=invalid_role == "base",
+        adapter_id=adapter_id if invalid_role == "adapter" else None,
+        dry_run=True,
+    )
+    newest_dir = Path(newest["eval_dir"])
+    _invalidate_eval(newest_dir, mutation)
+
+    result = write_benchmark_report(project_root, dry_run=True)
+
+    latest = result[f"latest_{invalid_role}_eval"]
+    assert latest["eval_id"] == newest["eval_id"]
+    assert latest["valid"] is False
+    assert result["activation_ready"] is False
+    assert result["activation_gate"]["reason"] != "passed"
+
+
+def test_benchmark_blocks_newer_invalid_lab_instead_of_falling_back(tmp_path):
     project_root = create_balanced_benchmark_project(tmp_path)
     lab_dataset_dir = project_root / ".morpheus/lab/lab_zzzz/dataset"
     lab_dataset_dir.mkdir(parents=True)
@@ -202,7 +210,10 @@ def test_benchmark_base_eval_uses_report_dataset_instead_of_newer_lab_dataset(tm
 
     result = write_benchmark_report(project_root, dry_run=True)
 
-    assert result["latest_base_eval"]["dataset_id"] == "20260522T000000Z"
+    assert result["benchmark_allowed"] is False
+    assert result["latest_base_eval"] is None
+    assert "dataset provenance invalid" in result["benchmark_blockers"]
+    assert result["quality_report"]["dataset"]["effective_dataset"]["source"] == "lab"
 
 
 def test_benchmark_report_includes_category_level_base_adapter_deltas(tmp_path):
@@ -257,42 +268,79 @@ def _write_eval_result(
 ) -> None:
     eval_dir = project_root / ".morpheus/training/evals" / eval_id
     eval_dir.mkdir(parents=True)
-    result = {
+    dataset_binding_sha256 = "b" * 64
+    config = {
         "eval_id": eval_id,
         "dataset_id": dataset_id,
+        "dataset_binding_sha256": dataset_binding_sha256,
         "adapter_id": adapter_id,
         "base_only": base_only,
+        "activation_eligible": False,
+        "dry_run": True,
+        "evaluation_mode": "diagnostic_fake",
+        "provider": {"name": "fake-unrelated"},
+    }
+    result = {
+        **config,
         "metrics": {
             "pass_rate": 1.0,
             "hallucination_rate": 0.0,
             "critical_outdated_claim_failures": 0,
+            "total_items": 1,
+            "passed_items": 1,
+            "hallucinated_items": 0,
             "by_category": {
                 "agent_rule_adherence": {
                     "total_items": 1,
                     "passed_items": 1,
                     "pass_rate": 1.0,
+                    "hallucinated_items": 0,
+                    "hallucination_rate": 0.0,
                     "critical_failures": 0,
                 }
             },
         },
+        "items": [{"category": "agent_rule_adherence"}],
     }
+    (eval_dir / "eval_config.json").write_text(json.dumps(config))
     (eval_dir / "eval_results.json").write_text(json.dumps(result))
 
 
+def _write_adapter_manifest(project_root: Path, adapter_id: str) -> None:
+    manifest_paths = list(
+        project_root.glob(".morpheus/training/datasets/*/manifest.json")
+    )
+    assert len(manifest_paths) == 1
+    dataset_manifest = json.loads(manifest_paths[0].read_text())
+    adapter_dir = project_root / ".morpheus/training/adapters" / adapter_id
+    adapter_dir.mkdir(parents=True)
+    (adapter_dir / "adapter_manifest.json").write_text(json.dumps({
+        "adapter_id": adapter_id,
+        "dataset_id": dataset_manifest["dataset_id"],
+        "dataset_binding_sha256": dataset_manifest["dataset_binding_sha256"],
+        "status": "planned",
+    }))
+    register_test_adapter_weights(project_root, adapter_id)
+
+
 def _mark_eval_activation_eligible(eval_dir: Path) -> None:
+    mark_eval_activation_eligible(eval_dir)
+
+
+def _invalidate_eval(eval_dir: Path, mutation: str) -> None:
     config_path = eval_dir / "eval_config.json"
-    config = json.loads(config_path.read_text())
-    config.update({
-        "activation_eligible": True,
-        "dry_run": False,
-        "evaluation_mode": "heldout_external",
-        "provider": {"name": "external-heldout"},
-    })
-    config_path.write_text(json.dumps(config))
     results_path = eval_dir / "eval_results.json"
-    results = json.loads(results_path.read_text())
-    results.update({
-        "activation_eligible": True,
-        "evaluation_mode": "heldout_external",
-    })
-    results_path.write_text(json.dumps(results))
+    if mutation == "missing_config":
+        config_path.unlink()
+    elif mutation == "missing_results":
+        results_path.unlink()
+    elif mutation == "corrupt_config":
+        config_path.write_text("{not-json")
+    elif mutation == "corrupt_results":
+        results_path.write_text("{not-json")
+    elif mutation == "mismatched_results":
+        results = json.loads(results_path.read_text())
+        results["dataset_id"] = "mismatched-dataset"
+        results_path.write_text(json.dumps(results))
+    else:  # pragma: no cover - test helper guard.
+        raise AssertionError(f"Unknown eval mutation: {mutation}")

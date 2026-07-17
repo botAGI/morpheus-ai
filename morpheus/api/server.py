@@ -2,6 +2,7 @@
 Morpheus API Server
 """
 from difflib import SequenceMatcher
+from functools import wraps
 import json
 import os
 import re
@@ -74,6 +75,7 @@ from morpheus.core.provenance import (
     receipt_file_name,
 )
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
+from morpheus.core.state_authority import state_authority_transaction
 from morpheus.integrations.manifest import integration_manifest
 
 WILDCARD_HOSTS = {"0.0.0.0", "::", ""}
@@ -177,6 +179,29 @@ def latest_receipt_or_http_error(receipts_dir: Path) -> Path | None:
         return latest_receipt_file(receipts_dir)
     except (json.JSONDecodeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=f"Receipt chain invalid: {exc}") from exc
+
+
+def _state_authority_compile_endpoint(function):
+    """Keep the API compile writer inside the shared state transaction."""
+
+    @wraps(function)
+    def wrapped(request):
+        project_root = Path(request.project_root) if request.project_root else Path.cwd()
+        morpheus_dir = project_root / ".morpheus"
+        if not _is_real_directory(project_root) or not _is_real_directory(morpheus_dir):
+            return function(request)
+        try:
+            with state_authority_transaction(project_root):
+                return function(request)
+        except HTTPException:
+            raise
+        except (OSError, ValueError) as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"State authority lock failed: {exc}",
+            ) from exc
+
+    return wrapped
 
 
 def load_json_object_or_http_error(path: Path, label: str) -> dict:
@@ -1901,6 +1926,7 @@ def get_project_wake(project_root: Optional[str] = None):
     return {"project_root": str(root), "wake_md": wake_md}
 
 @app.post("/compile", response_model=CompileResponse)
+@_state_authority_compile_endpoint
 def compile(request: CompileRequest):
     """Compile project state"""
     project_root = Path(request.project_root) if request.project_root else Path.cwd()

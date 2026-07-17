@@ -1,7 +1,7 @@
 """LlamaFactory training command renderer."""
-import shlex
 
 from morpheus.core.learning.backends.base import RenderedTrainingCommand, TrainingBackend
+from morpheus.core.learning.training_runtime import shell_quote_training_argument
 
 
 class LlamaFactoryBackend(TrainingBackend):
@@ -45,7 +45,7 @@ class LlamaFactoryBackend(TrainingBackend):
         return RenderedTrainingCommand(command=_shell_script(args, dry_run=dry_run), backend_notes=notes)
 
 
-def _shell_script(args: list[str], *, dry_run: bool) -> str:
+def _shell_script(args: list[object], *, dry_run: bool) -> str:
     lines = [
         "#!/usr/bin/env bash",
         "set -euo pipefail",
@@ -53,5 +53,5 @@ def _shell_script(args: list[str], *, dry_run: bool) -> str:
     ]
     if dry_run:
         lines.append("# Dry-run scaffold. Remove --dry-run and run through Morpheus execution guards.")
-    lines.append(" ".join(shlex.quote(arg) for arg in args))
+    lines.append(" ".join(shell_quote_training_argument(arg) for arg in args))
     return "\n".join(lines) + "\n"

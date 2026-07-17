@@ -94,7 +94,9 @@ Acceptance criteria:
 
 - base vs adapter reports category-level deltas,
 - regressions are tracked per category,
-- no adapter can be activation-ready with critical stale/safety regressions.
+- no adapter can be activation-ready with critical stale/safety regressions,
+- activation authority binds a registered trained weight artifact by exact
+  path, size, and SHA-256; preview-only manifests remain ineligible.
 
 ## v0.6: Agent Memory Routing
 
@@ -159,6 +161,7 @@ and distills stable truth into local model memory.
 ## Invariants
 
 - No accepted source span -> no training example.
+- No exact source-authority/artifact match -> no dataset execution.
 - No eval pass -> no adapter activation.
 - No rollback -> no production use.
 - No cloud calls by default.

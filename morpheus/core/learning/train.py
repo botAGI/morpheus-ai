@@ -1,14 +1,22 @@
 """Dry-run training run planner for reviewed Morpheus datasets."""
 import json
+import shutil
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from morpheus.core.learning.adapter_artifacts import ADAPTER_ARTIFACT_SCHEMA
 from morpheus.core.learning.backends import get_backend
-from morpheus.core.learning.registry import (
-    latest_dataset_dir,
-    latest_effective_dataset,
-    latest_usable_dataset_dir,
+from morpheus.core.learning.dataset_validation import dataset_binding_sha256
+from morpheus.core.learning.dataset_validation import manifest_count
+from morpheus.core.learning.dataset_validation import require_valid_dataset
+from morpheus.core.learning.dataset_validation import validate_dataset_artifacts
+from morpheus.core.learning.registry import latest_effective_dataset
+from morpheus.core.learning.training_runtime import (
+    RUNTIME_DATASET_DIR_PLACEHOLDER,
+    RUNTIME_DATASET_PATH_PLACEHOLDER,
+    render_guarded_training_command,
+    seal_dataset_snapshot,
 )
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
 
@@ -64,29 +72,29 @@ def plan_training_run(
     project_root = _safe_project_root(project_root)
     if execute and not confirm_execute:
         raise ValueError("--execute requires --yes-i-know-this-will-train")
-    if execute and dry_run:
-        raise ValueError("Use --execute without --dry-run")
+    if execute:
+        raise ValueError(
+            "Direct `morpheus learn train --execute` is unsupported; "
+            "use `morpheus learn lab . --backend mlx` for guarded local execution."
+        )
+    if not dry_run:
+        raise ValueError("`morpheus learn train` supports dry-run planning only")
 
-    dataset_dir = latest_usable_dataset_dir(project_root)
-    if dataset_dir is None:
-        if latest_dataset_dir(project_root) is not None:
-            raise ValueError("Refusing to train: dataset has zero examples.")
+    effective_dataset = latest_effective_dataset(project_root)
+    if effective_dataset is None:
         raise ValueError(
             "No learning dataset manifest found. Run `morpheus learn dataset .` "
             "or `morpheus learn lab . --no-train` first."
         )
-    effective_dataset = latest_effective_dataset(project_root) or {}
+    dataset_dir = Path(str(effective_dataset["dataset_dir"]))
     dataset_manifest_path = dataset_dir / "manifest.json"
     dataset_manifest = _read_json(dataset_manifest_path, "Dataset manifest")
-    examples_count = int(dataset_manifest.get("examples_count") or 0)
+    examples_count = manifest_count(dataset_manifest, "examples_count")
     if examples_count <= 0:
         raise ValueError("Refusing to train: dataset has zero examples.")
+    validation = require_valid_dataset(project_root, dataset_dir, dataset_manifest)
 
-    selected_dataset_path = Path(str(dataset_manifest.get("selected_dataset_path") or ""))
-    if not selected_dataset_path.is_absolute():
-        selected_dataset_path = dataset_dir / selected_dataset_path
-    if not selected_dataset_path.is_file():
-        selected_dataset_path = _fallback_dataset_path(dataset_dir, dataset_manifest)
+    selected_dataset_path = dataset_dir / str(dataset_manifest["selected_dataset_file"])
     reject_symlink_paths([selected_dataset_path], "Selected dataset")
     reject_symlink_components(selected_dataset_path, "Selected dataset")
 
@@ -96,8 +104,29 @@ def plan_training_run(
     adapter_id = _timestamp_id("adapter")
     output_dir = project_root / ".morpheus" / "training" / "adapters" / adapter_id
     run_dir = project_root / ".morpheus" / "training" / "runs" / run_id
+    current_manifest = _read_json(dataset_manifest_path, "Dataset manifest")
+    current_validation = require_valid_dataset(
+        project_root,
+        dataset_dir,
+        current_manifest,
+    )
+    if (
+        current_validation["dataset_binding_sha256"]
+        != validation["dataset_binding_sha256"]
+    ):
+        raise ValueError("Dataset binding changed while planning training.")
     _ensure_run_dir(run_dir)
+    snapshot_dir = run_dir / "dataset"
+    snapshot_manifest_path = _copy_dataset_snapshot(
+        dataset_dir,
+        snapshot_dir,
+        current_manifest,
+        current_validation["dataset_binding_sha256"],
+    )
     _ensure_adapter_dir(output_dir)
+    snapshot_selected_dataset_path = snapshot_dir / str(
+        current_manifest["selected_dataset_file"]
+    )
 
     config = TrainingConfig(
         run_id=run_id,
@@ -111,14 +140,26 @@ def plan_training_run(
         epochs=epochs,
         learning_rate=learning_rate,
         max_seq_length=max_seq_length,
-        dataset_manifest_path=str(dataset_manifest_path),
-        dataset_path=str(selected_dataset_path),
-        dataset_dir=str(selected_dataset_path.parent),
-        dataset_name=selected_dataset_path.stem,
+        dataset_manifest_path=str(snapshot_manifest_path),
+        dataset_path=str(snapshot_selected_dataset_path),
+        dataset_dir=str(snapshot_dir),
+        dataset_name=snapshot_selected_dataset_path.stem,
         output_dir=str(output_dir),
     )
     config_dict = asdict(config)
-    rendered = backend_impl.render_command(config_dict, dry_run=dry_run)
+    runtime_config = {
+        **config_dict,
+        "dataset_path": RUNTIME_DATASET_PATH_PLACEHOLDER,
+        "dataset_dir": RUNTIME_DATASET_DIR_PLACEHOLDER,
+    }
+    rendered = backend_impl.render_command(runtime_config, dry_run=dry_run)
+    guarded_command = render_guarded_training_command(
+        rendered.command,
+        project_root=project_root,
+        source_dataset_dir=dataset_dir,
+        snapshot_dir=snapshot_dir,
+        expected_binding_sha256=current_validation["dataset_binding_sha256"],
+    )
 
     train_config_path = run_dir / "train_config.yaml"
     command_path = run_dir / "command.sh"
@@ -128,9 +169,11 @@ def plan_training_run(
     registry_adapter_manifest_path = output_dir / "adapter_manifest.json"
 
     train_config_path.write_text(_render_yaml(config_dict))
-    command_path.write_text(rendered.command)
-    command_path.chmod(0o755)
-    dataset_manifest_copy.write_text(json.dumps(dataset_manifest, indent=2, sort_keys=True) + "\n")
+    command_path.write_text(_render_preview_only_command(guarded_command))
+    command_path.chmod(0o644)
+    dataset_manifest_copy.write_text(
+        json.dumps(current_manifest, indent=2, sort_keys=True) + "\n"
+    )
 
     warnings = []
     if examples_count < SMALL_DATASET_THRESHOLD:
@@ -140,13 +183,18 @@ def plan_training_run(
 
     adapter_manifest = {
         "adapter_id": adapter_id,
+        "artifact_schema": ADAPTER_ARTIFACT_SCHEMA,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "status": "planned",
+        "training_status": "planned",
+        "weight_artifact": None,
         "backend": backend,
         "method": method,
         "base_model": base_model,
         "output_dir": str(output_dir.resolve()),
         "run_id": run_id,
+        "dataset_id": dataset_manifest.get("dataset_id"),
+        "dataset_binding_sha256": validation["dataset_binding_sha256"],
         "activated": False,
     }
     run_manifest = {
@@ -160,7 +208,10 @@ def plan_training_run(
         "dataset_id": dataset_manifest.get("dataset_id"),
         "dataset_source": effective_dataset.get("source"),
         "dataset_manifest_path": str(dataset_manifest_path),
+        "dataset_snapshot_dir": str(snapshot_dir),
+        "dataset_snapshot_manifest_path": str(snapshot_manifest_path),
         "dataset_sha256": dataset_manifest.get("dataset_sha256"),
+        "dataset_binding_sha256": validation["dataset_binding_sha256"],
         "dataset_examples_count": examples_count,
         "adapter_id": adapter_id,
         "adapter_manifest_path": str(adapter_manifest_path),
@@ -179,6 +230,7 @@ def plan_training_run(
         "command_path": str(command_path),
         "run_manifest_path": str(run_manifest_path),
         "adapter_manifest_path": str(adapter_manifest_path),
+        "dataset_snapshot_dir": str(snapshot_dir),
         "dry_run": dry_run,
         "execute": execute,
         "warnings": warnings,
@@ -212,6 +264,43 @@ def _ensure_adapter_dir(path: Path) -> None:
     reject_symlink_components(path, "Adapter output")
 
 
+def _copy_dataset_snapshot(
+    source_dir: Path,
+    snapshot_dir: Path,
+    manifest: dict,
+    expected_binding_sha256: str,
+) -> Path:
+    if snapshot_dir.is_symlink():
+        raise ValueError(f"Training dataset snapshot must not be a symlink: {snapshot_dir}")
+    snapshot_dir.mkdir(parents=False, exist_ok=False)
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, dict):
+        raise ValueError("Dataset artifacts invalid while creating training snapshot")
+    for raw_path in sorted(artifacts):
+        relative = Path(raw_path)
+        if relative.is_absolute() or ".." in relative.parts or not relative.parts:
+            raise ValueError(f"Dataset artifact path invalid: {raw_path}")
+        source_path = source_dir / relative
+        destination_path = snapshot_dir / relative
+        destination_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_path, destination_path, follow_symlinks=False)
+    snapshot_manifest_path = snapshot_dir / "manifest.json"
+    snapshot_manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    if (
+        manifest.get("dataset_binding_sha256") != expected_binding_sha256
+        or dataset_binding_sha256(manifest) != expected_binding_sha256
+    ):
+        raise ValueError("Dataset binding changed while creating training snapshot")
+    snapshot_validation = validate_dataset_artifacts(snapshot_dir, manifest)
+    if not snapshot_validation["valid"]:
+        raise ValueError(
+            "Training dataset snapshot validation failed: "
+            + ", ".join(snapshot_validation["blockers"])
+        )
+    seal_dataset_snapshot(snapshot_dir)
+    return snapshot_manifest_path
+
+
 def _read_json(path: Path, label: str) -> dict:
     reject_symlink_paths([path], label)
     reject_symlink_components(path, label)
@@ -222,24 +311,6 @@ def _read_json(path: Path, label: str) -> dict:
     if not isinstance(data, dict):
         raise ValueError(f"{label} invalid: expected JSON object")
     return data
-
-
-def _fallback_dataset_path(dataset_dir: Path, manifest: dict) -> Path:
-    selected = str(manifest.get("selected_format") or "instruction")
-    candidates = [dataset_dir / f"dataset.{selected}.jsonl"]
-    if selected == "chat":
-        candidates.extend([dataset_dir / "train.jsonl", dataset_dir / "dataset.sharegpt.jsonl"])
-    candidates.extend(
-        [
-            dataset_dir / "train.jsonl",
-            dataset_dir / "dataset.instruction.jsonl",
-            dataset_dir / "dataset.sharegpt.jsonl",
-        ]
-    )
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate
-    raise ValueError("Selected dataset file not found for latest manifest.")
 
 
 def _timestamp_id(prefix: str) -> str:
@@ -257,3 +328,18 @@ def _render_yaml(data: dict) -> str:
             rendered = str(value)
         lines.append(f"{key}: {rendered}")
     return "\n".join(lines) + "\n"
+
+
+def _render_preview_only_command(guarded_command: str) -> str:
+    preview = [f"# {line}" if line else "#" for line in guarded_command.splitlines()]
+    return "\n".join([
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        "",
+        'echo "Training preview only: direct learn train execution is unsupported." >&2',
+        "exit 2",
+        "",
+        "# Guarded backend preview (comments only):",
+        *preview,
+        "",
+    ])

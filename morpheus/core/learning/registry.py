@@ -1,7 +1,13 @@
 """Local registry helpers for Morpheus learning artifacts."""
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 
+from morpheus.core.learning.dataset_validation import (
+    manifest_count,
+    parse_registry_timestamp_identity,
+    validate_dataset,
+)
 from morpheus.core.safe_io import reject_symlink_components
 
 
@@ -16,11 +22,12 @@ def latest_dataset_dir(project_root: Path) -> Path | None:
     reject_symlink_components(root, "Dataset registry")
     if not root.is_dir():
         return None
-    candidates = [
-        path for path in root.iterdir()
-        if path.is_dir() and not path.is_symlink() and (path / "manifest.json").is_file()
-    ]
-    return sorted(candidates, key=lambda item: item.name)[-1] if candidates else None
+    candidates = [path for path in root.iterdir() if not path.name.startswith(".")]
+    return (
+        max(candidates, key=lambda item: _registry_order_key(item.name))
+        if candidates
+        else None
+    )
 
 
 def dataset_manifest(dataset_dir: Path) -> dict:
@@ -32,20 +39,27 @@ def dataset_manifest(dataset_dir: Path) -> dict:
     return data
 
 
-def dataset_summary(dataset_dir: Path, *, source: str) -> dict:
-    manifest = dataset_manifest(dataset_dir)
-    examples_count = int(manifest.get("examples_count") or 0)
+def dataset_summary(project_root: Path, dataset_dir: Path, *, source: str) -> dict:
+    try:
+        manifest = dataset_manifest(dataset_dir)
+        validation_manifest = manifest
+    except (OSError, ValueError, json.JSONDecodeError):
+        manifest = {}
+        validation_manifest = None
+    examples_count = manifest_count(manifest, "examples_count")
+    validation = validate_dataset(project_root, dataset_dir, validation_manifest)
     return {
         "source": source,
         "dataset_dir": str(dataset_dir),
         "manifest_path": str(dataset_dir / "manifest.json"),
-        "dataset_id": manifest.get("dataset_id"),
-        "dataset_sha256": manifest.get("dataset_sha256"),
+        "dataset_id": _manifest_string(manifest, "dataset_id"),
+        "dataset_sha256": _manifest_string(manifest, "dataset_sha256"),
         "examples_count": examples_count,
-        "eval_items_count": int(manifest.get("eval_items_count") or 0),
-        "skipped_count": int(manifest.get("skipped_count") or 0),
-        "created_at": manifest.get("created_at"),
-        "trainable": examples_count > 0,
+        "eval_items_count": manifest_count(manifest, "eval_items_count"),
+        "skipped_count": manifest_count(manifest, "skipped_count"),
+        "created_at": _manifest_string(manifest, "created_at"),
+        "trainable": examples_count > 0 and validation["valid"],
+        "validation": validation,
     }
 
 
@@ -60,58 +74,95 @@ def latest_lab_dir(project_root: Path) -> Path | None:
     reject_symlink_components(root, "Lab registry")
     if not root.is_dir():
         return None
-    candidates = [
-        path for path in root.iterdir()
-        if (
-            path.is_dir()
-            and not path.is_symlink()
-            and path.name.startswith("lab_")
-            and (path / "lab_summary.json").is_file()
+    candidates = [path for path in root.iterdir() if path.name.startswith("lab_")]
+    return (
+        max(
+            candidates,
+            key=lambda item: _registry_order_key(item.name, prefix="lab_"),
         )
-    ]
-    return sorted(candidates, key=lambda item: item.name)[-1] if candidates else None
+        if candidates
+        else None
+    )
 
 
 def latest_lab_status(project_root: Path) -> dict | None:
     latest = latest_lab_dir(project_root)
     if latest is None:
         return None
-    return json.loads((latest / "lab_summary.json").read_text())
+    if latest.is_symlink() or not latest.is_dir():
+        return _invalid_lab_status(latest, "lab_registry_entry_invalid")
+    summary_path = latest / "lab_summary.json"
+    try:
+        reject_symlink_components(summary_path, "Lab summary")
+        if summary_path.is_symlink() or not summary_path.is_file():
+            return _invalid_lab_status(latest, "lab_summary_missing")
+        summary = json.loads(summary_path.read_text())
+    except (OSError, ValueError, json.JSONDecodeError):
+        summary = None
+    if (
+        not isinstance(summary, dict)
+        or not isinstance(summary.get("lab_id"), str)
+        or summary.get("lab_id") != latest.name
+    ):
+        return _invalid_lab_status(latest, "lab_summary_invalid")
+    try:
+        json.dumps(summary, allow_nan=False)
+    except (TypeError, ValueError):
+        return _invalid_lab_status(latest, "lab_summary_invalid")
+    dataset_dir = latest / "dataset"
+    try:
+        if dataset_dir.is_symlink() or not dataset_dir.is_dir():
+            return _invalid_lab_status(latest, "lab_dataset_invalid")
+        reject_symlink_components(dataset_dir, "Lab dataset")
+    except (OSError, ValueError):
+        return _invalid_lab_status(latest, "lab_dataset_invalid")
+    return summary
 
 
 def latest_lab_dataset_dir(project_root: Path) -> Path | None:
     latest = latest_lab_dir(project_root)
     if latest is None:
         return None
-    dataset_dir = latest / "dataset"
-    if dataset_dir.is_symlink():
-        raise ValueError(f"Lab dataset path must not be a symlink: {dataset_dir}")
-    reject_symlink_components(dataset_dir, "Lab dataset")
-    if (dataset_dir / "manifest.json").is_file():
-        return dataset_dir
-    return None
+    return latest / "dataset"
 
 
 def latest_effective_dataset(project_root: Path) -> dict | None:
-    candidates = []
+    candidates: list[tuple[tuple[int, int, str], str, dict]] = []
     standalone = latest_dataset_dir(project_root)
     if standalone is not None:
-        candidates.append(dataset_summary(standalone, source="standalone"))
+        candidates.append((
+            _registry_order_key(standalone.name),
+            standalone.as_posix(),
+            dataset_summary(project_root, standalone, source="standalone"),
+        ))
     lab_dataset = latest_lab_dataset_dir(project_root)
     if lab_dataset is not None:
-        candidates.append(dataset_summary(lab_dataset, source="lab"))
-    usable = [item for item in candidates if item["trainable"]]
-    if not usable:
+        candidates.append((
+            _registry_order_key(lab_dataset.parent.name, prefix="lab_"),
+            lab_dataset.as_posix(),
+            dataset_summary(project_root, lab_dataset, source="lab"),
+        ))
+    if not candidates:
         return None
-    return sorted(
-        usable,
-        key=lambda item: str(item.get("created_at") or item.get("dataset_id") or ""),
-    )[-1]
+    return max(candidates, key=lambda item: (item[0], item[1]))[2]
+
+
+def _registry_order_key(identity: str, *, prefix: str = "") -> tuple[int, int, str]:
+    parsed = parse_registry_timestamp_identity(identity, prefix=prefix)
+    if parsed is not None:
+        delta = parsed - datetime(1970, 1, 1, tzinfo=timezone.utc)
+        sequence = (
+            (delta.days * 86_400 + delta.seconds) * 1_000_000
+            + delta.microseconds
+        )
+        return (0, sequence, identity)
+    # A malformed registry identity is conservatively newer so it blocks fallback.
+    return (1, 0, identity)
 
 
 def latest_usable_dataset_dir(project_root: Path) -> Path | None:
     effective = latest_effective_dataset(project_root)
-    if effective is None:
+    if effective is None or not effective["trainable"]:
         return None
     return Path(str(effective["dataset_dir"]))
 
@@ -135,14 +186,36 @@ def learning_status(project_root: Path) -> dict:
             "latest_lab": latest_lab,
             "active_adapter": active_adapter,
         }
-    manifest = dataset_manifest(latest)
+    summary = dataset_summary(project_root, latest, source="standalone")
+    try:
+        manifest = dataset_manifest(latest)
+    except (OSError, ValueError, json.JSONDecodeError):
+        manifest = None
+    if not summary["validation"]["valid"]:
+        manifest = None
     return {
         "has_datasets": True,
         "latest_dataset_dir": str(latest),
         "latest_manifest": manifest,
-        "latest_standalone_dataset": dataset_summary(latest, source="standalone"),
+        "latest_standalone_dataset": summary,
         "effective_dataset": effective_dataset,
         "has_labs": latest_lab is not None,
         "latest_lab": latest_lab,
         "active_adapter": active_adapter,
+    }
+
+
+def _manifest_string(manifest: object, field: str) -> str | None:
+    if not isinstance(manifest, dict):
+        return None
+    value = manifest.get(field)
+    return value if isinstance(value, str) else None
+
+
+def _invalid_lab_status(lab_dir: Path, reason: str) -> dict:
+    return {
+        "lab_id": lab_dir.name,
+        "lab_dir": str(lab_dir),
+        "invalid": True,
+        "validation_error": reason,
     }

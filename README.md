@@ -186,7 +186,7 @@ The current local gate has been run against this repository, not only fixtures:
 | Capability | Tested result |
 | --- | --- |
 | `ruff check .` | passes |
-| `pytest tests/ -q` | 678 tests pass |
+| `pytest tests/ -q` | 1015 passed, 1 skipped |
 | `morpheus wake . --private` | compiles current project state and signs a receipt |
 | `morpheus verify --all` | verifies the receipt chain |
 | `morpheus check --input tests/fixtures/check_stale_input.txt --local` | exits 1 and reports the stale claim |
@@ -240,10 +240,36 @@ morpheus learn lab . --no-train
 No accepted source span means no training example. No eval pass means no adapter
 activation. No rollback means no production use.
 
+Learning manifests bind the exact canonical review snapshot, routing policy,
+source/context hashes, and authority-derived dataset artifacts. Dataset and eval
+registries publish complete entries atomically from hidden private staging
+directories; interrupted staging is never treated as current. If a contributing
+candidate is rejected, returned to pending, removed, or changed after dataset
+compilation, quality, training, eval, and activation fail closed until the
+dataset is rebuilt. Lab snapshots and active-state receipts use explicit,
+separately validated source scopes; active-state authority must match the signed
+receipt chain. Adapter evals must use the exact dataset binding recorded at
+training time, and legacy unbound manifests are status-only. Training commands
+from `morpheus learn train` are preview-only. The executable local MLX lab guard
+copies a sealed snapshot into anonymous file descriptors, holds state/review
+authority for the full backend run, and rechecks it afterward. Its authenticated
+loader reads and hashes the inherited train/valid/test descriptors directly,
+without reopening the mutable dataset view or original paths; output remains
+bound to the held directory descriptor. Preview adapter manifests have no
+weights and cannot activate. Activation requires one registered trained,
+non-empty regular `.safetensors` file whose path, SHA-256, and size are bound
+into the authority and receipt. Activation and
+rollback hold the shared state and review locks, bind both eval sides plus
+current dataset authority, and use a durable recovery journal with the active
+pointer as the final commit point.
+
 `morpheus learn eval` currently writes deterministic fake diagnostic results for
 local benchmark development. Those results can show category deltas, but they
-are never activation-eligible. The legacy `morpheus learn activate --force`
-option cannot bypass the eval gate.
+are never activation-eligible and receive no activation receipt. An eligible
+base or adapter eval must instead have a local Ed25519 receipt binding the
+evaluator/provider, exact dataset and eval-seed item identities, and complete
+config/results hashes; relabeling diagnostic JSON is insufficient. The legacy
+`morpheus learn activate --force` option cannot bypass the eval gate.
 
 ## Obsidian And Personal Notes
 
@@ -384,7 +410,7 @@ morpheus compile
 | `morpheus learn benchmark . --dry-run` | Write benchmark-readiness artifacts without training or activation |
 | `morpheus learn team-loop . --input FILE --json` | Import local team corrections as pending review candidates |
 | `morpheus learn status` | Show learning dataset and adapter status |
-| `morpheus learn train . --dry-run` | Generate local training artifacts without training |
+| `morpheus learn train . --dry-run` | Generate preview-only local training artifacts without execution |
 | `morpheus learn eval .` | Evaluate the latest dataset or planned adapter with the eval harness |
 | `morpheus stale .` | Find stale launch-positioning claims |
 | `morpheus init` | Initialize `.morpheus/` with config and keys |

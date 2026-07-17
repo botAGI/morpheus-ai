@@ -10,16 +10,11 @@ import os
 import re
 import secrets
 import subprocess
-import threading
 from pathlib import Path
-
-try:
-    import fcntl
-except ModuleNotFoundError:  # pragma: no cover - Windows fallback uses the thread lock.
-    fcntl = None
 
 from morpheus.core.compiler import DEFAULT_EXCLUDE_PATTERNS, compile_project
 from morpheus.core.models import Claim, Evidence
+from morpheus.core.portable_lock import portable_file_lock
 from morpheus.core.provenance import (
     build_receipt,
     compute_sha256_bytes,
@@ -31,6 +26,7 @@ from morpheus.core.provenance import (
 )
 from morpheus.core.providers.base import SemanticProvider
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
+from morpheus.core.state_authority import state_authority_transaction
 from morpheus.core.semantic.classifier import classify_candidate, classify_candidates
 from morpheus.core.semantic.models import SemanticCandidate
 from morpheus.core.semantic.routing import route_candidate, route_candidates
@@ -85,7 +81,6 @@ SECRET_REGEXES = [
     re.compile(r"\b(?:sk|ghp|xoxb|xoxp)-[A-Za-z0-9_-]{16,}\b"),
 ]
 PERSISTENT_REVIEW_PROVIDERS = {"morpheus-check", "morpheus-team-loop"}
-_REVIEW_THREAD_LOCK = threading.RLock()
 
 
 class ReviewStore:
@@ -145,19 +140,8 @@ class ReviewStore:
         lock_path = self.review_dir / ".store.lock"
         reject_symlink_paths([lock_path], "Semantic review lock")
         reject_symlink_components(lock_path, "Semantic review lock")
-        flags = os.O_RDWR | os.O_CREAT
-        if hasattr(os, "O_NOFOLLOW"):
-            flags |= os.O_NOFOLLOW
-        with _REVIEW_THREAD_LOCK:
-            descriptor = os.open(lock_path, flags, 0o600)
-            try:
-                if fcntl is not None:
-                    fcntl.flock(descriptor, fcntl.LOCK_EX)
-                yield
-            finally:
-                if fcntl is not None:
-                    fcntl.flock(descriptor, fcntl.LOCK_UN)
-                os.close(descriptor)
+        with portable_file_lock(lock_path):
+            yield
 
     def write_report(self, report: dict) -> None:
         self.ensure()
@@ -1181,6 +1165,12 @@ def _normalize(value: str) -> str:
 def apply_accepted_candidates(project_root: Path) -> dict:
     """Promote accepted semantic candidates into active state and sign a receipt."""
     project_root = _safe_project_root(project_root)
+    with state_authority_transaction(project_root):
+        return _apply_accepted_candidates_locked(project_root)
+
+
+def _apply_accepted_candidates_locked(project_root: Path) -> dict:
+    """Apply candidates while the active state authority lock is held."""
     morpheus_dir = project_root / ".morpheus"
     store = ReviewStore(project_root)
     accepted = []

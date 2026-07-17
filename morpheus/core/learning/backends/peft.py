@@ -1,7 +1,7 @@
 """PEFT training command renderer."""
-import shlex
 
 from morpheus.core.learning.backends.base import RenderedTrainingCommand, TrainingBackend
+from morpheus.core.learning.training_runtime import shell_quote_training_argument
 
 
 class PeftBackend(TrainingBackend):
@@ -42,11 +42,11 @@ class PeftBackend(TrainingBackend):
         )
 
 
-def _shell_script(args: list[str]) -> str:
+def _shell_script(args: list[object]) -> str:
     return "\n".join([
         "#!/usr/bin/env bash",
         "set -euo pipefail",
         "",
-        " ".join(shlex.quote(arg) for arg in args),
+        " ".join(shell_quote_training_argument(arg) for arg in args),
         "",
     ])

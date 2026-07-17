@@ -8,6 +8,7 @@ from morpheus.core.learning.eval import (
     latest_eval_category_comparison,
     run_learning_eval,
 )
+from morpheus.core.learning.dataset_validation import manifest_count
 from morpheus.core.learning.quality import build_quality_report
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
 
@@ -30,11 +31,17 @@ def write_benchmark_report(
     quality = build_quality_report(project_root)
     manifest = (quality.get("dataset", {}).get("latest_manifest") or {})
     dataset_id = manifest.get("dataset_id")
+    dataset_binding = (
+        quality.get("dataset", {})
+        .get("validation", {})
+        .get("dataset_binding_sha256")
+    )
     benchmark_allowed = bool(quality.get("benchmark_allowed"))
     benchmark_blockers = list(quality.get("benchmark_blockers") or [])
     eval_comparison = latest_eval_category_comparison(
         project_root,
         dataset_id=str(dataset_id or ""),
+        dataset_binding_sha256=(str(dataset_binding) if dataset_binding else None),
     )
     if benchmark_allowed and dataset_id and eval_comparison["base_eval"] is None:
         run_learning_eval(
@@ -46,6 +53,7 @@ def write_benchmark_report(
         eval_comparison = latest_eval_category_comparison(
             project_root,
             dataset_id=str(dataset_id),
+            dataset_binding_sha256=(str(dataset_binding) if dataset_binding else None),
         )
     latest_adapter_eval = eval_comparison["adapter_eval"]
     if not benchmark_allowed:
@@ -91,9 +99,13 @@ def write_benchmark_report(
         "max_iters": max_iters,
         "dataset_id": dataset_id,
         "dataset_sha256": manifest.get("dataset_sha256"),
-        "examples_count": int(manifest.get("examples_count") or 0),
-        "eval_items_count": int(manifest.get("eval_items_count") or 0),
-        "trainable_candidate_count": int(manifest.get("trainable_candidate_count") or 0),
+        "dataset_binding_sha256": dataset_binding,
+        "examples_count": manifest_count(manifest, "examples_count"),
+        "eval_items_count": manifest_count(manifest, "eval_items_count"),
+        "trainable_candidate_count": manifest_count(
+            manifest,
+            "trainable_candidate_count",
+        ),
         "benchmark_allowed": benchmark_allowed,
         "benchmark_blockers": benchmark_blockers,
         "benchmark_gate": quality.get("benchmark_gate") or {},

@@ -1,6 +1,11 @@
 """Compile reviewed semantic candidates into local training datasets."""
 from collections import Counter
+from collections.abc import Callable
+import hashlib
 import json
+import os
+import stat
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,6 +17,15 @@ from morpheus.core.learning.evals import (
     heldout_truth_gate_negative_eval_items,
     truth_gate_negative_eval_items,
     unsupported_claim_eval_item,
+)
+from morpheus.core.learning.dataset_validation import (
+    MANIFEST_FORMAT_VERSION,
+    artifact_manifest,
+    build_dataset_provenance,
+    canonical_source_path,
+    canonical_review_snapshot,
+    capture_active_state_authority,
+    dataset_binding_sha256,
 )
 from morpheus.core.learning.examples import (
     CHAT_FORMAT_VERSION,
@@ -30,6 +44,7 @@ from morpheus.core.learning.safety import (
 )
 from morpheus.core.learning.team import team_feedback_projection_error
 from morpheus.core.provenance import compute_sha256_file, latest_receipt_file
+from morpheus.core.portable_lock import portable_file_lock
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
 from morpheus.core.semantic.models import SemanticCandidate
 from morpheus.core.semantic.review import ReviewStore
@@ -83,7 +98,17 @@ def build_learning_dataset(
     if source not in DATASET_SOURCES:
         raise ValueError(f"Unsupported dataset source: {source}")
     project_root = _safe_project_root(project_root)
-    candidates = _load_dataset_candidates(project_root, source)
+    review_store = ReviewStore(project_root) if source == "accepted" else None
+    review_candidates = None
+    active_authority = None
+    if review_store is not None:
+        with review_store.transaction():
+            review_candidates = review_store.load_candidates()
+            canonical_review_snapshot(review_candidates)
+        candidates = [route_candidate(candidate) for candidate in review_candidates]
+    else:
+        active_authority = capture_active_state_authority(project_root)
+        candidates = _active_state_candidates(project_root, active_authority)
     ignore_patterns = load_morpheusignore(project_root)
 
     eligible: list[Eligibility] = []
@@ -131,18 +156,22 @@ def build_learning_dataset(
     chat_examples = chat_examples_from_instruction(instruction_examples)
     split_rows = _split_chat_rows(chat_examples)
     dataset_id = _dataset_id()
-    out_dir = datasets_root(project_root) / dataset_id
-    _ensure_output_dir(out_dir)
+    registry_root = _validated_datasets_root(project_root)
+    out_dir = registry_root / dataset_id
+    staging_dir, staging_identity = _create_private_staging_dir(
+        registry_root,
+        dataset_id,
+    )
 
-    instruction_path = out_dir / "dataset.instruction.jsonl"
-    sharegpt_path = out_dir / "dataset.sharegpt.jsonl"
-    skipped_path = out_dir / "skipped.jsonl"
-    eval_path = out_dir / "eval.seed.jsonl"
-    heldout_eval_path = out_dir / "eval.heldout.jsonl"
-    manifest_path = out_dir / "manifest.json"
-    train_path = out_dir / "train.jsonl"
-    valid_path = out_dir / "valid.jsonl"
-    test_path = out_dir / "test.jsonl"
+    instruction_path = staging_dir / "dataset.instruction.jsonl"
+    sharegpt_path = staging_dir / "dataset.sharegpt.jsonl"
+    skipped_path = staging_dir / "skipped.jsonl"
+    eval_path = staging_dir / "eval.seed.jsonl"
+    heldout_eval_path = staging_dir / "eval.heldout.jsonl"
+    manifest_path = staging_dir / "manifest.json"
+    train_path = staging_dir / "train.jsonl"
+    valid_path = staging_dir / "valid.jsonl"
+    test_path = staging_dir / "test.jsonl"
     _write_jsonl(instruction_path, instruction_examples)
     _write_jsonl(sharegpt_path, sharegpt_examples)
     _write_jsonl(train_path, split_rows["train"])
@@ -152,21 +181,51 @@ def build_learning_dataset(
     _write_jsonl(eval_path, eval_items)
     _write_jsonl(heldout_eval_path, heldout_items)
 
-    selected_path = _selected_dataset_path(
+    canonical_selected_path = _selected_dataset_path(
         dataset_format,
         instruction_path=instruction_path,
         sharegpt_path=sharegpt_path,
         train_path=train_path,
     )
-    if output is not None:
-        selected_path = _write_selected_output(project_root, output, selected_path.read_text())
-
-    source_hashes.update(_state_context_hashes(project_root))
+    context_hashes = (
+        dict(active_authority["context_hashes"])
+        if active_authority is not None
+        else {}
+    )
+    source_hashes.update(context_hashes)
+    source_receipt_id = (
+        str(active_authority["receipt_id"])
+        if active_authority is not None
+        else _source_receipt_id(project_root)
+    )
+    source_receipt_sha256 = (
+        str(active_authority["receipt_sha256"])
+        if active_authority is not None
+        else None
+    )
+    provenance = build_dataset_provenance(
+        project_root,
+        source=source,
+        review_candidates=review_candidates,
+        source_receipt_id=source_receipt_id,
+        source_receipt_sha256=source_receipt_sha256,
+        context_paths=context_hashes,
+    )
+    artifacts = artifact_manifest(staging_dir, [
+        instruction_path,
+        sharegpt_path,
+        train_path,
+        valid_path,
+        test_path,
+        skipped_path,
+        eval_path,
+        heldout_eval_path,
+    ])
     manifest = {
         "dataset_id": dataset_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "project_root": str(project_root),
-        "source_receipt_id": _source_receipt_id(project_root),
+        "source_receipt_id": source_receipt_id,
         "candidate_count": len(candidates),
         "trainable_candidate_count": sum(1 for item in eligible if item.trainable_positive),
         "examples_count": len(instruction_examples),
@@ -190,7 +249,10 @@ def build_learning_dataset(
         }),
         "source_hashes": dict(sorted(source_hashes.items())),
         "prompt_sha256_values": prompt_sha256_values,
-        "dataset_sha256": compute_sha256_file(selected_path),
+        "dataset_sha256": compute_sha256_file(canonical_selected_path),
+        "selected_dataset_file": canonical_selected_path.name,
+        "artifacts": artifacts,
+        "provenance": provenance,
         "selected_format": dataset_format,
         "format_version": _format_version(dataset_format),
         "source": source,
@@ -202,15 +264,68 @@ def build_learning_dataset(
             "chat": CHAT_FORMAT_VERSION,
             "eval_seed": "morpheus-eval-seed/1",
             "heldout_eval": "morpheus-heldout-eval/1",
-            "manifest": "morpheus-learning-manifest/1",
+            "manifest": MANIFEST_FORMAT_VERSION,
         },
     }
-    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    manifest["dataset_binding_sha256"] = dataset_binding_sha256(manifest)
+    source_paths = manifest["source_paths"]
+    if review_store is not None:
+        with review_store.transaction():
+            _ensure_review_authority_current(
+                project_root,
+                source_paths,
+                source_hashes,
+                review_store,
+                provenance["review_snapshot"],
+            )
+            _write_private_text(manifest_path, _manifest_text(manifest))
+            _publish_staged_dataset(
+                staging_dir,
+                out_dir,
+                staging_identity=staging_identity,
+                expected_manifest=manifest,
+                authority_check=lambda: _ensure_review_authority_current(
+                    project_root,
+                    source_paths,
+                    source_hashes,
+                    review_store,
+                    provenance["review_snapshot"],
+                ),
+            )
+    else:
+        _ensure_active_authority_current(
+            project_root,
+            active_authority,
+            source_paths,
+            source_hashes,
+        )
+        _write_private_text(manifest_path, _manifest_text(manifest))
+        _publish_staged_dataset(
+            staging_dir,
+            out_dir,
+            staging_identity=staging_identity,
+            expected_manifest=manifest,
+            authority_check=lambda: _ensure_active_authority_current(
+                project_root,
+                active_authority,
+                source_paths,
+                source_hashes,
+            ),
+        )
+    published_selected_path = out_dir / canonical_selected_path.name
+    selected_path = published_selected_path
+    if output is not None:
+        selected_path = _write_selected_output(
+            project_root,
+            output,
+            published_selected_path.read_text(),
+        )
+    published_manifest_path = out_dir / "manifest.json"
     return {
         "dataset_id": dataset_id,
         "dataset_dir": str(out_dir),
         "selected_dataset_path": str(selected_path),
-        "manifest_path": str(manifest_path),
+        "manifest_path": str(published_manifest_path),
         "examples_count": len(instruction_examples),
         "skipped_count": len(skipped),
     }
@@ -232,9 +347,9 @@ def _eligible_candidate(
     if candidate.kind not in POSITIVE_KINDS and candidate.kind != "outdated_claim":
         return None, f"kind_{candidate.kind}", None
 
-    rel_path = Path(candidate.source_path)
-    if rel_path.is_absolute() or ".." in rel_path.parts:
+    if not canonical_source_path(candidate.source_path):
         return None, "invalid_source_path", None
+    rel_path = Path(candidate.source_path)
     if path_is_ignored(rel_path, ignore_patterns):
         return None, "ignored_path", None
 
@@ -274,19 +389,12 @@ def _eligible_candidate(
     ), "", current_sha
 
 
-def _load_dataset_candidates(project_root: Path, source: str) -> list[SemanticCandidate]:
-    if source == "accepted":
-        return [route_candidate(candidate) for candidate in ReviewStore(project_root).load_candidates()]
-    return _active_state_candidates(project_root)
-
-
-def _active_state_candidates(project_root: Path) -> list[SemanticCandidate]:
-    state_path = project_root / ".morpheus" / "state.json"
-    evidence_path = project_root / ".morpheus" / "evidence.jsonl"
-    if not state_path.is_file() or not evidence_path.is_file():
-        return []
-    state = _read_json_object(state_path, "state.json")
-    evidence_rows = _read_jsonl(evidence_path, "evidence.jsonl")
+def _active_state_candidates(
+    project_root: Path,
+    authority: dict,
+) -> list[SemanticCandidate]:
+    state = authority["state"]
+    evidence_rows = authority["evidence_rows"]
     evidence_by_claim = {
         str(item.get("claim_id")): item
         for item in evidence_rows
@@ -307,7 +415,7 @@ def _active_state_candidates(project_root: Path) -> list[SemanticCandidate]:
             continue
         evidence_sha = str(evidence.get("excerpt_sha256") or "")
         if len(evidence_sha) != 64:
-            evidence_sha = compute_sha256_file(project_root / source_path)
+            evidence_sha = hashlib.sha256(excerpt.encode()).hexdigest()
         candidates.append(route_candidate(SemanticCandidate(
             id=f"active_{claim.get('id')}",
             run_id=str(state.get("receipt_id") or "active_state"),
@@ -449,91 +557,509 @@ def _safe_project_root(project_root: Path) -> Path:
     return project_root
 
 
-def _ensure_output_dir(path: Path) -> None:
-    if path.is_symlink():
-        raise ValueError(f"Dataset output must not be a symlink: {path}")
-    reject_symlink_components(path.parent, "Dataset output root")
-    path.mkdir(parents=True, exist_ok=False)
-    reject_symlink_components(path, "Dataset output")
+def _validated_datasets_root(project_root: Path) -> Path:
+    root = datasets_root(project_root)
+    if root.is_symlink():
+        raise ValueError(f"Dataset registry must not be a symlink: {root}")
+    reject_symlink_components(root.parent, "Dataset registry")
+    root.mkdir(parents=True, exist_ok=True)
+    reject_symlink_components(root, "Dataset registry")
+    if root.is_symlink() or not root.is_dir():
+        raise ValueError(f"Dataset registry must be a directory: {root}")
+    return root.resolve()
+
+
+def _create_private_staging_dir(
+    registry_root: Path,
+    dataset_id: str,
+) -> tuple[Path, tuple[int, int]]:
+    if (
+        not dataset_id
+        or dataset_id.startswith(".")
+        or Path(dataset_id).name != dataset_id
+        or "/" in dataset_id
+        or "\\" in dataset_id
+    ):
+        raise ValueError(f"Dataset identity is unsafe: {dataset_id!r}")
+    reject_symlink_components(registry_root, "Dataset registry")
+    staging_dir = Path(tempfile.mkdtemp(
+        prefix=f".{dataset_id}.",
+        suffix=".staging",
+        dir=registry_root,
+    ))
+    os.chmod(staging_dir, 0o700)
+    staging_stat = staging_dir.stat(follow_symlinks=False)
+    if not stat.S_ISDIR(staging_stat.st_mode):
+        raise ValueError(f"Staged dataset must be a directory: {staging_dir}")
+    return staging_dir, (staging_stat.st_dev, staging_stat.st_ino)
+
+
+def _publish_staged_dataset(
+    staging_dir: Path,
+    out_dir: Path,
+    *,
+    staging_identity: tuple[int, int],
+    expected_manifest: dict,
+    authority_check: Callable[[], None],
+) -> None:
+    registry_root = out_dir.parent
+    if staging_dir.parent != registry_root:
+        raise ValueError("Staged dataset is outside its dataset registry")
+    reject_symlink_components(registry_root, "Dataset registry")
+    lock_path = registry_root / ".registry.lock"
+    reject_symlink_paths([lock_path], "Dataset registry lock")
+    reject_symlink_components(lock_path, "Dataset registry lock")
+    with portable_file_lock(lock_path):
+        if _descriptor_publish_supported():
+            _publish_staged_dataset_with_descriptors(
+                registry_root,
+                staging_dir,
+                out_dir,
+                staging_identity=staging_identity,
+                expected_manifest=expected_manifest,
+                authority_check=authority_check,
+            )
+        else:  # pragma: no cover - descriptor-relative APIs are available on POSIX.
+            _publish_staged_dataset_with_paths(
+                staging_dir,
+                out_dir,
+                staging_identity=staging_identity,
+                expected_manifest=expected_manifest,
+                authority_check=authority_check,
+            )
+
+
+def _publish_staged_dataset_with_descriptors(
+    registry_root: Path,
+    staging_dir: Path,
+    out_dir: Path,
+    *,
+    staging_identity: tuple[int, int],
+    expected_manifest: dict,
+    authority_check: Callable[[], None],
+) -> None:
+    directory_flags = os.O_RDONLY
+    if hasattr(os, "O_CLOEXEC"):
+        directory_flags |= os.O_CLOEXEC
+    if hasattr(os, "O_DIRECTORY"):
+        directory_flags |= os.O_DIRECTORY
+    if hasattr(os, "O_NOFOLLOW"):
+        directory_flags |= os.O_NOFOLLOW
+    registry_descriptor = os.open(registry_root, directory_flags)
+    staging_descriptor = -1
+    try:
+        try:
+            staging_descriptor = os.open(
+                staging_dir.name,
+                directory_flags,
+                dir_fd=registry_descriptor,
+            )
+        except OSError as exc:
+            raise ValueError(
+                "Dataset staging identity changed before publication"
+            ) from exc
+        _verify_staged_dataset_descriptor(
+            staging_descriptor,
+            staging_identity=staging_identity,
+            expected_manifest=expected_manifest,
+        )
+        authority_check()
+        _verify_staged_dataset_descriptor(
+            staging_descriptor,
+            staging_identity=staging_identity,
+            expected_manifest=expected_manifest,
+        )
+        current = os.stat(
+            staging_dir.name,
+            dir_fd=registry_descriptor,
+            follow_symlinks=False,
+        )
+        if (current.st_dev, current.st_ino) != staging_identity:
+            raise ValueError("Dataset staging identity changed before publication")
+        try:
+            os.stat(
+                out_dir.name,
+                dir_fd=registry_descriptor,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            pass
+        else:
+            raise ValueError(f"Dataset output already exists: {out_dir}")
+        _fsync_descriptor(staging_descriptor)
+        os.rename(
+            staging_dir.name,
+            out_dir.name,
+            src_dir_fd=registry_descriptor,
+            dst_dir_fd=registry_descriptor,
+        )
+        published = os.stat(
+            out_dir.name,
+            dir_fd=registry_descriptor,
+            follow_symlinks=False,
+        )
+        if (
+            not stat.S_ISDIR(published.st_mode)
+            or (published.st_dev, published.st_ino) != staging_identity
+        ):
+            raise ValueError("Published dataset identity changed during publication")
+        _fsync_descriptor(registry_descriptor)
+    finally:
+        if staging_descriptor >= 0:
+            os.close(staging_descriptor)
+        os.close(registry_descriptor)
+
+
+def _publish_staged_dataset_with_paths(
+    staging_dir: Path,
+    out_dir: Path,
+    *,
+    staging_identity: tuple[int, int],
+    expected_manifest: dict,
+    authority_check: Callable[[], None],
+) -> None:
+    _verify_staged_dataset_path(
+        staging_dir,
+        staging_identity=staging_identity,
+        expected_manifest=expected_manifest,
+    )
+    authority_check()
+    _verify_staged_dataset_path(
+        staging_dir,
+        staging_identity=staging_identity,
+        expected_manifest=expected_manifest,
+    )
+    reject_symlink_paths([out_dir], "Dataset output")
+    if out_dir.exists() or out_dir.is_symlink():
+        raise ValueError(f"Dataset output already exists: {out_dir}")
+    current = staging_dir.stat(follow_symlinks=False)
+    if (current.st_dev, current.st_ino) != staging_identity:
+        raise ValueError("Dataset staging identity changed before publication")
+    _fsync_directory_path(staging_dir)
+    staging_dir.rename(out_dir)
+    published = out_dir.stat(follow_symlinks=False)
+    if (
+        not stat.S_ISDIR(published.st_mode)
+        or (published.st_dev, published.st_ino) != staging_identity
+    ):
+        raise ValueError("Published dataset identity changed during publication")
+    _fsync_directory_path(out_dir.parent)
+
+
+def _verify_staged_dataset_descriptor(
+    staging_descriptor: int,
+    *,
+    staging_identity: tuple[int, int],
+    expected_manifest: dict,
+) -> None:
+    staging_stat = os.fstat(staging_descriptor)
+    if (
+        not stat.S_ISDIR(staging_stat.st_mode)
+        or (staging_stat.st_dev, staging_stat.st_ino) != staging_identity
+    ):
+        raise ValueError("Dataset staging identity changed before publication")
+    if os.name != "nt" and stat.S_IMODE(staging_stat.st_mode) != 0o700:
+        raise ValueError("Staged dataset directory permissions changed")
+    expected_names = _expected_staging_names(expected_manifest)
+    actual_names = set(os.listdir(staging_descriptor))
+    if actual_names != expected_names:
+        raise ValueError("Staged dataset has unexpected entries; publication refused")
+    contents = {
+        name: _read_private_regular_file(name, dir_fd=staging_descriptor)
+        for name in sorted(actual_names)
+    }
+    _verify_staged_dataset_contents(contents, expected_manifest)
+
+
+def _verify_staged_dataset_path(
+    staging_dir: Path,
+    *,
+    staging_identity: tuple[int, int],
+    expected_manifest: dict,
+) -> None:
+    try:
+        reject_symlink_components(staging_dir, "Staged dataset")
+        staging_stat = staging_dir.stat(follow_symlinks=False)
+    except OSError as exc:
+        raise ValueError(
+            "Dataset staging identity changed before publication"
+        ) from exc
+    if (
+        not stat.S_ISDIR(staging_stat.st_mode)
+        or (staging_stat.st_dev, staging_stat.st_ino) != staging_identity
+    ):
+        raise ValueError("Dataset staging identity changed before publication")
+    expected_names = _expected_staging_names(expected_manifest)
+    actual_names = {entry.name for entry in staging_dir.iterdir()}
+    if actual_names != expected_names:
+        raise ValueError("Staged dataset has unexpected entries; publication refused")
+    contents = {
+        name: _read_private_regular_file(staging_dir / name)
+        for name in sorted(actual_names)
+    }
+    _verify_staged_dataset_contents(contents, expected_manifest)
+
+
+def _expected_staging_names(manifest: dict) -> set[str]:
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, dict):
+        raise ValueError("Staged dataset manifest artifacts changed")
+    names = set(artifacts)
+    if any(
+        not isinstance(name, str)
+        or not name
+        or Path(name).name != name
+        or name.startswith(".")
+        for name in names
+    ):
+        raise ValueError("Staged dataset manifest artifact names changed")
+    return names | {"manifest.json"}
+
+
+def _read_private_regular_file(
+    path: str | Path,
+    *,
+    dir_fd: int | None = None,
+) -> bytes:
+    flags = os.O_RDONLY
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags, dir_fd=dir_fd)
+    except OSError as exc:
+        raise ValueError(
+            f"Staged dataset entry must be a regular file: {path}"
+        ) from exc
+    try:
+        file_stat = os.fstat(descriptor)
+        if not stat.S_ISREG(file_stat.st_mode):
+            raise ValueError(f"Staged dataset entry must be a regular file: {path}")
+        if os.name != "nt" and stat.S_IMODE(file_stat.st_mode) != 0o600:
+            raise ValueError(f"Staged dataset file permissions changed: {path}")
+        chunks = []
+        while True:
+            chunk = os.read(descriptor, 1024 * 1024)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        return b"".join(chunks)
+    finally:
+        os.close(descriptor)
+
+
+def _verify_staged_dataset_contents(contents: dict[str, bytes], manifest: dict) -> None:
+    if contents.get("manifest.json") != _manifest_text(manifest).encode():
+        raise ValueError("Staged dataset manifest changed before publication")
+    if manifest.get("dataset_binding_sha256") != dataset_binding_sha256(manifest):
+        raise ValueError("Staged dataset manifest binding changed before publication")
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, dict):
+        raise ValueError("Staged dataset manifest artifacts changed before publication")
+    for name, metadata in artifacts.items():
+        payload = contents.get(name)
+        if (
+            payload is None
+            or not isinstance(metadata, dict)
+            or metadata.get("size_bytes") != len(payload)
+            or metadata.get("sha256") != hashlib.sha256(payload).hexdigest()
+        ):
+            raise ValueError(f"Staged dataset artifact changed before publication: {name}")
+    selected_name = manifest.get("selected_dataset_file")
+    selected_metadata = artifacts.get(selected_name)
+    if (
+        not isinstance(selected_name, str)
+        or not isinstance(selected_metadata, dict)
+        or manifest.get("dataset_sha256") != selected_metadata.get("sha256")
+    ):
+        raise ValueError("Staged dataset selected artifact changed before publication")
+
+
+def _descriptor_publish_supported() -> bool:
+    return bool(
+        os.open in os.supports_dir_fd
+        and os.stat in os.supports_dir_fd
+        and os.rename in os.supports_dir_fd
+        and os.listdir in os.supports_fd
+    )
+
+
+def _fsync_descriptor(descriptor: int) -> None:
+    if os.name != "nt":
+        os.fsync(descriptor)
+
+
+def _fsync_directory_path(path: Path) -> None:
+    if os.name == "nt":
+        return
+    flags = os.O_RDONLY
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    if hasattr(os, "O_DIRECTORY"):
+        flags |= os.O_DIRECTORY
+    descriptor = os.open(path, flags)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _ensure_review_authority_current(
+    project_root: Path,
+    source_paths: list[str],
+    source_hashes: dict[str, str],
+    review_store: ReviewStore,
+    expected_review_snapshot: dict,
+) -> None:
+    if not _source_hashes_are_current(project_root, source_paths, source_hashes):
+        raise ValueError(
+            "Learning sources changed while compiling the dataset; rebuild required."
+        )
+    current_snapshot = canonical_review_snapshot(review_store.load_candidates())
+    if current_snapshot != expected_review_snapshot:
+        raise ValueError(
+            "Review state changed while compiling the learning dataset; rebuild required."
+        )
+
+
+def _ensure_active_authority_current(
+    project_root: Path,
+    expected_authority: dict,
+    source_paths: list[str],
+    source_hashes: dict[str, str],
+) -> None:
+    current_authority = capture_active_state_authority(project_root)
+    if (
+        current_authority["context_hashes"] != expected_authority["context_hashes"]
+        or current_authority["receipt_id"] != expected_authority["receipt_id"]
+        or current_authority["receipt_sha256"] != expected_authority["receipt_sha256"]
+    ):
+        raise ValueError(
+            "Active state changed while compiling the learning dataset; rebuild required."
+        )
+    if not _source_hashes_are_current(project_root, source_paths, source_hashes):
+        raise ValueError(
+            "Learning sources changed while compiling the dataset; rebuild required."
+        )
+
+
+def _source_hashes_are_current(
+    project_root: Path,
+    source_paths: list[str],
+    source_hashes: dict[str, str],
+) -> bool:
+    for raw_path in source_paths:
+        rel_path = Path(raw_path)
+        if rel_path.is_absolute() or ".." in rel_path.parts:
+            return False
+        source_path = project_root / rel_path
+        try:
+            reject_symlink_paths([source_path], "Learning source path")
+            reject_symlink_components(source_path, "Learning source path")
+            if (
+                not source_path.is_file()
+                or compute_sha256_file(source_path) != source_hashes.get(raw_path)
+            ):
+                return False
+        except (OSError, ValueError):
+            return False
+    return True
 
 
 def _write_jsonl(path: Path, rows: list[dict]) -> None:
-    reject_symlink_paths([path], "Dataset artifact")
-    path.write_text(
+    _write_private_text(
+        path,
         "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows)
     )
 
 
-def _read_json_object(path: Path, label: str) -> dict:
-    reject_symlink_paths([path], label)
-    reject_symlink_components(path, label)
+def _write_private_text(path: Path, content: str) -> None:
+    reject_symlink_components(path.parent, "Dataset artifact root")
+    reject_symlink_paths([path], "Dataset artifact")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(path, flags, 0o600)
     try:
-        data = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ValueError(f"{label} invalid: {exc}") from exc
-    if not isinstance(data, dict):
-        raise ValueError(f"{label} invalid: expected JSON object")
-    return data
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            descriptor = -1
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
 
 
-def _read_jsonl(path: Path, label: str) -> list[dict]:
-    reject_symlink_paths([path], label)
-    reject_symlink_components(path, label)
-    try:
-        lines = path.read_text().splitlines()
-    except OSError as exc:
-        raise ValueError(f"{label} unreadable: {exc}") from exc
-    rows = []
-    for line_number, line in enumerate(lines, 1):
-        if not line.strip():
-            continue
-        try:
-            payload = json.loads(line)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"{label}:{line_number} invalid JSON: {exc.msg}") from exc
-        if isinstance(payload, dict):
-            rows.append(payload)
-    return rows
+def _manifest_text(manifest: dict) -> str:
+    return json.dumps(manifest, indent=2, sort_keys=True) + "\n"
 
 
 def _write_selected_output(project_root: Path, output: Path, content: str) -> Path:
     output = output.expanduser()
     if not output.is_absolute():
         output = project_root / output
-    output = output.resolve()
+    output = Path(os.path.abspath(os.fspath(output)))
     reject_symlink_components(output.parent, "Dataset output")
     output.parent.mkdir(parents=True, exist_ok=True)
+    reject_symlink_components(output.parent, "Dataset output")
     reject_symlink_paths([output], "Dataset output")
-    output.write_text(content)
+    if hasattr(os, "O_NOFOLLOW"):
+        _write_selected_output_nofollow(output, content)
+    else:  # pragma: no cover - O_NOFOLLOW is available on supported POSIX hosts.
+        _replace_selected_output_without_following(output, content)
     return output
+
+
+def _write_selected_output_nofollow(output: Path, content: str) -> None:
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    descriptor = os.open(output, flags, 0o600)
+    try:
+        opened = os.fstat(descriptor)
+        if not stat.S_ISREG(opened.st_mode):
+            raise ValueError(f"Dataset output must be a regular file: {output}")
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            descriptor = -1
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+def _replace_selected_output_without_following(output: Path, content: str) -> None:
+    descriptor, temporary_name = tempfile.mkstemp(
+        dir=output.parent,
+        prefix=f".{output.name}.",
+        suffix=".tmp",
+    )
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            descriptor = -1
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        reject_symlink_paths([output], "Dataset output")
+        os.replace(temporary_path, output)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        try:
+            temporary_path.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def _dataset_id() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-
-
-def _writeable_hash(path: Path) -> str | None:
-    try:
-        if path.is_symlink() or not path.is_file():
-            return None
-        return compute_sha256_file(path)
-    except (OSError, ValueError):
-        return None
-
-
-def _state_context_hashes(project_root: Path) -> dict[str, str]:
-    candidates = {
-        ".morpheus/state.json": project_root / ".morpheus" / "state.json",
-        ".morpheus/evidence.jsonl": project_root / ".morpheus" / "evidence.jsonl",
-        "WAKE.md": project_root / "WAKE.md",
-        ".morpheus/WAKE.md": project_root / ".morpheus" / "WAKE.md",
-    }
-    hashes = {}
-    for rel, path in candidates.items():
-        value = _writeable_hash(path)
-        if value:
-            hashes[rel] = value
-    return hashes
 
 
 def _source_receipt_id(project_root: Path) -> str | None:

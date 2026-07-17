@@ -10,7 +10,7 @@ import re
 import socket
 import sys
 from fnmatch import fnmatch
-from functools import partial
+from functools import partial, wraps
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
 from types import SimpleNamespace
@@ -36,6 +36,7 @@ from morpheus.core.check import (
 from morpheus.core.learning.adapters import activate_adapter, list_adapters, rollback_adapter
 from morpheus.core.learning.benchmark import write_benchmark_report
 from morpheus.core.learning.dataset import build_learning_dataset
+from morpheus.core.learning.dataset_validation import manifest_count
 from morpheus.core.learning.eval import run_learning_eval
 from morpheus.core.learning.lab import (
     DEFAULT_LAB_EVAL_LIMIT,
@@ -59,6 +60,7 @@ from morpheus.core.provenance import (
     receipt_file_name,
 )
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
+from morpheus.core.state_authority import state_authority_transaction
 from morpheus.core.semantic.review import (
     ReviewStore,
     accept_proposed_candidates,
@@ -156,6 +158,27 @@ STALE_POSITIONING_RULES = [
         ),
     },
 ]
+
+
+def _state_authority_compile_command(function):
+    """Keep the CLI compile writer inside the shared state transaction."""
+
+    @wraps(function)
+    def wrapped(*args, **kwargs):
+        project_root = Path.cwd()
+        morpheus_dir = project_root / ".morpheus"
+        if not morpheus_dir.is_dir() or morpheus_dir.is_symlink():
+            return function(*args, **kwargs)
+        try:
+            with state_authority_transaction(project_root):
+                return function(*args, **kwargs)
+        except typer.Exit:
+            raise
+        except (OSError, ValueError) as exc:
+            console.print(f"[red]State authority lock failed:[/red] {exc}")
+            raise typer.Exit(1) from exc
+
+    return wrapped
 
 
 @app.callback(invoke_without_command=True)
@@ -588,6 +611,7 @@ def init(
 
 
 @app.command()
+@_state_authority_compile_command
 def compile(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed output"),
     semantic: bool = typer.Option(False, "--semantic", help="Extract semantic review candidates"),
@@ -1419,8 +1443,8 @@ def learn_dataset(
     if (
         source == "accepted"
         and (
-            int(manifest.get("trainable_candidate_count", 0)) < 20
-            or int(result.get("examples_count", 0)) < 100
+            manifest_count(manifest, "trainable_candidate_count") < 20
+            or manifest_count(result, "examples_count") < 100
         )
     ):
         console.print("Training blocked: accepted candidates < 20 or examples < 100.")
@@ -1447,15 +1471,34 @@ def learn_status(
         return
     latest_lab = status.get("latest_lab")
     effective_dataset = status.get("effective_dataset")
+    manifest = status.get("latest_manifest")
+    standalone_summary = status.get("latest_standalone_dataset")
+    standalone_validation = (
+        standalone_summary.get("validation")
+        if isinstance(standalone_summary, dict)
+        else None
+    )
+    displayable_manifest = bool(
+        isinstance(manifest, dict)
+        and isinstance(standalone_validation, dict)
+        and standalone_validation.get("valid") is True
+        and isinstance(manifest.get("dataset_id"), str)
+        and bool(manifest.get("dataset_id"))
+        and type(manifest.get("examples_count")) is int
+        and manifest["examples_count"] >= 0
+        and type(manifest.get("skipped_count")) is int
+        and manifest["skipped_count"] >= 0
+    )
     if not status["has_datasets"]:
         console.print("latest standalone dataset: none")
+    elif not displayable_manifest:
+        console.print("latest standalone dataset: invalid")
     else:
-        manifest = status["latest_manifest"]
         console.print(
             "latest standalone dataset: "
-            f"{manifest['dataset_id']} "
-            f"examples={manifest['examples_count']} "
-            f"skipped={manifest['skipped_count']}"
+            f"{manifest.get('dataset_id')} "
+            f"examples={manifest_count(manifest, 'examples_count')} "
+            f"skipped={manifest_count(manifest, 'skipped_count')}"
         )
     if effective_dataset:
         console.print(
@@ -1467,16 +1510,24 @@ def learn_status(
         )
     else:
         console.print("effective dataset: none")
-    if latest_lab:
+    if (
+        latest_lab
+        and isinstance(latest_lab, dict)
+        and latest_lab.get("invalid") is not True
+        and isinstance(latest_lab.get("lab_id"), str)
+        and bool(latest_lab.get("lab_id"))
+    ):
         console.print(
             "latest lab: "
-            f"{latest_lab['lab_id']} "
+            f"{latest_lab.get('lab_id')} "
             f"source={latest_lab.get('source')} "
             f"accepted={latest_lab.get('strict_accepted_candidates')} "
             f"examples={latest_lab.get('examples_count')} "
             f"verdict={latest_lab.get('verdict')} "
             f"production_ready={latest_lab.get('production_ready')}"
         )
+    elif latest_lab:
+        console.print("latest lab: invalid")
     else:
         console.print("latest lab: none")
     active = status.get("active_adapter")
@@ -1700,15 +1751,23 @@ def learn_train(
     epochs: int = typer.Option(1, "--epochs", help="Training epochs"),
     learning_rate: str = typer.Option("2e-4", "--learning-rate", help="Learning rate"),
     max_seq_length: int = typer.Option(4096, "--max-seq-length", help="Maximum sequence length"),
-    dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Generate artifacts without training"),
-    execute: bool = typer.Option(False, "--execute", help="Actually run training after planning"),
+    dry_run: bool = typer.Option(
+        True,
+        "--dry-run/--no-dry-run",
+        help="Generate planning artifacts; direct execution is unsupported",
+    ),
+    execute: bool = typer.Option(
+        False,
+        "--execute",
+        help="Reserved; use `learn lab --backend mlx` for local execution",
+    ),
     confirm_execute: bool = typer.Option(
         False,
         "--yes-i-know-this-will-train",
-        help="Required with --execute",
+        help="Reserved confirmation flag; direct execution remains unsupported",
     ),
 ):
-    """Plan a LoRA/QLoRA training run from the latest reviewed dataset."""
+    """Plan, but do not execute, a LoRA/QLoRA run from reviewed data."""
     try:
         result = plan_training_run(
             project,

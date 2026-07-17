@@ -699,6 +699,14 @@ def test_cli_learn_lab_repeat_uses_stability_runner(tmp_path, monkeypatch):
 
 def test_mlx_training_uses_python_module_when_entrypoint_missing(tmp_path, monkeypatch):
     calls = []
+    project_root = copy_autonomous_repo(tmp_path)
+    lab = run_autonomous_lab(
+        project_root,
+        backend="fake",
+        no_train=True,
+        fixture_only=True,
+    )
+    lab_dir = Path(lab["lab_dir"])
 
     monkeypatch.setattr(lab_module.shutil, "which", lambda _name: None)
     monkeypatch.setattr(
@@ -714,7 +722,7 @@ def test_mlx_training_uses_python_module_when_entrypoint_missing(tmp_path, monke
     monkeypatch.setattr(lab_module.subprocess, "run", fake_run)
 
     result = lab_module._run_or_plan_training(
-        tmp_path,
+        lab_dir,
         backend="mlx",
         model="local-model",
         max_iters=1,
@@ -724,8 +732,16 @@ def test_mlx_training_uses_python_module_when_entrypoint_missing(tmp_path, monke
 
     assert result["training_ran"] is True
     assert calls
-    assert f"{lab_module.sys.executable} -m mlx_lm lora" in calls[0]
-    assert f"--learning-rate {lab_module.LAB_MLX_LEARNING_RATE}" in calls[0]
+    assert calls[0] == [str(lab_dir / "training/train_command.sh")]
+    command = (lab_dir / "training/train_command.sh").read_text()
+    assert (
+        f"{lab_module.sys.executable} -m "
+        "morpheus.core.learning.mlx_fd_loader"
+    ) in command
+    assert "--trusted-loader mlx-pinned-fd-v1" in command
+    assert '--data "${MORPHEUS_DATASET_DIR}"' in command
+    assert '--adapter-path "${MORPHEUS_OUTPUT_DIR}"' in command
+    assert f"--learning-rate {lab_module.LAB_MLX_LEARNING_RATE}" in command
 
 
 def test_mlx_generation_uses_python_module_and_training_system_prompt(monkeypatch):

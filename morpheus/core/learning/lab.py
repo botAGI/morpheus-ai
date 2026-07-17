@@ -15,7 +15,17 @@ from fnmatch import fnmatch
 from pathlib import Path
 
 from morpheus.core.learning.dataset import build_learning_dataset
+from morpheus.core.learning.dataset_validation import manifest_count, require_valid_dataset
 from morpheus.core.learning.examples import SYSTEM_PROMPT
+from morpheus.core.learning.training_runtime import (
+    MLX_PINNED_LOADER_CONTRACT,
+    RUNTIME_DATASET_DIR_PLACEHOLDER,
+    RUNTIME_OUTPUT_DIR_PLACEHOLDER,
+    RuntimeDatasetArgument,
+    render_guarded_training_command,
+    seal_dataset_snapshot,
+    shell_quote_training_argument,
+)
 from morpheus.core.learning.safety import (
     contains_secret_like_text,
     load_morpheusignore,
@@ -318,9 +328,10 @@ def _finish_lab(
         dataset_dir = Path(dataset_result["dataset_dir"])
         lab_dataset_dir = lab_dir / "dataset"
         _copy_dataset_dir(dataset_dir, lab_dataset_dir)
+        seal_dataset_snapshot(lab_dataset_dir)
         dataset_manifest = _read_json(lab_dataset_dir / "manifest.json")
         dataset_id = str(dataset_manifest.get("dataset_id") or "")
-        examples_count = int(dataset_manifest.get("examples_count") or 0)
+        examples_count = manifest_count(dataset_manifest, "examples_count")
         eval_items_count = _count_jsonl(lab_dataset_dir / "eval.seed.jsonl")
         heldout_items_count = _count_jsonl(lab_dataset_dir / "eval.heldout.jsonl")
     else:
@@ -638,20 +649,56 @@ def _run_or_plan_training(
     no_train: bool,
     train_allowed: bool,
 ) -> dict:
+    validation = None
+    if train_allowed:
+        project_root = lab_dir.parent.parent.parent
+        validation = require_valid_dataset(project_root, lab_dir / "dataset")
     training_dir = lab_dir / "training"
     training_dir.mkdir(parents=True, exist_ok=True)
     adapter_path = training_dir / "adapter"
+    output_identity = None
+    if validation is not None and backend == "mlx":
+        if adapter_path.exists() or adapter_path.is_symlink():
+            raise ValueError(f"Training output already exists: {adapter_path}")
+        adapter_path.mkdir(mode=0o700)
+        adapter_stat = adapter_path.lstat()
+        output_identity = (adapter_stat.st_dev, adapter_stat.st_ino)
     command_prefix = _mlx_command_prefix("lora") if backend == "mlx" else None
-    command = _training_command(
+    backend_command = _training_command(
         backend=backend,
         model=model,
-        dataset_dir=lab_dir / "dataset",
-        adapter_path=adapter_path,
+        dataset_dir=(
+            RUNTIME_DATASET_DIR_PLACEHOLDER
+            if validation is not None
+            else lab_dir / "dataset"
+        ),
+        adapter_path=(
+            RUNTIME_OUTPUT_DIR_PLACEHOLDER
+            if output_identity is not None
+            else adapter_path
+        ),
         max_iters=max_iters,
         command_prefix=command_prefix,
     )
-    (training_dir / "train_command.sh").write_text(command + "\n")
-    (training_dir / "train_command.sh").chmod(0o755)
+    command = (
+        render_guarded_training_command(
+            backend_command,
+            project_root=project_root,
+            source_dataset_dir=lab_dir / "dataset",
+            snapshot_dir=lab_dir / "dataset",
+            expected_binding_sha256=validation["dataset_binding_sha256"],
+            trusted_loader=(
+                MLX_PINNED_LOADER_CONTRACT if backend == "mlx" else None
+            ),
+            output_dir=adapter_path if output_identity is not None else None,
+            expected_output_identity=output_identity,
+        )
+        if validation is not None
+        else backend_command + "\n"
+    )
+    command_path = training_dir / "train_command.sh"
+    command_path.write_text(command)
+    command_path.chmod(0o755)
     adapter_manifest = {
         "adapter_id": lab_dir.name + "_adapter",
         "backend": backend,
@@ -683,9 +730,8 @@ def _run_or_plan_training(
             adapter_manifest["status"] = "blocked"
         else:
             completed = subprocess.run(
-                command,
+                [str(command_path)],
                 cwd=lab_dir,
-                shell=True,
                 text=True,
                 capture_output=True,
                 timeout=1800,
@@ -1419,6 +1465,13 @@ def _eval_coverage(seed_items: list[dict], selected_items: list[dict], *, eval_l
 
 
 def _mlx_command_prefix(tool: str) -> str | None:
+    if tool == "lora":
+        if importlib.util.find_spec("mlx_lm") is not None:
+            return (
+                f"{shlex.quote(sys.executable)} -m "
+                "morpheus.core.learning.mlx_fd_loader"
+            )
+        return None
     binary = shutil.which(f"mlx_lm.{tool}")
     if binary:
         return shlex.quote(binary)
@@ -1755,8 +1808,8 @@ def _training_command(
     *,
     backend: str,
     model: str,
-    dataset_dir: Path,
-    adapter_path: Path,
+    dataset_dir: Path | str | RuntimeDatasetArgument,
+    adapter_path: Path | RuntimeDatasetArgument,
     max_iters: int,
     command_prefix: str | None = None,
 ) -> str:
@@ -1766,8 +1819,8 @@ def _training_command(
             f"{prefix} "
             f"--model {shlex.quote(model)} "
             "--train "
-            f"--data {shlex.quote(str(dataset_dir))} "
-            f"--adapter-path {shlex.quote(str(adapter_path))} "
+            f"--data {shell_quote_training_argument(dataset_dir)} "
+            f"--adapter-path {shell_quote_training_argument(adapter_path)} "
             f"--iters {max_iters} "
             "--batch-size 1 "
             "--num-layers 4 "

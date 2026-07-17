@@ -4,6 +4,7 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from morpheus.cli import app
@@ -320,6 +321,28 @@ def test_cli_learn_dataset_and_status_work(tmp_path):
     assert status.exit_code == 0, status.output
     assert "latest standalone dataset" in status.output
     assert "effective dataset" in status.output
+
+
+@pytest.mark.parametrize("manifest_content", [None, "{not-json\n"])
+def test_cli_learn_status_fails_closed_for_invalid_newest_manifest(
+    tmp_path,
+    manifest_content,
+):
+    project_root = copy_learning_project(tmp_path)
+    build_learning_dataset(project_root)
+    invalid_dir = (
+        project_root
+        / ".morpheus/training/datasets/29990101T000000000000Z"
+    )
+    invalid_dir.mkdir(parents=True)
+    if manifest_content is not None:
+        (invalid_dir / "manifest.json").write_text(manifest_content)
+
+    result = CliRunner().invoke(app, ["learn", "status", str(project_root)])
+
+    assert result.exit_code == 0, result.output
+    assert "latest standalone dataset: invalid" in result.output
+    assert "trainable=False" in result.output
 
 
 def test_dataset_chat_format_writes_mlx_splits_and_manifest_fields(tmp_path):
