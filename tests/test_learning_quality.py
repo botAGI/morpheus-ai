@@ -1,8 +1,10 @@
 import json
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
+import morpheus.core.learning.quality as quality_module
 from morpheus.cli import app
 from morpheus.core.learning.dataset import build_learning_dataset
 from morpheus.core.learning.quality import build_quality_report, write_quality_report
@@ -25,6 +27,11 @@ def test_quality_report_counts_review_routes_dataset_and_blockers(tmp_path):
     assert report["dataset"]["latest_manifest"]["examples_count"] > 0
     assert report["dataset"]["latest_manifest"]["class_counts"]["product"] >= 1
     assert report["dataset"]["latest_manifest"]["route_counts"]["adapter_training"] >= 1
+    assert report["dataset"]["freshness"]["fresh"] is True
+    assert report["dataset"]["freshness"]["changed_paths"] == []
+    assert report["dataset"]["freshness"]["missing_paths"] == []
+    assert report["dataset"]["freshness"]["missing_hash_paths"] == []
+    assert report["dataset"]["freshness"]["invalid_paths"] == []
     assert report["train_allowed"] is False
     assert "accepted candidates < 20" in report["train_blockers"]
     assert report["benchmark_allowed"] is False
@@ -62,6 +69,94 @@ def test_cli_learn_quality_outputs_json_and_writes_report(tmp_path):
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["review"]["candidates_total"] == 11
+    assert payload["dataset"]["freshness"]["fresh"] is True
     assert payload["benchmark_allowed"] is False
     assert payload["paths"]["json_path"].endswith("quality_report.json")
     assert Path(payload["paths"]["json_path"]).is_file()
+
+
+def test_quality_report_blocks_dataset_after_source_changes(tmp_path, monkeypatch):
+    project_root = copy_learning_project(tmp_path)
+    build_learning_dataset(project_root)
+    changed_path = "README.md"
+    (project_root / changed_path).write_text("Morpheus changed after dataset compilation.\n")
+    monkeypatch.setattr(quality_module, "TRAIN_MIN_ACCEPTED", 0)
+    monkeypatch.setattr(quality_module, "TRAIN_MIN_EXAMPLES", 0)
+
+    report = build_quality_report(project_root)
+
+    freshness = report["dataset"]["freshness"]
+    assert freshness["fresh"] is False
+    assert freshness["changed_paths"] == [changed_path]
+    assert report["train_allowed"] is False
+    assert report["benchmark_allowed"] is False
+    assert "dataset sources changed" in report["train_blockers"]
+    assert "dataset sources changed" in report["benchmark_blockers"]
+    assert report["next_actions"] == [
+        "morpheus learn dataset . --from accepted --format instruction"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("case", "expected_bucket", "expected_path"),
+    [
+        ("missing_hash", "missing_hash_paths", "README.md"),
+        ("missing_file", "missing_paths", "README.md"),
+        ("parent_traversal", "invalid_paths", "../outside.md"),
+    ],
+)
+def test_quality_report_blocks_invalid_dataset_source_state(
+    tmp_path,
+    case,
+    expected_bucket,
+    expected_path,
+):
+    project_root = copy_learning_project(tmp_path)
+    dataset = build_learning_dataset(project_root)
+    manifest_path = Path(dataset["dataset_dir"]) / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+
+    if case == "missing_hash":
+        manifest["source_hashes"].pop(expected_path)
+        manifest_path.write_text(json.dumps(manifest))
+    elif case == "missing_file":
+        (project_root / expected_path).unlink()
+    else:
+        manifest["source_paths"] = [expected_path]
+        manifest["source_hashes"][expected_path] = "a" * 64
+        manifest_path.write_text(json.dumps(manifest))
+
+    report = build_quality_report(project_root)
+
+    freshness = report["dataset"]["freshness"]
+    assert freshness["fresh"] is False
+    assert freshness[expected_bucket] == [expected_path]
+    assert report["train_allowed"] is False
+    assert report["benchmark_allowed"] is False
+
+
+def test_quality_markdown_names_changed_dataset_sources(tmp_path):
+    project_root = copy_learning_project(tmp_path)
+    build_learning_dataset(project_root)
+    (project_root / "README.md").write_text("Changed after dataset compilation.\n")
+
+    result = write_quality_report(project_root)
+
+    markdown = Path(result["markdown_path"]).read_text()
+    assert "## Dataset Freshness" in markdown
+    assert "Fresh: False" in markdown
+    assert "Changed: `README.md`" in markdown
+
+
+def test_quality_report_blocks_manifest_without_source_path_list(tmp_path):
+    project_root = tmp_path / "malformed-manifest"
+    dataset_dir = project_root / ".morpheus/training/datasets/20260717T000000Z"
+    dataset_dir.mkdir(parents=True)
+    (dataset_dir / "manifest.json").write_text("{}\n")
+
+    report = build_quality_report(project_root)
+
+    assert report["dataset"]["freshness"]["fresh"] is False
+    assert report["dataset"]["freshness"]["invalid_paths"] == ["source_paths"]
+    assert "dataset sources changed" in report["train_blockers"]
+    assert "dataset sources changed" in report["benchmark_blockers"]

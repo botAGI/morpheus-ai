@@ -1,4 +1,5 @@
 import json
+import hashlib
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -28,6 +29,12 @@ def test_benchmark_report_allows_balanced_manifest(tmp_path):
     project_root = tmp_path / "balanced"
     dataset_dir = project_root / ".morpheus/training/datasets/20260522T000000Z"
     dataset_dir.mkdir(parents=True)
+    source_paths = ["README.md", "SPEC.md", "AGENTS.md"]
+    source_hashes = {}
+    for source_path in source_paths:
+        source_text = f"Source-backed benchmark fixture: {source_path}\n"
+        (project_root / source_path).write_text(source_text)
+        source_hashes[source_path] = hashlib.sha256(source_text.encode()).hexdigest()
     manifest = {
         "dataset_id": "20260522T000000Z",
         "created_at": "2026-05-22T00:00:00+00:00",
@@ -43,7 +50,8 @@ def test_benchmark_report_allows_balanced_manifest(tmp_path):
             "product": 3,
         },
         "route_counts": {"adapter_training": 22},
-        "source_paths": ["README.md", "SPEC.md", "AGENTS.md"],
+        "source_paths": source_paths,
+        "source_hashes": source_hashes,
     }
     (dataset_dir / "manifest.json").write_text(json.dumps(manifest))
     (dataset_dir / "eval.seed.jsonl").write_text(

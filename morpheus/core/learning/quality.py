@@ -1,5 +1,6 @@
 """Dataset quality reports for reviewed Morpheus learning state."""
 from collections import Counter
+import hashlib
 import json
 from pathlib import Path
 
@@ -40,24 +41,28 @@ def build_quality_report(project_root: Path) -> dict:
     routed = [_quality_candidate(project_root, candidate, ignore_patterns) for candidate in candidates]
     latest = latest_dataset_dir(project_root)
     latest_manifest = dataset_manifest(latest) if latest is not None else None
+    freshness = _dataset_freshness(project_root, latest_manifest)
     accepted_trainable = sum(
         1 for item in routed if item["trainability_status"] == "trainable"
     )
     examples_count = int((latest_manifest or {}).get("examples_count") or 0)
     eval_category_counts = _eval_category_counts(latest / "eval.seed.jsonl") if latest is not None else {}
-    benchmark_gate = _benchmark_gate(latest_manifest, eval_category_counts)
+    benchmark_gate = _benchmark_gate(latest_manifest, eval_category_counts, freshness)
     train_blockers = []
     if accepted_trainable < TRAIN_MIN_ACCEPTED:
         train_blockers.append("accepted candidates < 20")
     if examples_count < TRAIN_MIN_EXAMPLES:
         train_blockers.append("examples < 100")
+    if latest_manifest is not None and not freshness["fresh"]:
+        train_blockers.append("dataset sources changed")
     next_actions = []
-    if train_blockers:
+    if accepted_trainable < TRAIN_MIN_ACCEPTED:
         next_actions.extend([
             "morpheus review propose --max 30",
             "morpheus review accept-proposed --max 30",
-            "morpheus learn dataset . --from accepted --format instruction",
         ])
+    if train_blockers:
+        next_actions.append("morpheus learn dataset . --from accepted --format instruction")
     return {
         "review": {
             "candidates_total": len(routed),
@@ -79,6 +84,7 @@ def build_quality_report(project_root: Path) -> dict:
         "dataset": {
             "latest_dataset_dir": str(latest) if latest is not None else None,
             "latest_manifest": latest_manifest,
+            "freshness": freshness,
         },
         "train_allowed": not train_blockers,
         "train_blockers": train_blockers,
@@ -110,6 +116,7 @@ def write_quality_report(project_root: Path) -> dict:
 def render_quality_report(report: dict) -> str:
     review = report["review"]
     manifest = (report["dataset"].get("latest_manifest") or {})
+    freshness = report["dataset"]["freshness"]
     lines = [
         "# Morpheus Dataset Quality",
         "",
@@ -141,6 +148,23 @@ def render_quality_report(report: dict) -> str:
         f"- Eval items: {manifest.get('eval_items_count') or 0}",
         f"- Skipped: {manifest.get('skipped_count') or 0}",
         "",
+        "## Dataset Freshness",
+        "",
+        f"- Available: {freshness['available']}",
+        f"- Fresh: {freshness['fresh']}",
+        f"- Checked paths: {freshness['checked_paths']}",
+    ])
+    freshness_labels = {
+        "changed_paths": "Changed",
+        "missing_paths": "Missing",
+        "missing_hash_paths": "Missing hash",
+        "invalid_paths": "Invalid",
+    }
+    for key, label in freshness_labels.items():
+        for path in freshness[key]:
+            lines.append(f"- {label}: `{path}`")
+    lines.extend([
+        "",
         "## Train Gate",
         "",
         f"- Train allowed: {report['train_allowed']}",
@@ -161,6 +185,80 @@ def render_quality_report(report: dict) -> str:
         for action in report["next_actions"]:
             lines.append(f"- `{action}`")
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _dataset_freshness(project_root: Path, manifest: dict | None) -> dict:
+    result = {
+        "available": manifest is not None,
+        "fresh": manifest is not None,
+        "checked_paths": 0,
+        "changed_paths": [],
+        "missing_paths": [],
+        "missing_hash_paths": [],
+        "invalid_paths": [],
+    }
+    if manifest is None:
+        return result
+
+    source_paths = manifest.get("source_paths")
+    if not isinstance(source_paths, list):
+        result["invalid_paths"].append("source_paths")
+        result["fresh"] = False
+        return result
+    source_hashes = manifest.get("source_hashes")
+    if not isinstance(source_hashes, dict):
+        source_hashes = {}
+
+    for raw_path in source_paths:
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            result["invalid_paths"].append(_invalid_path_label(raw_path))
+            continue
+        rel_path = Path(raw_path)
+        if not rel_path.parts or rel_path.is_absolute() or ".." in rel_path.parts:
+            result["invalid_paths"].append(raw_path)
+            continue
+
+        source_path = project_root / rel_path
+        try:
+            if source_path.is_symlink():
+                raise ValueError("dataset source is a symlink")
+            reject_symlink_components(source_path, "Dataset source")
+        except ValueError:
+            result["invalid_paths"].append(raw_path)
+            continue
+        if not source_path.is_file():
+            result["missing_paths"].append(raw_path)
+            continue
+
+        expected_sha = source_hashes.get(raw_path)
+        if not _valid_sha256(expected_sha):
+            result["missing_hash_paths"].append(raw_path)
+            continue
+
+        actual_sha = hashlib.sha256(source_path.read_bytes()).hexdigest()
+        result["checked_paths"] += 1
+        if actual_sha != expected_sha:
+            result["changed_paths"].append(raw_path)
+
+    for key in ("changed_paths", "missing_paths", "missing_hash_paths", "invalid_paths"):
+        result[key] = sorted(set(result[key]))
+    result["fresh"] = not any(
+        result[key]
+        for key in ("changed_paths", "missing_paths", "missing_hash_paths", "invalid_paths")
+    )
+    return result
+
+
+def _invalid_path_label(value: object) -> str:
+    if value == "":
+        return "<empty>"
+    return json.dumps(value, sort_keys=True, default=str)
+
+
+def _valid_sha256(value: object) -> bool:
+    if not isinstance(value, str) or len(value) != 64:
+        return False
+    return all(character in "0123456789abcdefABCDEF" for character in value)
 
 
 def _quality_candidate(project_root: Path, candidate, ignore_patterns: set[str]) -> dict:
@@ -198,7 +296,11 @@ def _counts(values) -> dict:
     return dict(sorted(Counter(values).items()))
 
 
-def _benchmark_gate(manifest: dict | None, eval_category_counts: dict[str, int]) -> dict:
+def _benchmark_gate(
+    manifest: dict | None,
+    eval_category_counts: dict[str, int],
+    freshness: dict,
+) -> dict:
     manifest = manifest or {}
     class_counts = manifest.get("class_counts") or {}
     route_counts = manifest.get("route_counts") or {}
@@ -215,6 +317,8 @@ def _benchmark_gate(manifest: dict | None, eval_category_counts: dict[str, int])
         blockers.append("eval_items < 30")
     if len(source_paths) < BENCHMARK_MIN_SOURCE_PATHS:
         blockers.append("source_paths < 3")
+    if manifest is not None and not freshness["fresh"]:
+        blockers.append("dataset sources changed")
 
     class_requirements = {}
     for class_name, minimum in BENCHMARK_CLASS_MINIMUMS.items():
