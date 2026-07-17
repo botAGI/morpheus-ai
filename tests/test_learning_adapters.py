@@ -15,6 +15,7 @@ from tests.test_learning_dataset import copy_learning_project
 def planned_adapter(project_root: Path, *, passing_eval: bool = True) -> dict:
     build_learning_dataset(project_root)
     train = plan_training_run(project_root, dry_run=True)
+    run_learning_eval(project_root, base_only=True, dry_run=True)
     run_learning_eval(
         project_root,
         adapter_id=train["adapter_id"],

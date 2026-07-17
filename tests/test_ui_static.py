@@ -216,6 +216,11 @@ def test_ui_exposes_learning_quality_and_benchmark_dashboard():
         "apiRequest('/learning/benchmark'",
         "renderLearningQuality",
         "renderLearningBenchmark",
+        "activation_ready=${payload.activation_ready}",
+        "base_eval=${payload.latest_base_eval",
+        "adapter_eval=${payload.latest_adapter_eval",
+        "critical_regressions=${(payload.critical_regressions",
+        "category_deltas=${JSON.stringify(payload.category_deltas",
     ]
     for snippet in required_snippets:
         assert snippet in html

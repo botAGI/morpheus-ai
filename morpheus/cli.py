@@ -1556,6 +1556,8 @@ def learn_benchmark(
         return
     console.print(f"benchmark report: {result['benchmark_report_md_path']}")
     console.print(f"benchmark_allowed={result['benchmark_allowed']}")
+    console.print(f"activation_ready={result['activation_ready']}")
+    console.print(f"critical_regressions={len(result['critical_regressions'])}")
     if result["benchmark_blockers"]:
         console.print("blockers: " + ", ".join(result["benchmark_blockers"]))
     console.print(f"next: {result['next_command']}")

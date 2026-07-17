@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from typer.testing import CliRunner
 
 from morpheus.cli import app
@@ -94,9 +96,104 @@ def test_activation_allowed_if_eval_passes(tmp_path):
     project_root = copy_learning_project(tmp_path)
     build_learning_dataset(project_root)
     train = plan_training_run(project_root, dry_run=True)
+    run_learning_eval(project_root, base_only=True, dry_run=True)
     run_learning_eval(project_root, adapter_id=train["adapter_id"], dry_run=True)
 
     gate = check_activation_gate(project_root, train["adapter_id"])
 
     assert gate["allowed"] is True
     assert gate["reason"] == "passed"
+
+
+def test_activation_refused_without_matching_base_eval(tmp_path):
+    project_root = copy_learning_project(tmp_path)
+    dataset = build_learning_dataset(project_root)
+    train = plan_training_run(project_root, dry_run=True)
+    run_learning_eval(project_root, adapter_id=train["adapter_id"], dry_run=True)
+
+    gate = check_activation_gate(project_root, train["adapter_id"])
+
+    assert gate["allowed"] is False
+    assert gate["reason"] == "missing_base_eval"
+    assert gate["dataset_id"] == dataset["dataset_id"]
+
+
+@pytest.mark.parametrize(
+    "category",
+    [
+        "outdated_claim_correction",
+        "agent_rule_adherence",
+        "unsupported_claim_refusal",
+    ],
+)
+def test_activation_refused_on_critical_category_regression(tmp_path, category):
+    project_root = copy_learning_project(tmp_path)
+    dataset = build_learning_dataset(project_root)
+    adapter_id = "adapter_regression"
+    _write_gate_eval(
+        project_root,
+        eval_id="eval_20260522T000000000001Z",
+        dataset_id=dataset["dataset_id"],
+        adapter_id=None,
+        base_only=True,
+        regressed_category=None,
+    )
+    _write_gate_eval(
+        project_root,
+        eval_id="eval_20260522T000000000002Z",
+        dataset_id=dataset["dataset_id"],
+        adapter_id=adapter_id,
+        base_only=False,
+        regressed_category=category,
+    )
+
+    gate = check_activation_gate(project_root, adapter_id)
+
+    assert gate["allowed"] is False
+    assert gate["reason"] == "critical_category_regression"
+    assert gate["critical_regressions"][0]["category"] == category
+
+
+def _write_gate_eval(
+    project_root: Path,
+    *,
+    eval_id: str,
+    dataset_id: str,
+    adapter_id: str | None,
+    base_only: bool,
+    regressed_category: str | None,
+) -> None:
+    eval_dir = project_root / ".morpheus/training/evals" / eval_id
+    eval_dir.mkdir(parents=True)
+    categories = {}
+    for category in (
+        "outdated_claim_correction",
+        "agent_rule_adherence",
+        "unsupported_claim_refusal",
+    ):
+        passed = category != regressed_category
+        categories[category] = {
+            "total_items": 1,
+            "passed_items": int(passed),
+            "pass_rate": 1.0 if passed else 0.0,
+            "hallucinated_items": 0,
+            "hallucination_rate": 0.0,
+            "critical_failures": 0,
+        }
+    config = {
+        "eval_id": eval_id,
+        "dataset_id": dataset_id,
+        "adapter_id": adapter_id,
+        "base_only": base_only,
+    }
+    results = {
+        **config,
+        "metrics": {
+            "pass_rate": 1.0,
+            "hallucination_rate": 0.0,
+            "critical_outdated_claim_failures": 0,
+            "by_category": categories,
+        },
+    }
+    (eval_dir / "eval_config.json").write_text(json.dumps(config))
+    (eval_dir / "eval_results.json").write_text(json.dumps(results))

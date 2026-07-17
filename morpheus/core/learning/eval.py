@@ -15,6 +15,11 @@ EVAL_CATEGORIES = {
     "unsupported_claim_refusal",
     "agent_rule_adherence",
 }
+CRITICAL_BENCHMARK_CATEGORIES = frozenset({
+    "outdated_claim_correction",
+    "unsupported_claim_refusal",
+    "agent_rule_adherence",
+})
 DEFAULT_PASS_RATE_THRESHOLD = 0.8
 DEFAULT_HALLUCINATION_RATE_THRESHOLD = 0.05
 
@@ -43,9 +48,10 @@ def run_learning_eval(
     base_only: bool = False,
     dry_run: bool = True,
     fake_quality: str = "passing",
+    dataset_id: str | None = None,
 ) -> dict:
     project_root = _safe_project_root(project_root)
-    dataset_dir = latest_usable_dataset_dir(project_root)
+    dataset_dir = _dataset_dir_for_eval(project_root, dataset_id)
     if dataset_dir is None:
         raise ValueError(
             "No trainable learning dataset manifest found. Run `morpheus learn dataset .` "
@@ -167,12 +173,181 @@ def check_activation_gate(
             "eval_id": results.get("eval_id"),
             "metrics": metrics,
         }
+    dataset_id = results.get("dataset_id")
+    if not isinstance(dataset_id, str) or not dataset_id:
+        return {
+            "allowed": False,
+            "reason": "missing_base_eval",
+            "adapter_id": adapter_id,
+            "eval_id": results.get("eval_id"),
+            "dataset_id": dataset_id,
+            "metrics": metrics,
+        }
+    comparison = latest_eval_category_comparison(
+        project_root,
+        dataset_id=dataset_id,
+        adapter_id=adapter_id,
+    )
+    if comparison["base_eval"] is None:
+        return {
+            "allowed": False,
+            "reason": "missing_base_eval",
+            "adapter_id": adapter_id,
+            "eval_id": results.get("eval_id"),
+            "dataset_id": dataset_id,
+            "metrics": metrics,
+        }
+    if comparison["critical_regressions"]:
+        return {
+            "allowed": False,
+            "reason": "critical_category_regression",
+            "adapter_id": adapter_id,
+            "eval_id": results.get("eval_id"),
+            "dataset_id": dataset_id,
+            "metrics": metrics,
+            "category_deltas": comparison["category_deltas"],
+            "critical_regressions": comparison["critical_regressions"],
+        }
     return {
         "allowed": True,
         "reason": "passed",
         "adapter_id": adapter_id,
         "eval_id": results.get("eval_id"),
+        "dataset_id": dataset_id,
         "metrics": metrics,
+        "category_deltas": comparison["category_deltas"],
+        "critical_regressions": [],
+    }
+
+
+def latest_eval_category_comparison(
+    project_root: Path,
+    *,
+    dataset_id: str,
+    adapter_id: str | None = None,
+) -> dict:
+    """Compare the latest base and adapter evals for one exact dataset."""
+    base_eval, adapter_eval = _latest_eval_results_for_dataset(
+        project_root,
+        dataset_id=dataset_id,
+        adapter_id=adapter_id,
+    )
+    base_categories = _category_metrics(base_eval)
+    adapter_categories = _category_metrics(adapter_eval)
+    category_deltas = {}
+    if base_eval is not None and adapter_eval is not None:
+        for category in sorted(set(base_categories) | set(adapter_categories)):
+            base = base_categories.get(category) or {}
+            adapter = adapter_categories.get(category) or {}
+            base_rate = float(base.get("pass_rate") or 0.0)
+            adapter_rate = float(adapter.get("pass_rate") or 0.0)
+            category_deltas[category] = {
+                "base_pass_rate": round(base_rate, 4),
+                "adapter_pass_rate": round(adapter_rate, 4),
+                "pass_rate_delta": round(adapter_rate - base_rate, 4),
+                "base_total_items": int(base.get("total_items") or 0),
+                "adapter_total_items": int(adapter.get("total_items") or 0),
+            }
+    critical_regressions = _critical_category_regressions(
+        category_deltas,
+        base_categories,
+        adapter_categories,
+    )
+    return {
+        "base_eval": _eval_summary(base_eval),
+        "adapter_eval": _eval_summary(adapter_eval),
+        "category_deltas": category_deltas,
+        "critical_regressions": critical_regressions,
+    }
+
+
+def _latest_eval_results_for_dataset(
+    project_root: Path,
+    *,
+    dataset_id: str,
+    adapter_id: str | None,
+) -> tuple[dict | None, dict | None]:
+    evals_root = project_root / ".morpheus" / "training" / "evals"
+    if evals_root.is_symlink():
+        raise ValueError(f"Eval registry must not be a symlink: {evals_root}")
+    reject_symlink_components(evals_root, "Eval registry")
+    if not evals_root.is_dir():
+        return None, None
+    base_results = []
+    adapter_results = []
+    result_paths = sorted(
+        evals_root.glob("*/eval_results.json"),
+        key=lambda item: item.as_posix(),
+    )
+    for results_path in result_paths:
+        if results_path.is_symlink():
+            continue
+        result = _read_json(results_path, "Eval results")
+        if result.get("dataset_id") != dataset_id:
+            continue
+        if result.get("base_only"):
+            base_results.append(result)
+            continue
+        result_adapter_id = result.get("adapter_id")
+        if not result_adapter_id:
+            continue
+        if adapter_id is None or result_adapter_id == adapter_id:
+            adapter_results.append(result)
+    return (
+        base_results[-1] if base_results else None,
+        adapter_results[-1] if adapter_results else None,
+    )
+
+
+def _critical_category_regressions(
+    category_deltas: dict,
+    base_categories: dict,
+    adapter_categories: dict,
+) -> list[dict]:
+    regressions = []
+    for category in sorted(CRITICAL_BENCHMARK_CATEGORIES):
+        delta = category_deltas.get(category)
+        if delta is None or int(delta["base_total_items"]) <= 0:
+            continue
+        base = base_categories.get(category) or {}
+        adapter = adapter_categories.get(category) or {}
+        reasons = []
+        if int(delta["adapter_total_items"]) < int(delta["base_total_items"]):
+            reasons.append("coverage_decreased")
+        if float(delta["adapter_pass_rate"]) < float(delta["base_pass_rate"]):
+            reasons.append("pass_rate_decreased")
+        if int(adapter.get("critical_failures") or 0) > int(
+            base.get("critical_failures") or 0
+        ):
+            reasons.append("critical_failures_increased")
+        if reasons:
+            regressions.append({
+                "category": category,
+                **delta,
+                "reasons": reasons,
+            })
+    return regressions
+
+
+def _category_metrics(eval_results: dict | None) -> dict:
+    if not eval_results:
+        return {}
+    metrics = eval_results.get("metrics")
+    if not isinstance(metrics, dict):
+        return {}
+    by_category = metrics.get("by_category")
+    return by_category if isinstance(by_category, dict) else {}
+
+
+def _eval_summary(eval_results: dict | None) -> dict | None:
+    if not eval_results:
+        return None
+    return {
+        "eval_id": eval_results.get("eval_id"),
+        "adapter_id": eval_results.get("adapter_id"),
+        "base_only": bool(eval_results.get("base_only")),
+        "dataset_id": eval_results.get("dataset_id"),
+        "pass_rate": (eval_results.get("metrics") or {}).get("pass_rate"),
     }
 
 
@@ -319,6 +494,28 @@ def _latest_adapter_id(project_root: Path) -> str | None:
         if isinstance(adapter_id, str) and adapter_id:
             return adapter_id
     return None
+
+
+def _dataset_dir_for_eval(project_root: Path, dataset_id: str | None) -> Path | None:
+    if dataset_id is None:
+        return latest_usable_dataset_dir(project_root)
+    manifest_paths = [
+        *project_root.glob(".morpheus/training/datasets/*/manifest.json"),
+        *project_root.glob(".morpheus/lab/*/dataset/manifest.json"),
+    ]
+    matches = []
+    for manifest_path in sorted(manifest_paths, key=lambda item: item.as_posix()):
+        if manifest_path.is_symlink() or manifest_path.parent.is_symlink():
+            continue
+        manifest = _read_json(manifest_path, "Dataset manifest")
+        if manifest.get("dataset_id") != dataset_id:
+            continue
+        if int(manifest.get("examples_count") or 0) <= 0:
+            continue
+        matches.append(manifest_path.parent)
+    if not matches:
+        raise ValueError(f"No trainable learning dataset found for dataset_id={dataset_id}.")
+    return matches[-1]
 
 
 def _latest_eval_for_adapter(project_root: Path, adapter_id: str) -> Path | None:

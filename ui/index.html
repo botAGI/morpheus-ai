@@ -1921,6 +1921,11 @@
           `examples=${payload.examples_count || 0}`,
           `eval_items=${payload.eval_items_count || 0}`,
           `trainable_candidates=${payload.trainable_candidate_count || 0}`,
+          `activation_ready=${payload.activation_ready}`,
+          `base_eval=${payload.latest_base_eval ? payload.latest_base_eval.eval_id : 'none'}`,
+          `adapter_eval=${payload.latest_adapter_eval ? payload.latest_adapter_eval.eval_id : 'none'}`,
+          `critical_regressions=${(payload.critical_regressions || []).length}`,
+          `category_deltas=${JSON.stringify(payload.category_deltas || {})}`,
           `report=${payload.paths ? payload.paths.benchmark_report_path : payload.benchmark_report_path}`,
           `next=${payload.next_command || ''}`,
         ].join('\n');

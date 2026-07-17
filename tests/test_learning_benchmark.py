@@ -25,7 +25,7 @@ def test_benchmark_report_blocks_unbalanced_fixture_dataset(tmp_path):
     assert "Benchmark blocked" in Path(result["benchmark_report_md_path"]).read_text()
 
 
-def test_benchmark_report_allows_balanced_manifest(tmp_path):
+def create_balanced_benchmark_project(tmp_path):
     project_root = tmp_path / "balanced"
     dataset_dir = project_root / ".morpheus/training/datasets/20260522T000000Z"
     dataset_dir.mkdir(parents=True)
@@ -56,18 +56,99 @@ def test_benchmark_report_allows_balanced_manifest(tmp_path):
     (dataset_dir / "manifest.json").write_text(json.dumps(manifest))
     (dataset_dir / "eval.seed.jsonl").write_text(
         "\n".join([
-            json.dumps({"category": "unsupported_claim_refusal"}),
-            json.dumps({"category": "outdated_claim_correction"}),
-            json.dumps({"category": "project_recall"}),
+            json.dumps({
+                "category": "unsupported_claim_refusal",
+                "question": "Can an unsupported claim be confirmed?",
+                "expected_answer": "No",
+            }),
+            json.dumps({
+                "category": "outdated_claim_correction",
+                "question": "Is this stale claim current?",
+                "expected_answer": "No. This claim is outdated.",
+            }),
+            json.dumps({
+                "category": "agent_rule_adherence",
+                "question": "What rule applies?",
+                "expected_answer": "Follow AGENTS.md.",
+            }),
         ])
         + "\n"
     )
+    return project_root
+
+
+def test_benchmark_report_allows_balanced_manifest(tmp_path):
+    project_root = create_balanced_benchmark_project(tmp_path)
 
     result = write_benchmark_report(project_root, dry_run=True)
 
     assert result["benchmark_allowed"] is True
     assert result["benchmark_blockers"] == []
+    assert result["latest_base_eval"]["dataset_id"] == "20260522T000000Z"
     assert result["next_command"] == "morpheus learn lab . --backend mlx --max-iters 50"
+
+
+def test_benchmark_report_creates_matching_base_eval_for_adapter_comparison(tmp_path):
+    project_root = create_balanced_benchmark_project(tmp_path)
+    adapter_id = "adapter_balanced"
+    (project_root / ".morpheus/training/adapters" / adapter_id).mkdir(parents=True)
+    run_learning_eval(project_root, adapter_id=adapter_id, dry_run=True)
+
+    result = write_benchmark_report(project_root, dry_run=True)
+
+    assert result["latest_base_eval"]["dataset_id"] == result["dataset_id"]
+    assert result["latest_adapter_eval"]["dataset_id"] == result["dataset_id"]
+    assert result["category_deltas"]
+    assert result["activation_ready"] is True
+
+
+def test_benchmark_report_ignores_newer_evals_from_another_dataset(tmp_path):
+    project_root = create_balanced_benchmark_project(tmp_path)
+    adapter_id = "adapter_balanced"
+    (project_root / ".morpheus/training/adapters" / adapter_id).mkdir(parents=True)
+    run_learning_eval(project_root, base_only=True, dry_run=True)
+    run_learning_eval(project_root, adapter_id=adapter_id, dry_run=True)
+    _write_eval_result(
+        project_root,
+        eval_id="eval_zzzz_unrelated_base",
+        dataset_id="other-dataset",
+        adapter_id=None,
+        base_only=True,
+    )
+    _write_eval_result(
+        project_root,
+        eval_id="eval_zzzz_unrelated_adapter",
+        dataset_id="other-dataset",
+        adapter_id="adapter_other",
+        base_only=False,
+    )
+
+    result = write_benchmark_report(project_root, dry_run=True)
+
+    assert result["latest_base_eval"]["dataset_id"] == "20260522T000000Z"
+    assert result["latest_adapter_eval"]["dataset_id"] == "20260522T000000Z"
+
+
+def test_benchmark_base_eval_uses_report_dataset_instead_of_newer_lab_dataset(tmp_path):
+    project_root = create_balanced_benchmark_project(tmp_path)
+    lab_dataset_dir = project_root / ".morpheus/lab/lab_zzzz/dataset"
+    lab_dataset_dir.mkdir(parents=True)
+    lab_manifest = {
+        "dataset_id": "newer-lab-dataset",
+        "created_at": "2027-01-01T00:00:00+00:00",
+        "examples_count": 1,
+    }
+    (lab_dataset_dir / "manifest.json").write_text(json.dumps(lab_manifest))
+    (lab_dataset_dir / "eval.seed.jsonl").write_text(json.dumps({
+        "category": "project_recall",
+        "question": "Lab question",
+        "expected_answer": "Lab answer",
+    }) + "\n")
+    (lab_dataset_dir.parent / "lab_summary.json").write_text(json.dumps({"status": "ready"}))
+
+    result = write_benchmark_report(project_root, dry_run=True)
+
+    assert result["latest_base_eval"]["dataset_id"] == "20260522T000000Z"
 
 
 def test_benchmark_report_includes_category_level_base_adapter_deltas(tmp_path):
@@ -96,4 +177,49 @@ def test_cli_learn_benchmark_outputs_json(tmp_path):
     payload = json.loads(result.output)
     assert payload["dry_run"] is True
     assert payload["benchmark_allowed"] is False
+    assert payload["activation_ready"] is False
+    assert "critical_regressions" in payload
     assert payload["paths"]["benchmark_report_path"].endswith("benchmark_report.json")
+
+
+def test_cli_learn_benchmark_prints_activation_readiness(tmp_path):
+    project_root = copy_learning_project(tmp_path)
+    build_learning_dataset(project_root)
+
+    result = CliRunner().invoke(app, ["learn", "benchmark", str(project_root), "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert "activation_ready=False" in result.output
+    assert "critical_regressions=0" in result.output
+
+
+def _write_eval_result(
+    project_root: Path,
+    *,
+    eval_id: str,
+    dataset_id: str,
+    adapter_id: str | None,
+    base_only: bool,
+) -> None:
+    eval_dir = project_root / ".morpheus/training/evals" / eval_id
+    eval_dir.mkdir(parents=True)
+    result = {
+        "eval_id": eval_id,
+        "dataset_id": dataset_id,
+        "adapter_id": adapter_id,
+        "base_only": base_only,
+        "metrics": {
+            "pass_rate": 1.0,
+            "hallucination_rate": 0.0,
+            "critical_outdated_claim_failures": 0,
+            "by_category": {
+                "agent_rule_adherence": {
+                    "total_items": 1,
+                    "passed_items": 1,
+                    "pass_rate": 1.0,
+                    "critical_failures": 0,
+                }
+            },
+        },
+    }
+    (eval_dir / "eval_results.json").write_text(json.dumps(result))

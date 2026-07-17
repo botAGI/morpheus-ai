@@ -3,6 +3,11 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 
+from morpheus.core.learning.eval import (
+    check_activation_gate,
+    latest_eval_category_comparison,
+    run_learning_eval,
+)
 from morpheus.core.learning.quality import build_quality_report
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
 
@@ -24,9 +29,35 @@ def write_benchmark_report(
     benchmark_id = f"bench_{created_at.strftime('%Y%m%dT%H%M%S%fZ')}"
     quality = build_quality_report(project_root)
     manifest = (quality.get("dataset", {}).get("latest_manifest") or {})
+    dataset_id = manifest.get("dataset_id")
     benchmark_allowed = bool(quality.get("benchmark_allowed"))
     benchmark_blockers = list(quality.get("benchmark_blockers") or [])
-    eval_comparison = latest_eval_category_comparison(project_root)
+    eval_comparison = latest_eval_category_comparison(
+        project_root,
+        dataset_id=str(dataset_id or ""),
+    )
+    if benchmark_allowed and dataset_id and eval_comparison["base_eval"] is None:
+        run_learning_eval(
+            project_root,
+            base_only=True,
+            dry_run=True,
+            dataset_id=str(dataset_id),
+        )
+        eval_comparison = latest_eval_category_comparison(
+            project_root,
+            dataset_id=str(dataset_id),
+        )
+    latest_adapter_eval = eval_comparison["adapter_eval"]
+    if not benchmark_allowed:
+        activation_gate = {"allowed": False, "reason": "benchmark_blocked"}
+    elif latest_adapter_eval is None:
+        activation_gate = {"allowed": False, "reason": "missing_adapter_eval"}
+    else:
+        activation_gate = check_activation_gate(
+            project_root,
+            str(latest_adapter_eval["adapter_id"]),
+        )
+    activation_ready = bool(benchmark_allowed and activation_gate["allowed"])
     next_command = (
         f"morpheus learn lab . --backend {backend} --max-iters {max_iters}"
         if benchmark_allowed
@@ -57,7 +88,7 @@ def write_benchmark_report(
         "dry_run": dry_run,
         "backend": backend,
         "max_iters": max_iters,
-        "dataset_id": manifest.get("dataset_id"),
+        "dataset_id": dataset_id,
         "dataset_sha256": manifest.get("dataset_sha256"),
         "examples_count": int(manifest.get("examples_count") or 0),
         "eval_items_count": int(manifest.get("eval_items_count") or 0),
@@ -66,8 +97,11 @@ def write_benchmark_report(
         "benchmark_blockers": benchmark_blockers,
         "benchmark_gate": quality.get("benchmark_gate") or {},
         "latest_base_eval": eval_comparison["base_eval"],
-        "latest_adapter_eval": eval_comparison["adapter_eval"],
+        "latest_adapter_eval": latest_adapter_eval,
         "category_deltas": eval_comparison["category_deltas"],
+        "critical_regressions": eval_comparison["critical_regressions"],
+        "activation_gate": activation_gate,
+        "activation_ready": activation_ready,
         "quality_report": quality,
         "next_command": next_command,
         "benchmark_config_path": str(config_path),
@@ -95,6 +129,9 @@ def render_benchmark_report(report: dict) -> str:
         f"- Trainable candidates: {report['trainable_candidate_count']}",
         f"- Backend: `{report['backend']}`",
         f"- Dry run: {report['dry_run']}",
+        f"- Base eval: `{(report.get('latest_base_eval') or {}).get('eval_id') or 'none'}`",
+        f"- Adapter eval: `{(report.get('latest_adapter_eval') or {}).get('eval_id') or 'none'}`",
+        f"- Activation ready: {report.get('activation_ready', False)}",
         "",
         "## Gate",
         "",
@@ -129,6 +166,15 @@ def render_benchmark_report(report: dict) -> str:
                 f"delta `{item['pass_rate_delta']}`"
             )
 
+    regressions = report.get("critical_regressions") or []
+    if regressions:
+        lines.extend(["", "## Critical Regressions", ""])
+        for item in regressions:
+            lines.append(
+                f"- `{item['category']}`: "
+                + ", ".join(item.get("reasons") or [])
+            )
+
     lines.extend([
         "",
         "## Next Command",
@@ -136,86 +182,3 @@ def render_benchmark_report(report: dict) -> str:
         f"`{report['next_command']}`",
     ])
     return "\n".join(lines).rstrip() + "\n"
-
-
-def latest_eval_category_comparison(project_root: Path) -> dict:
-    """Return latest base/adaptor category metrics and per-category deltas."""
-    base_eval, adapter_eval = _latest_eval_results(project_root)
-    base_categories = _category_metrics(base_eval)
-    adapter_categories = _category_metrics(adapter_eval)
-    category_deltas = {}
-    for category in sorted(set(base_categories) | set(adapter_categories)):
-        base_rate = float((base_categories.get(category) or {}).get("pass_rate") or 0.0)
-        adapter_rate = float((adapter_categories.get(category) or {}).get("pass_rate") or 0.0)
-        category_deltas[category] = {
-            "base_pass_rate": round(base_rate, 4),
-            "adapter_pass_rate": round(adapter_rate, 4),
-            "pass_rate_delta": round(adapter_rate - base_rate, 4),
-            "base_total_items": int((base_categories.get(category) or {}).get("total_items") or 0),
-            "adapter_total_items": int(
-                (adapter_categories.get(category) or {}).get("total_items") or 0
-            ),
-        }
-    return {
-        "base_eval": _eval_summary(base_eval),
-        "adapter_eval": _eval_summary(adapter_eval),
-        "category_deltas": category_deltas,
-    }
-
-
-def _latest_eval_results(project_root: Path) -> tuple[dict | None, dict | None]:
-    evals_root = project_root / ".morpheus" / "training" / "evals"
-    if evals_root.is_symlink():
-        raise ValueError(f"Eval registry must not be a symlink: {evals_root}")
-    reject_symlink_components(evals_root, "Eval registry")
-    if not evals_root.is_dir():
-        return None, None
-    base_results = []
-    adapter_results = []
-    for results_path in sorted(evals_root.glob("*/eval_results.json"), key=lambda item: item.as_posix()):
-        if results_path.is_symlink():
-            continue
-        reject_symlink_components(results_path, "Eval results")
-        result = _read_json(results_path, "Eval results")
-        if result.get("base_only"):
-            base_results.append(result)
-        elif result.get("adapter_id"):
-            adapter_results.append(result)
-    return (
-        base_results[-1] if base_results else None,
-        adapter_results[-1] if adapter_results else None,
-    )
-
-
-def _category_metrics(eval_results: dict | None) -> dict:
-    if not eval_results:
-        return {}
-    metrics = eval_results.get("metrics")
-    if not isinstance(metrics, dict):
-        return {}
-    by_category = metrics.get("by_category")
-    return by_category if isinstance(by_category, dict) else {}
-
-
-def _eval_summary(eval_results: dict | None) -> dict | None:
-    if not eval_results:
-        return None
-    return {
-        "eval_id": eval_results.get("eval_id"),
-        "adapter_id": eval_results.get("adapter_id"),
-        "base_only": bool(eval_results.get("base_only")),
-        "dataset_id": eval_results.get("dataset_id"),
-        "pass_rate": (eval_results.get("metrics") or {}).get("pass_rate"),
-    }
-
-
-def _read_json(path: Path, label: str) -> dict:
-    reject_symlink_paths([path], label)
-    reject_symlink_components(path, label)
-    try:
-        data = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ValueError(f"{label} invalid: {exc}") from exc
-    if not isinstance(data, dict):
-        raise ValueError(f"{label} invalid: expected JSON object")
-    return data
