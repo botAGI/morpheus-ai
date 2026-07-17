@@ -291,6 +291,39 @@ def test_static_ui_server_does_not_require_reverse_dns(tmp_path, monkeypatch):
     assert server.socket.bound_address == ("127.0.0.1", 5173)
 
 
+def test_static_ui_server_bind_treats_missing_reuse_port_as_disabled(monkeypatch):
+    monkeypatch.setattr(
+        cli_module.socket,
+        "getfqdn",
+        lambda name: (_ for _ in ()).throw(AssertionError("reverse DNS should not run")),
+    )
+
+    class FakeSocket:
+        def __init__(self):
+            self.bound_address = None
+
+        def setsockopt(self, level, option, value):
+            return None
+
+        def bind(self, address):
+            self.bound_address = address
+
+        def getsockname(self):
+            return self.bound_address
+
+    server = object.__new__(cli_module.ReusableThreadingHTTPServer)
+    server.allow_reuse_address = True
+    server.address_family = cli_module.socket.AF_INET
+    server.server_address = ("127.0.0.1", 5174)
+    server.socket = FakeSocket()
+
+    cli_module.ReusableThreadingHTTPServer.server_bind(server)
+
+    assert server.server_address == ("127.0.0.1", 5174)
+    assert server.server_name == "127.0.0.1"
+    assert server.server_port == 5174
+
+
 def test_serve_summary_reuses_lan_ip_for_api_and_ui(monkeypatch):
     calls = []
 
@@ -381,8 +414,12 @@ def test_agent_connect_json_reports_manifest_without_server(tmp_path):
         assert payload["next_action"]["id"] == "prepare_agent"
         assert payload["endpoints"]["prepare_agent"]["url"] == "http://morpheus.local:8000/agent/prepare"
         assert payload["endpoints"]["integrations"]["url"] == "http://morpheus.local:8000/integrations"
+        assert payload["endpoints"]["learning_quality"]["url"] == "http://morpheus.local:8000/learning/quality"
+        assert payload["endpoints"]["learning_benchmark"]["url"] == "http://morpheus.local:8000/learning/benchmark"
         assert payload["integrations"]["service"] == "morpheus"
         assert payload["cli"]["agent_connect"] == "morpheus agent-connect --json"
+        assert payload["cli"]["learn_quality"] == "morpheus learn quality ."
+        assert payload["cli"]["learn_benchmark"] == "morpheus learn benchmark . --dry-run"
         assert (
             payload["cli"]["serve_ui"]
             == "morpheus serve --ui --host 127.0.0.1 --port 8000 --ui-port 5173"
@@ -420,6 +457,10 @@ def test_handoff_json_reports_bundle_without_server(tmp_path):
         assert payload["project_root"] == str(Path.cwd())
         assert payload["manifest"]["cli"]["agent_connect"] == "morpheus agent-connect --json"
         assert payload["commands"]["handoff"] == "morpheus handoff"
+        assert payload["commands"]["learn_quality"] == "morpheus learn quality ."
+        assert payload["commands"]["learn_benchmark"] == "morpheus learn benchmark . --dry-run"
+        assert "morpheus learn quality ." in payload["markdown"]
+        assert "morpheus learn benchmark . --dry-run" in payload["markdown"]
         assert "morpheus bootstrap-agent --dry-run" in payload["markdown"]
         assert not Path("AGENTS.md").exists()
 
@@ -433,6 +474,8 @@ def test_handoff_markdown_output_is_copyable_for_agents(tmp_path):
         assert result.exit_code == 0, result.output
         assert "# Morpheus Agent Handoff" in result.output
         assert "morpheus agent-connect --json" in result.output
+        assert "morpheus learn quality ." in result.output
+        assert "morpheus learn benchmark . --dry-run" in result.output
         assert "morpheus bootstrap-agent --dry-run" in result.output
 
 

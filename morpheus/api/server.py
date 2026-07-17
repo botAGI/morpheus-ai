@@ -60,6 +60,8 @@ except ModuleNotFoundError:
 from morpheus.core.config import MorpheusConfig
 from morpheus.core.check import check_text
 from morpheus.core.compiler import compile_project
+from morpheus.core.learning.benchmark import write_benchmark_report
+from morpheus.core.learning.quality import write_quality_report
 from morpheus.core.wake import generate_wake_md
 from morpheus.core.provenance import (
     compute_sha256_file,
@@ -108,6 +110,15 @@ class ProjectConfigRequest(BaseModel):
 class ModelSmokeRequest(BaseModel):
     base_model: Optional[str] = None
     prompt: Optional[str] = None
+
+class LearningQualityRequest(BaseModel):
+    project_root: Optional[str] = None
+
+class LearningBenchmarkRequest(BaseModel):
+    project_root: Optional[str] = None
+    dry_run: bool = True
+    backend: str = "mlx"
+    max_iters: int = 50
 
 class VerifyRequest(BaseModel):
     project_root: Optional[str] = None
@@ -657,6 +668,16 @@ def agent_connect_payload(request: Request, project_root: Path) -> dict:
             "method": "GET",
             "url": f"{api_base}/integrations",
         },
+        "learning_quality": {
+            "method": "POST",
+            "url": f"{api_base}/learning/quality",
+            "json": json_body,
+        },
+        "learning_benchmark": {
+            "method": "POST",
+            "url": f"{api_base}/learning/benchmark",
+            "json": {**json_body, "dry_run": True},
+        },
         "model_smoke": {
             "method": "POST",
             "url": f"{api_base}/models/smoke",
@@ -729,6 +750,8 @@ def agent_connect_payload(request: Request, project_root: Path) -> dict:
             "compile": "morpheus compile",
             "read_wake": "morpheus wake",
             "verify": "morpheus verify --all",
+            "learn_quality": "morpheus learn quality .",
+            "learn_benchmark": "morpheus learn benchmark . --dry-run",
             "model_smoke": f"morpheus model-smoke --base-model {DEFAULT_MODEL_SMOKE_MODEL}",
             "serve": "morpheus serve --host 127.0.0.1 --port 8000",
             "serve_ui": "morpheus serve --ui --host 127.0.0.1 --port 8000 --ui-port 5173",
@@ -749,6 +772,16 @@ def agent_connect_payload(request: Request, project_root: Path) -> dict:
             "verify": f"curl -s -X POST {shlex.quote(endpoints['verify']['url'])}",
             "config": f"curl -s {shlex.quote(endpoints['config']['url'])}",
             "integrations": f"curl -s {shlex.quote(endpoints['integrations']['url'])}",
+            "learning_quality": (
+                f"curl -s -X POST {shlex.quote(endpoints['learning_quality']['url'])} "
+                "-H 'Content-Type: application/json' "
+                f"-d {shlex.quote(json.dumps(endpoints['learning_quality']['json']))}"
+            ),
+            "learning_benchmark": (
+                f"curl -s -X POST {shlex.quote(endpoints['learning_benchmark']['url'])} "
+                "-H 'Content-Type: application/json' "
+                f"-d {shlex.quote(json.dumps(endpoints['learning_benchmark']['json']))}"
+            ),
             "model_smoke": (
                 f"curl -s -X POST {shlex.quote(endpoints['model_smoke']['url'])} "
                 "-H 'Content-Type: application/json' "
@@ -1346,6 +1379,8 @@ def agent_handoff_payload(request: Request, project_root: Path) -> dict:
         "compile": "morpheus compile",
         "read_wake": "morpheus wake",
         "verify": "morpheus verify --all",
+        "learn_quality": "morpheus learn quality .",
+        "learn_benchmark": "morpheus learn benchmark . --dry-run",
         "serve_ui": "morpheus serve --ui --host 127.0.0.1 --port 8000 --ui-port 5173",
     }
     payload = {
@@ -1629,6 +1664,48 @@ def diagnostics(request: Request, project_root: Optional[str] = None):
 def integrations():
     """Return integration setup status for humans, UI, and agents."""
     return integration_manifest()
+
+
+@app.post("/learning/quality")
+def learning_quality(request: LearningQualityRequest):
+    """Write and return dataset quality categories for reviewed learning state."""
+    root = Path(request.project_root) if request.project_root else Path.cwd()
+    try:
+        result = write_quality_report(root)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "project_root": str(root.expanduser().resolve()),
+        "paths": {
+            "json_path": result["json_path"],
+            "markdown_path": result["markdown_path"],
+        },
+        "report": result["report"],
+    }
+
+
+@app.post("/learning/benchmark")
+def learning_benchmark(request: LearningBenchmarkRequest):
+    """Write and return benchmark readiness artifacts without activating adapters."""
+    root = Path(request.project_root) if request.project_root else Path.cwd()
+    try:
+        result = write_benchmark_report(
+            root,
+            dry_run=request.dry_run,
+            backend=request.backend,
+            max_iters=request.max_iters,
+        )
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "project_root": str(root.expanduser().resolve()),
+        "paths": {
+            "benchmark_config_path": result["benchmark_config_path"],
+            "benchmark_report_path": result["benchmark_report_path"],
+            "benchmark_report_md_path": result["benchmark_report_md_path"],
+        },
+        **result,
+    }
 
 
 def model_smoke_payload(smoke_request: ModelSmokeRequest) -> ModelSmokeResponse:

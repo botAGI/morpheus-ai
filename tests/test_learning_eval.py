@@ -26,6 +26,9 @@ def test_eval_reads_seed_and_writes_results_and_report(tmp_path):
     assert results["metrics"]["pass_rate"] >= 0
     assert len(results["items"]) == len(seed_items)
     assert "unsupported_claim_refusal_rate" in results["metrics"]
+    assert "by_category" in results["metrics"]
+    assert results["metrics"]["by_category"]["unsupported_claim_refusal"]["total_items"] >= 1
+    assert "## Category Metrics" in report
     assert "# Morpheus Learning Eval" in report
 
 

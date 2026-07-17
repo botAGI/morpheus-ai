@@ -198,6 +198,29 @@ def test_ui_exposes_model_smoke_controls():
         assert snippet in html
 
 
+def test_ui_exposes_learning_quality_and_benchmark_dashboard():
+    html = Path("ui/index.html").read_text()
+
+    required_snippets = [
+        'data-panel="learning"',
+        'id="panel-learning"',
+        'id="refresh-learning-quality-btn"',
+        'id="run-learning-benchmark-btn"',
+        'id="learning-trainability-list"',
+        'id="learning-routes-list"',
+        'id="learning-blockers-list"',
+        'id="learning-benchmark-output"',
+        "async function refreshLearningQuality",
+        "async function runLearningBenchmark",
+        "apiRequest('/learning/quality'",
+        "apiRequest('/learning/benchmark'",
+        "renderLearningQuality",
+        "renderLearningBenchmark",
+    ]
+    for snippet in required_snippets:
+        assert snippet in html
+
+
 def test_ui_exposes_launchpad_for_humans_and_agents():
     html = Path("ui/index.html").read_text()
 

@@ -1,4 +1,5 @@
 """Compile reviewed semantic candidates into local training datasets."""
+from collections import Counter
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -31,6 +32,7 @@ from morpheus.core.provenance import compute_sha256_file, latest_receipt_file
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
 from morpheus.core.semantic.models import SemanticCandidate
 from morpheus.core.semantic.review import ReviewStore
+from morpheus.core.semantic.routing import route_candidate
 from morpheus.core.semantic.verifier import verify_candidate_span
 
 
@@ -170,6 +172,9 @@ def build_learning_dataset(
         "heldout_eval_items_count": len(heldout_items),
         "skipped_count": len(skipped),
         "split_counts": {key: len(value) for key, value in split_rows.items()},
+        "class_counts": dict(Counter(item.candidate.semantic_class for item in eligible)),
+        "trainability_counts": dict(Counter(item.candidate.trainability_status for item in eligible)),
+        "route_counts": dict(Counter(item.candidate.memory_route for item in eligible)),
         "smoke_mode": len(instruction_examples) < 20,
         "source_candidate_ids": sorted({
             item.candidate.id
@@ -261,7 +266,7 @@ def _eligible_candidate(
 
 def _load_dataset_candidates(project_root: Path, source: str) -> list[SemanticCandidate]:
     if source == "accepted":
-        return ReviewStore(project_root).load_candidates()
+        return [route_candidate(candidate) for candidate in ReviewStore(project_root).load_candidates()]
     return _active_state_candidates(project_root)
 
 
@@ -293,7 +298,7 @@ def _active_state_candidates(project_root: Path) -> list[SemanticCandidate]:
         evidence_sha = str(evidence.get("excerpt_sha256") or "")
         if len(evidence_sha) != 64:
             evidence_sha = compute_sha256_file(project_root / source_path)
-        candidates.append(SemanticCandidate(
+        candidates.append(route_candidate(SemanticCandidate(
             id=f"active_{claim.get('id')}",
             run_id=str(state.get("receipt_id") or "active_state"),
             kind=_kind_from_claim_category(str(claim.get("category") or "")),
@@ -312,7 +317,7 @@ def _active_state_candidates(project_root: Path) -> list[SemanticCandidate]:
             created_at=timestamp,
             provider={"name": "active-state", "model": "local"},
             prompt_sha256="0" * 64,
-        ))
+        )))
     return candidates
 
 
@@ -331,6 +336,9 @@ def _skip_record(candidate: SemanticCandidate, reason: str) -> dict:
         "candidate_id": candidate.id,
         "reason": reason,
         "kind": candidate.kind,
+        "semantic_class": candidate.semantic_class,
+        "trainability_status": candidate.trainability_status,
+        "memory_route": candidate.memory_route,
         "source_path": candidate.source_path,
         "line_start": candidate.line_start,
         "line_end": candidate.line_end,

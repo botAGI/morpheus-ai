@@ -197,6 +197,8 @@ morpheus check --input FILE     # Check agent text from a file
 morpheus stale .                # Report stale launch-positioning claims
 morpheus learn lab .            # Run autonomous local learning experiment
 morpheus learn dataset .        # Build dataset from accepted candidates
+morpheus learn quality .        # Show trainability, routing, and dataset blockers
+morpheus learn benchmark . --dry-run
 morpheus learn train . --dry-run
 morpheus learn eval .
 morpheus init                   # Initialize .morpheus/
@@ -208,6 +210,7 @@ morpheus prepare-agent          # Prepare AGENTS.md + handoff
 morpheus handoff                # Print copyable agent handoff
 morpheus agent-connect --json   # Print machine-readable agent manifest
 morpheus diagnostics --json     # Print readiness checks
+morpheus review accept-proposed # Accept rescored ACCEPT_SAFE candidates only
 morpheus serve --ui             # Run backend and browser UI
 ```
 

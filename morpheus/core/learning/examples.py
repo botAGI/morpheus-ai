@@ -197,6 +197,10 @@ def candidate_metadata(candidate: SemanticCandidate) -> dict:
         "line_end": candidate.line_end,
         "evidence_sha256": candidate.evidence_sha256,
         "kind": candidate.kind,
+        "semantic_class": candidate.semantic_class,
+        "trainability_status": candidate.trainability_status,
+        "trainability_reason": candidate.trainability_reason,
+        "memory_route": candidate.memory_route,
     }
 
 

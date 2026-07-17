@@ -348,9 +348,12 @@ morpheus compile
 | `morpheus check --input FILE` | Проверить текст агента из файла |
 | `morpheus check --json` | Напечатать machine-readable check result |
 | `morpheus review list` | Показать semantic candidates для review |
+| `morpheus review accept-proposed` | Принять свежепересчитанные `ACCEPT_SAFE` candidates без apply в active state |
 | `morpheus review apply` | Применить accepted candidates в active state и подписать receipt |
 | `morpheus learn lab .` | Запустить autonomous learning lab без activation adapters |
 | `morpheus learn dataset .` | Собрать dataset из accepted source-backed candidates |
+| `morpheus learn quality .` | Записать отчёты по trainability, routing, blockers и dataset quality |
+| `morpheus learn benchmark . --dry-run` | Записать benchmark-readiness artifacts без обучения и activation |
 | `morpheus learn status` | Показать learning dataset и adapter status |
 | `morpheus learn train . --dry-run` | Сгенерировать training artifacts без обучения |
 | `morpheus learn eval .` | Запустить eval harness для latest dataset или planned adapter |

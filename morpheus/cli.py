@@ -34,6 +34,7 @@ from morpheus.core.check import (
     render_check_summary,
 )
 from morpheus.core.learning.adapters import activate_adapter, list_adapters, rollback_adapter
+from morpheus.core.learning.benchmark import write_benchmark_report
 from morpheus.core.learning.dataset import build_learning_dataset
 from morpheus.core.learning.eval import run_learning_eval
 from morpheus.core.learning.lab import (
@@ -43,6 +44,7 @@ from morpheus.core.learning.lab import (
     run_autonomous_lab,
     run_autonomous_lab_stability,
 )
+from morpheus.core.learning.quality import write_quality_report
 from morpheus.core.learning.registry import learning_status
 from morpheus.core.learning.train import plan_training_run
 from morpheus.core.wake import generate_wake_md
@@ -58,6 +60,7 @@ from morpheus.core.provenance import (
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
 from morpheus.core.semantic.review import (
     ReviewStore,
+    accept_proposed_candidates,
     apply_accepted_candidates,
     export_review_pack,
     propose_review_candidates,
@@ -179,12 +182,13 @@ class QuietHTTPRequestHandler(SimpleHTTPRequestHandler):
 
 class ReusableThreadingHTTPServer(ThreadingHTTPServer):
     allow_reuse_address = True
+    allow_reuse_port = False
 
     def server_bind(self):
         if self.allow_reuse_address and hasattr(socket, "SO_REUSEADDR"):
             self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         if (
-            self.allow_reuse_port
+            getattr(self, "allow_reuse_port", False)
             and hasattr(socket, "SO_REUSEPORT")
             and self.address_family in (socket.AF_INET, socket.AF_INET6)
         ):
@@ -1237,6 +1241,29 @@ def review_propose(
     console.print(f"[green]✓ Proposal report:[/green] {result['paths']['report_md']}")
 
 
+@review_app.command("accept-proposed")
+def review_accept_proposed(
+    max_accepts: int = typer.Option(30, "--max", help="Maximum ACCEPT_SAFE ids to accept"),
+    threshold: float = typer.Option(0.80, "--threshold", help="Minimum confidence for ACCEPT_SAFE"),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON"),
+):
+    """Accept freshly scored ACCEPT_SAFE proposal ids without applying active state."""
+    try:
+        result = accept_proposed_candidates(
+            Path.cwd(),
+            max_accepts=max_accepts,
+            threshold=threshold,
+        )
+    except (KeyError, OSError, ValueError) as exc:
+        console.print(f"[red]Accept proposed failed:[/red] {exc}")
+        raise typer.Exit(1) from exc
+    if json_output:
+        console.out(json.dumps(result, indent=2, sort_keys=True))
+        return
+    console.print(f"[green]✓ Accepted proposed:[/green] {result['accepted_count']} candidates")
+    console.print("[yellow]Active state not changed.[/yellow] Run `morpheus review apply` explicitly.")
+
+
 @review_app.command("interactive")
 def review_interactive(
     source_backed: bool = typer.Option(False, "--source-backed", help="Review source-backed candidates only"),
@@ -1398,6 +1425,7 @@ def learn_dataset(
         console.print("Training blocked: accepted candidates < 20 or examples < 100.")
         console.print("Run:")
         console.print("  morpheus review propose --max 30")
+        console.print("  morpheus review accept-proposed --max 30")
         console.print("  morpheus review interactive --proposed")
     console.out(json.dumps(result, indent=2, sort_keys=True))
 
@@ -1460,6 +1488,77 @@ def learn_status(
         )
     else:
         console.print("active adapter: none")
+
+
+@learn_app.command("quality")
+def learn_quality(
+    project: Path = typer.Argument(Path("."), help="Project path"),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON"),
+):
+    """Write a dataset quality report for review, routing, and train gates."""
+    try:
+        result = write_quality_report(project)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        console.print(f"[red]Learning quality failed:[/red] {exc}")
+        raise typer.Exit(2) from exc
+    if json_output:
+        console.out(json.dumps({
+            "paths": {
+                "json_path": result["json_path"],
+                "markdown_path": result["markdown_path"],
+            },
+            **result["report"],
+        }, indent=2, sort_keys=True))
+        return
+    review = result["report"]["review"]
+    console.print(f"quality report: {result['markdown_path']}")
+    console.print(
+        "review: "
+        f"candidates={review['candidates_total']} "
+        f"accepted={review['accepted']} "
+        f"pending={review['pending']} "
+        f"rejected={review['rejected']}"
+    )
+    console.print(f"train_allowed={result['report']['train_allowed']}")
+    if result["report"]["train_blockers"]:
+        console.print("blockers: " + ", ".join(result["report"]["train_blockers"]))
+
+
+@learn_app.command("benchmark")
+def learn_benchmark(
+    project: Path = typer.Argument(Path("."), help="Project path"),
+    dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Write readiness artifacts only"),
+    backend: str = typer.Option("mlx", "--backend", help="Target benchmark backend"),
+    max_iters: int = typer.Option(50, "--max-iters", help="Suggested LoRA smoke iteration budget"),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON"),
+):
+    """Write a benchmark readiness report without training or activating adapters."""
+    try:
+        result = write_benchmark_report(
+            project,
+            dry_run=dry_run,
+            backend=backend,
+            max_iters=max_iters,
+        )
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        console.print(f"[red]Learning benchmark failed:[/red] {exc}")
+        raise typer.Exit(2) from exc
+    payload = {
+        "paths": {
+            "benchmark_config_path": result["benchmark_config_path"],
+            "benchmark_report_path": result["benchmark_report_path"],
+            "benchmark_report_md_path": result["benchmark_report_md_path"],
+        },
+        **result,
+    }
+    if json_output:
+        console.out(json.dumps(payload, indent=2, sort_keys=True))
+        return
+    console.print(f"benchmark report: {result['benchmark_report_md_path']}")
+    console.print(f"benchmark_allowed={result['benchmark_allowed']}")
+    if result["benchmark_blockers"]:
+        console.print("blockers: " + ", ".join(result["benchmark_blockers"]))
+    console.print(f"next: {result['next_command']}")
 
 
 @learn_app.command("lab")

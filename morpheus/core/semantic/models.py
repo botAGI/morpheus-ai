@@ -15,6 +15,38 @@ CandidateKind = Literal[
 ]
 CandidateLabel = Literal["source_backed", "inferred", "needs_review"]
 CandidateStatus = Literal["pending", "accepted", "rejected"]
+CandidateClass = Literal[
+    "architecture",
+    "implementation",
+    "product",
+    "security",
+    "command",
+    "integration",
+    "stale",
+    "convention",
+    "open_task",
+    "temporary",
+    "unknown",
+]
+TrainabilityStatus = Literal[
+    "trainable",
+    "negative_example",
+    "eval_only",
+    "retrievable",
+    "needs_review",
+    "unsafe",
+    "excluded",
+]
+MemoryRoute = Literal[
+    "adapter_training",
+    "negative_example",
+    "eval_only",
+    "retrieval",
+    "prompt_context",
+    "human_review",
+    "stale_archive",
+    "excluded",
+]
 SemanticSourceCategory = Literal[
     "docs_state_sources",
     "build_manifest_sources",
@@ -48,6 +80,10 @@ class SemanticCandidate(BaseModel):
     evidence_sha256: str = Field(min_length=64, max_length=64)
     confidence: float = Field(ge=0.0, le=1.0)
     label: CandidateLabel
+    semantic_class: CandidateClass = "unknown"
+    trainability_status: TrainabilityStatus = "needs_review"
+    trainability_reason: str = "unrouted"
+    memory_route: MemoryRoute = "human_review"
     status: CandidateStatus = "pending"
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     provider: dict
@@ -55,4 +91,3 @@ class SemanticCandidate(BaseModel):
     reviewed_by: str | None = None
     reviewed_at: datetime | None = None
     review_reason: str | None = None
-

@@ -1,6 +1,7 @@
 """Local truth checks for agent claims against Morpheus state."""
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
 import hashlib
@@ -13,6 +14,7 @@ import toml
 
 from morpheus.core.provenance import compute_sha256_file, latest_receipt_file
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
+from morpheus.core.semantic.classifier import classify_claim
 from morpheus.core.semantic.models import SemanticCandidate
 from morpheus.core.semantic.review import ReviewStore
 
@@ -86,6 +88,7 @@ def check_text(
         "claims_contradicted": sum(1 for item in results if item["status"] == "incorrect"),
         "claims_stale": sum(1 for item in results if item["status"] == "stale"),
         "claims_not_found": sum(1 for item in results if item["status"] == "unknown"),
+        "by_class": dict(sorted(Counter(item["semantic_class"] for item in results).items())),
         "fail_on_unknown": fail_on_unknown,
         "results": results,
     }
@@ -287,6 +290,7 @@ def _classify_claim(claim: str, context: dict) -> dict:
         return {
             "claim": claim,
             "status": "stale",
+            "semantic_class": stale["semantic_class"],
             "reason": "claim matches outdated project state",
             "evidence": stale["evidence"],
         }
@@ -296,6 +300,7 @@ def _classify_claim(claim: str, context: dict) -> dict:
         return {
             "claim": claim,
             "status": "verified",
+            "semantic_class": active["semantic_class"],
             "reason": "claim is supported by active Morpheus evidence",
             "evidence": active["evidence"],
         }
@@ -305,6 +310,7 @@ def _classify_claim(claim: str, context: dict) -> dict:
         return {
             "claim": claim,
             "status": "incorrect",
+            "semantic_class": contradiction["semantic_class"],
             "reason": "claim contradicts an active source-backed project claim",
             "evidence": contradiction["evidence"],
         }
@@ -312,6 +318,7 @@ def _classify_claim(claim: str, context: dict) -> dict:
     return {
         "claim": claim,
         "status": "unknown",
+        "semantic_class": "unknown",
         "reason": "no matching active evidence found",
         "evidence": None,
     }
@@ -327,6 +334,7 @@ def _classify_package_claim(claim: str, package_metadata: dict | None) -> dict |
         return {
             "claim": claim,
             "status": "verified",
+            "semantic_class": "command",
             "reason": "claim matches pyproject package metadata",
             "evidence": package_metadata["evidence"],
         }
@@ -336,6 +344,7 @@ def _classify_package_claim(claim: str, package_metadata: dict | None) -> dict |
             return {
                 "claim": claim,
                 "status": "incorrect",
+                "semantic_class": "command",
                 "reason": f"package metadata says distribution is {name}",
                 "evidence": package_metadata["evidence"],
             }
@@ -343,6 +352,7 @@ def _classify_package_claim(claim: str, package_metadata: dict | None) -> dict |
         return {
             "claim": claim,
             "status": "verified",
+            "semantic_class": "command",
             "reason": "claim matches pyproject version metadata",
             "evidence": package_metadata["evidence"],
         }
@@ -435,7 +445,26 @@ def _claim_item(claim: dict, evidence: dict | None) -> dict:
             "line_end": int(claim.get("line_end") or claim.get("line_start") or 1),
             "excerpt": str(claim.get("excerpt", "")),
         }
-    return {"text": text, "evidence": source_span}
+    return {
+        "text": text,
+        "semantic_class": classify_claim(
+            kind=_candidate_kind_from_claim(claim),
+            claim=text,
+            source_path=source_span["path"],
+        ),
+        "evidence": source_span,
+    }
+
+
+def _candidate_kind_from_claim(claim: dict) -> str:
+    category = str(claim.get("category") or "").casefold()
+    if category in {"task", "todo"}:
+        return "open_task"
+    if category in {"outdated", "stale"}:
+        return "outdated_claim"
+    if category == "decision":
+        return "active_decision"
+    return "current_state"
 
 
 def _evidence_span(evidence: dict) -> dict:
@@ -474,6 +503,7 @@ def _wake_outdated_claims(path: Path, project_root: Path) -> list[dict]:
             continue
         claims.append({
             "text": text,
+            "semantic_class": "stale",
             "evidence": {
                 "path": rel_path,
                 "line_start": line_number,

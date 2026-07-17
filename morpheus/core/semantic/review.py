@@ -22,7 +22,9 @@ from morpheus.core.provenance import (
 )
 from morpheus.core.providers.base import SemanticProvider
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
+from morpheus.core.semantic.classifier import classify_candidate, classify_candidates
 from morpheus.core.semantic.models import SemanticCandidate
+from morpheus.core.semantic.routing import route_candidate, route_candidates
 from morpheus.core.semantic.scanner import SECRET_PATTERNS, scan_semantic_sources
 from morpheus.core.semantic.verifier import verify_candidate_span
 from morpheus.core.wake import generate_wake_md
@@ -145,10 +147,10 @@ class ReviewStore:
         for index, candidate in enumerate(candidates):
             if candidate.id != candidate_id:
                 continue
-            updated = candidate.model_copy(update={
+            updated = route_candidate(candidate.model_copy(update={
                 **updates,
                 "reviewed_at": datetime.now(timezone.utc),
-            })
+            }))
             candidates[index] = updated
             self.save_candidates(candidates)
             return updated
@@ -196,10 +198,10 @@ def run_semantic_review(project_root: Path, *, provider: SemanticProvider) -> di
                 source_revision=source_revision,
             )
         )
-    candidates = [
+    candidates = route_candidates(classify_candidates([
         verify_candidate_span(project_root, candidate)
         for candidate in raw_candidates
-    ]
+    ]))
     report = semantic_report(
         run_id=run_id,
         provider=provider,
@@ -222,6 +224,9 @@ def semantic_report(
     by_label = Counter(candidate.label for candidate in candidates)
     by_status = Counter(candidate.status for candidate in candidates)
     by_kind = Counter(candidate.kind for candidate in candidates)
+    by_class = Counter(_candidate_class(candidate) for candidate in candidates)
+    by_trainability = Counter(candidate.trainability_status for candidate in candidates)
+    by_route = Counter(candidate.memory_route for candidate in candidates)
     return {
         "run_id": run_id,
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -232,6 +237,9 @@ def semantic_report(
         "by_label": dict(sorted(by_label.items())),
         "by_status": dict(sorted(by_status.items())),
         "by_kind": dict(sorted(by_kind.items())),
+        "by_class": dict(sorted(by_class.items())),
+        "by_trainability": dict(sorted(by_trainability.items())),
+        "by_route": dict(sorted(by_route.items())),
     }
 
 
@@ -262,10 +270,17 @@ def render_wake_draft(candidates: list[SemanticCandidate], report: dict) -> str:
         for candidate in grouped:
             lines.append(
                 f"- {candidate.claim} "
+                f"[{_candidate_class(candidate)}] "
                 f"({candidate.source_path}:{candidate.line_start})"
             )
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _candidate_class(candidate: SemanticCandidate) -> str:
+    if candidate.semantic_class != "unknown":
+        return candidate.semantic_class
+    return classify_candidate(candidate)
 
 
 def trainable_candidate(project_root: Path, candidate: SemanticCandidate) -> bool:
@@ -322,6 +337,9 @@ def review_doctor(project_root: Path, *, strict_threshold: float = 0.90) -> dict
         "fuzzy_evidence_verified": sum(1 for item in diagnostics if item["fuzzy_evidence_verified"]),
         "confidence_buckets": dict(_confidence_buckets(candidates)),
         "kind_buckets": dict(Counter(candidate.kind for candidate in candidates)),
+        "class_buckets": dict(Counter(_candidate_class(candidate) for candidate in candidates)),
+        "trainability_buckets": dict(Counter(candidate.trainability_status for candidate in candidates)),
+        "route_buckets": dict(Counter(candidate.memory_route for candidate in candidates)),
         "source_path_buckets": dict(Counter(candidate.source_path for candidate in candidates)),
         "top_strict_failure_reasons": dict(Counter(
             reason
@@ -397,6 +415,10 @@ def diagnose_candidate(
     return {
         "id": candidate.id,
         "kind": candidate.kind,
+        "semantic_class": _candidate_class(candidate),
+        "trainability_status": candidate.trainability_status,
+        "trainability_reason": candidate.trainability_reason,
+        "memory_route": candidate.memory_route,
         "claim": candidate.claim,
         "source_path": candidate.source_path,
         "status": candidate.status,
@@ -488,6 +510,35 @@ def write_review_proposal(
     }
 
 
+def accept_proposed_candidates(
+    project_root: Path,
+    *,
+    max_accepts: int = 30,
+    threshold: float = 0.80,
+    reviewed_by: str = "morpheus-proposal",
+) -> dict:
+    """Accept only freshly scored ACCEPT_SAFE proposal ids without applying state."""
+    project_root = _safe_project_root(project_root)
+    proposal = write_review_proposal(
+        project_root,
+        max_accepts=max_accepts,
+        threshold=threshold,
+    )
+    accepted = ReviewStore(project_root).accept_many(
+        proposal["proposed_accept_ids"],
+        reviewed_by=reviewed_by,
+    )
+    return {
+        "accepted_count": len(accepted),
+        "accepted_ids": [candidate.id for candidate in accepted],
+        "counts": proposal["counts"],
+        "threshold": threshold,
+        "max_accepts": max_accepts,
+        "paths": proposal["paths"],
+        "applied_active_state": False,
+    }
+
+
 def render_review_pack(candidates: list[SemanticCandidate]) -> str:
     lines = ["# Morpheus Semantic Review Pack", ""]
     for candidate in candidates:
@@ -496,6 +547,9 @@ def render_review_pack(candidates: list[SemanticCandidate]) -> str:
             f"## {candidate.id}",
             "",
             f"Kind: `{candidate.kind}`",
+            f"Class: `{_candidate_class(candidate)}`",
+            f"Trainability: `{candidate.trainability_status}`",
+            f"Memory route: `{candidate.memory_route}`",
             f"Claim: {candidate.claim}",
             f"Source: `{candidate.source_path}:{candidate.line_start}-{candidate.line_end}`",
             f"Evidence: {candidate.evidence_excerpt}",
@@ -559,6 +613,9 @@ def render_review_doctor(report: dict) -> str:
             f"### {item['id']}",
             f"- Source: `{item['source_path']}`",
             f"- Kind: `{item['kind']}`",
+            f"- Class: `{item['semantic_class']}`",
+            f"- Trainability: `{item['trainability_status']}`",
+            f"- Route: `{item['memory_route']}`",
             f"- Confidence: {item['confidence']}",
             f"- Exact evidence verified: {item['exact_evidence_verified']}",
             f"- Fuzzy evidence verified: {item['fuzzy_evidence_verified']}",
@@ -593,6 +650,9 @@ def render_proposal_report(proposal: dict) -> str:
         for item in grouped:
             lines.extend([
                 f"### {item['id']}",
+                f"- Class: `{item['semantic_class']}`",
+                f"- Trainability: `{item['trainability_status']}`",
+                f"- Route: `{item['memory_route']}`",
                 f"- Claim: {item['claim']}",
                 f"- Source: `{item['source_path']}:{item['line_start']}-{item['line_end']}`",
                 f"- Score: {item['score']}",
@@ -773,6 +833,10 @@ def _proposal_for_candidate(project_root: Path, candidate: SemanticCandidate, *,
     if candidate.kind == "outdated_claim":
         reasons.append("outdated_claim_correction_only")
         return _proposal(candidate, "ACCEPT_REVIEW", score, reasons, exact, fuzzy)
+    weak_reason = _weak_training_claim_reason(candidate.claim)
+    if weak_reason:
+        reasons.append(weak_reason)
+        return _proposal(candidate, "NEEDS_HUMAN", score, reasons, exact, fuzzy)
 
     if _needs_split(candidate.claim):
         reasons.append("needs_atomic_split")
@@ -832,6 +896,10 @@ def _proposal(
         "score": round(score, 2),
         "reasons": sorted(set(reasons)),
         "kind": candidate.kind,
+        "semantic_class": _candidate_class(candidate),
+        "trainability_status": candidate.trainability_status,
+        "trainability_reason": candidate.trainability_reason,
+        "memory_route": candidate.memory_route,
         "claim": candidate.claim,
         "source_path": candidate.source_path,
         "line_start": candidate.line_start,
@@ -878,6 +946,9 @@ def _review_pack_candidate_block(candidate: SemanticCandidate, item: dict) -> li
     return [
         f"### {candidate.id}",
         f"- Kind: `{candidate.kind}`",
+        f"- Class: `{_candidate_class(candidate)}`",
+        f"- Trainability: `{candidate.trainability_status}`",
+        f"- Route: `{candidate.memory_route}`",
         f"- Claim: {candidate.claim}",
         f"- Source: `{candidate.source_path}:{candidate.line_start}-{candidate.line_end}`",
         f"- Evidence: {candidate.evidence_excerpt}",
@@ -949,6 +1020,40 @@ def _needs_split(claim: str) -> bool:
         return True
     lowered = claim.casefold()
     return lowered.count(" and ") >= 2 or ";" in claim
+
+
+def _weak_training_claim_reason(claim: str) -> str | None:
+    stripped = claim.strip()
+    lowered = stripped.casefold()
+    if re.match(r"^(?:[-*]\s*)?(?:and|or)\b", lowered):
+        return "fragmented_continuation"
+    if re.match(r"^[A-Z][A-Z0-9_]*(?:\s*\?=|\s*:=|\s*=)\s*\S+", stripped):
+        return "build_variable_assignment"
+    if stripped.endswith(":"):
+        return "heading_or_section_intro"
+    if re.match(r"^[a-z0-9_.-]+:\s*\S+", lowered) and _metadata_key(lowered.split(":", 1)[0]):
+        return "metadata_only_claim"
+    words = re.findall(r"[A-Za-z0-9_.-]+", stripped)
+    if len(words) < 4 and not _contains_review_signal(stripped):
+        return "too_short_for_training"
+    return None
+
+
+def _metadata_key(key: str) -> bool:
+    return key in {
+        "url",
+        "name",
+        "on",
+        "uses",
+        "with",
+        "env",
+        "run",
+        "runs-on",
+        "permissions",
+        "needs",
+        "steps",
+        "jobs",
+    }
 
 
 def _atomic_claims(claim: str) -> list[str]:

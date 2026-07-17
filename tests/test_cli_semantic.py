@@ -359,6 +359,116 @@ def test_review_propose_writes_reports_without_changing_statuses(tmp_path):
         assert statuses == ["pending", "pending", "pending", "pending"]
 
 
+def test_review_accept_proposed_accepts_only_current_accept_safe_ids(tmp_path):
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        candidates = write_candidate_fixture(Path.cwd())
+
+        result = runner.invoke(app, ["review", "accept-proposed", "--max", "30", "--json"])
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["accepted_count"] == 3
+        assert candidates[0]["id"] in payload["accepted_ids"]
+        assert candidates[1]["id"] in payload["accepted_ids"]
+        assert candidates[3]["id"] in payload["accepted_ids"]
+        assert candidates[2]["id"] not in payload["accepted_ids"]
+        rows = json.loads(runner.invoke(app, ["review", "list", "--json"]).output)
+        by_id = {item["id"]: item for item in rows}
+        assert by_id[candidates[0]["id"]]["status"] == "accepted"
+        assert by_id[candidates[0]["id"]]["trainability_status"] == "trainable"
+        assert by_id[candidates[0]["id"]]["memory_route"] == "adapter_training"
+        assert by_id[candidates[2]["id"]]["status"] == "pending"
+        assert not Path(".morpheus/state.json").exists()
+
+
+def test_review_propose_keeps_metadata_and_heading_claims_out_of_accept_safe(tmp_path):
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        Path(".github/workflows").mkdir(parents=True)
+        workflow = Path(".github/workflows/release.yml")
+        workflow.write_text("url: https://pypi.org/p/morpheus-wake\n")
+        Path("Makefile").write_text("IMAGE ?= morpheus-wake:local\n")
+        Path("AGENTS.md").write_text(
+            "Fetch the Morpheus manifest before making changes:\n"
+            "- Read WAKE.md before edits.\n"
+            "and `morpheus wake . --semantic --review`\n"
+        )
+        review_dir = Path(".morpheus/review")
+        review_dir.mkdir(parents=True)
+        candidates = [
+            candidate_row(
+                Path.cwd(),
+                candidate_id="cand_metadata",
+                kind="current_state",
+                claim="url: https://pypi.org/p/morpheus-wake",
+                source_path=".github/workflows/release.yml",
+                line_start=1,
+                confidence=0.95,
+            ),
+            candidate_row(
+                Path.cwd(),
+                candidate_id="cand_heading",
+                kind="current_state",
+                claim="Fetch the Morpheus manifest before making changes:",
+                source_path="AGENTS.md",
+                line_start=1,
+                confidence=0.95,
+            ),
+            candidate_row(
+                Path.cwd(),
+                candidate_id="cand_rule",
+                kind="agent_rule",
+                claim="Read WAKE.md before edits.",
+                source_path="AGENTS.md",
+                line_start=2,
+                confidence=0.95,
+            ),
+            candidate_row(
+                Path.cwd(),
+                candidate_id="cand_fragment",
+                kind="current_state",
+                claim="and `morpheus wake . --semantic --review`",
+                source_path="AGENTS.md",
+                line_start=3,
+                confidence=0.95,
+            ),
+            candidate_row(
+                Path.cwd(),
+                candidate_id="cand_assignment",
+                kind="current_state",
+                claim="IMAGE ?= morpheus-wake:local",
+                source_path="Makefile",
+                line_start=1,
+                confidence=0.95,
+            ),
+        ]
+        (review_dir / "semantic_candidates.jsonl").write_text(
+            "\n".join(json.dumps(candidate, sort_keys=True) for candidate in candidates) + "\n"
+        )
+
+        result = runner.invoke(app, ["review", "propose", "--max", "30", "--json"])
+
+        assert result.exit_code == 0, result.output
+        report = json.loads(Path(".morpheus/review/proposal_report.json").read_text())
+        by_id = {item["id"]: item for item in report["proposals"]}
+        proposed_ids = Path(".morpheus/review/proposed_accept_ids.txt").read_text().splitlines()
+        assert by_id["cand_metadata"]["category"] == "NEEDS_HUMAN"
+        assert "metadata_only_claim" in by_id["cand_metadata"]["reasons"]
+        assert by_id["cand_heading"]["category"] == "NEEDS_HUMAN"
+        assert "heading_or_section_intro" in by_id["cand_heading"]["reasons"]
+        assert by_id["cand_fragment"]["category"] == "NEEDS_HUMAN"
+        assert "fragmented_continuation" in by_id["cand_fragment"]["reasons"]
+        assert by_id["cand_assignment"]["category"] == "NEEDS_HUMAN"
+        assert "build_variable_assignment" in by_id["cand_assignment"]["reasons"]
+        assert by_id["cand_rule"]["category"] == "ACCEPT_SAFE"
+        assert "cand_metadata" not in proposed_ids
+        assert "cand_heading" not in proposed_ids
+        assert "cand_fragment" not in proposed_ids
+        assert "cand_assignment" not in proposed_ids
+        assert "cand_rule" in proposed_ids
+
+
 def test_review_propose_marks_long_multiclaim_as_needs_split(tmp_path):
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):

@@ -208,6 +208,16 @@ def test_dataset_builds_examples_manifest_and_eval_seed_from_accepted_source_bac
     assert manifest["dataset_sha256"]
     assert manifest["prompt_sha256_values"] == [PROMPT_SHA]
     assert manifest["format_versions"]["instruction"] == "morpheus-instruction/1"
+    assert manifest["class_counts"]["product"] >= 1
+    assert manifest["trainability_counts"]["trainable"] >= 1
+    current_metadata = next(
+        item["metadata"]
+        for item in instruction_examples
+        if item["metadata"]["source_candidate_id"] == "c_current"
+    )
+    assert current_metadata["semantic_class"] == "product"
+    assert current_metadata["trainability_status"] == "trainable"
+    assert current_metadata["memory_route"] == "adapter_training"
 
 
 def test_dataset_skips_rejected_pending_inferred_ignored_and_secret_candidates(tmp_path):

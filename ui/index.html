@@ -916,6 +916,7 @@
               <div class="nav-item active" data-panel="start">▶ Start</div>
               <div class="nav-item" data-panel="chat">💬 Chat</div>
               <div class="nav-item" data-panel="status">📊 Status</div>
+              <div class="nav-item" data-panel="learning">🧠 Learning</div>
               <div class="nav-item" data-panel="wake">📄 WAKE.md</div>
               <div class="nav-item" data-panel="settings">⚙️ Settings</div>
             </nav>
@@ -1267,6 +1268,44 @@
             <p id="receipt-chain">No receipts</p>
           </div>
         </div>
+
+        <div class="panel" id="panel-learning">
+          <h2>Learning Quality</h2>
+          <div class="panel-toolbar">
+            <button id="refresh-learning-quality-btn">Refresh Quality</button>
+            <button id="run-learning-benchmark-btn" class="secondary-button">Benchmark Dry Run</button>
+          </div>
+          <div class="stats">
+            <div class="stat">
+              <div class="stat-value" id="learning-candidates-total">0</div>
+              <div class="stat-label">Candidates</div>
+            </div>
+            <div class="stat">
+              <div class="stat-value" id="learning-train-allowed">No</div>
+              <div class="stat-label">Train Gate</div>
+            </div>
+            <div class="stat">
+              <div class="stat-value" id="learning-benchmark-allowed">No</div>
+              <div class="stat-label">Benchmark Gate</div>
+            </div>
+          </div>
+          <div class="card">
+            <h4>Trainability</h4>
+            <div class="integration-list" id="learning-trainability-list"></div>
+          </div>
+          <div class="card">
+            <h4>Memory Routes</h4>
+            <div class="integration-list" id="learning-routes-list"></div>
+          </div>
+          <div class="card">
+            <h4>Blockers</h4>
+            <div class="integration-list" id="learning-blockers-list"></div>
+          </div>
+          <div class="card">
+            <h4>Benchmark</h4>
+            <pre class="code-box" id="learning-benchmark-output">Run Benchmark Dry Run to write readiness artifacts.</pre>
+          </div>
+        </div>
         
         <div class="panel" id="panel-wake">
           <h2>WAKE.md</h2>
@@ -1365,6 +1404,15 @@
       const quickHandoffBtn = document.getElementById('quick-handoff-btn');
       const refreshStatusBtn = document.getElementById('refresh-status-btn');
       const statusDiagnosticsBtn = document.getElementById('status-diagnostics-btn');
+      const refreshLearningQualityBtn = document.getElementById('refresh-learning-quality-btn');
+      const runLearningBenchmarkBtn = document.getElementById('run-learning-benchmark-btn');
+      const learningCandidatesTotal = document.getElementById('learning-candidates-total');
+      const learningTrainAllowed = document.getElementById('learning-train-allowed');
+      const learningBenchmarkAllowed = document.getElementById('learning-benchmark-allowed');
+      const learningTrainabilityList = document.getElementById('learning-trainability-list');
+      const learningRoutesList = document.getElementById('learning-routes-list');
+      const learningBlockersList = document.getElementById('learning-blockers-list');
+      const learningBenchmarkOutput = document.getElementById('learning-benchmark-output');
       const refreshWakeBtn = document.getElementById('refresh-wake-btn');
       const copyWakeBtn = document.getElementById('copy-wake-btn');
       const chatPrepareBtn = document.getElementById('chat-prepare-btn');
@@ -1481,6 +1529,9 @@
 
         if (panel === 'status') {
           refreshStatus();
+        }
+        if (panel === 'learning') {
+          refreshLearningQuality();
         }
         if (panel === 'wake') {
           refreshWake();
@@ -1802,6 +1853,95 @@
         } finally {
           refreshIntegrationsBtn.disabled = false;
           settingsRefreshIntegrationsBtn.disabled = false;
+        }
+      }
+
+      function renderCountList(target, counts = {}, emptyText = 'No data') {
+        target.innerHTML = '';
+        const entries = Object.entries(counts);
+        if (!entries.length) {
+          const item = document.createElement('div');
+          item.className = 'integration-item';
+          item.textContent = emptyText;
+          target.appendChild(item);
+          return;
+        }
+        entries.forEach(([key, value]) => {
+          const item = document.createElement('div');
+          item.className = 'integration-item';
+          const label = document.createElement('strong');
+          label.textContent = key;
+          const count = document.createElement('span');
+          count.className = 'integration-status cache_ready';
+          count.textContent = String(value);
+          item.appendChild(label);
+          item.appendChild(count);
+          target.appendChild(item);
+        });
+      }
+
+      function renderLearningQuality(payload) {
+        const report = payload.report || {};
+        const review = report.review || {};
+        learningCandidatesTotal.textContent = String(review.candidates_total || 0);
+        learningTrainAllowed.textContent = report.train_allowed ? 'Yes' : 'No';
+        learningBenchmarkAllowed.textContent = report.benchmark_allowed ? 'Yes' : 'No';
+        renderCountList(learningTrainabilityList, review.by_trainability || {}, 'No trainability data');
+        renderCountList(learningRoutesList, review.by_route || {}, 'No route data');
+        const blockers = {};
+        (report.train_blockers || []).forEach((blocker) => { blockers[`train: ${blocker}`] = 1; });
+        (report.benchmark_blockers || []).forEach((blocker) => { blockers[`benchmark: ${blocker}`] = 1; });
+        renderCountList(learningBlockersList, blockers, 'No blockers');
+      }
+
+      async function refreshLearningQuality({ silent = false } = {}) {
+        refreshLearningQualityBtn.disabled = true;
+        try {
+          const payload = await apiRequest('/learning/quality', {
+            method: 'POST',
+            body: { project_root: selectedProjectRoot() },
+          });
+          renderLearningQuality(payload);
+          if (!silent) addMessage(`Learning quality refreshed: ${payload.paths.json_path}`);
+          return payload;
+        } catch (error) {
+          learningBenchmarkOutput.textContent = `Learning quality failed: ${error.message}`;
+          if (!silent) addMessage(`Learning quality failed: ${error.message}`);
+          throw error;
+        } finally {
+          refreshLearningQualityBtn.disabled = false;
+        }
+      }
+
+      function renderLearningBenchmark(payload) {
+        renderLearningQuality({ report: payload.quality_report || {} });
+        learningBenchmarkOutput.textContent = [
+          `benchmark_allowed=${payload.benchmark_allowed}`,
+          `dataset_id=${payload.dataset_id || 'none'}`,
+          `examples=${payload.examples_count || 0}`,
+          `eval_items=${payload.eval_items_count || 0}`,
+          `trainable_candidates=${payload.trainable_candidate_count || 0}`,
+          `report=${payload.paths ? payload.paths.benchmark_report_path : payload.benchmark_report_path}`,
+          `next=${payload.next_command || ''}`,
+        ].join('\n');
+      }
+
+      async function runLearningBenchmark() {
+        runLearningBenchmarkBtn.disabled = true;
+        try {
+          const payload = await apiRequest('/learning/benchmark', {
+            method: 'POST',
+            body: { project_root: selectedProjectRoot(), dry_run: true },
+          });
+          renderLearningBenchmark(payload);
+          addMessage(`Learning benchmark report written: ${payload.paths.benchmark_report_path}`);
+          return payload;
+        } catch (error) {
+          learningBenchmarkOutput.textContent = `Learning benchmark failed: ${error.message}`;
+          addMessage(`Learning benchmark failed: ${error.message}`);
+          throw error;
+        } finally {
+          runLearningBenchmarkBtn.disabled = false;
         }
       }
 
@@ -2541,6 +2681,10 @@
       statusDiagnosticsBtn.addEventListener('click', () => {
         runDiagnostics({ silent: false });
       });
+      refreshLearningQualityBtn.addEventListener('click', () => {
+        refreshLearningQuality({ silent: false });
+      });
+      runLearningBenchmarkBtn.addEventListener('click', runLearningBenchmark);
       refreshWakeBtn.addEventListener('click', () => {
         refreshWake({ silent: false });
       });

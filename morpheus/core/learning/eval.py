@@ -240,7 +240,30 @@ def _metrics(items: list[dict]) -> dict:
         "critical_outdated_claim_failures": outdated_failures,
         "total_items": total,
         "passed_items": passed,
+        "by_category": _metrics_by_category(items),
     }
+
+
+def _metrics_by_category(items: list[dict]) -> dict:
+    categories = sorted({str(item.get("category") or "project_recall") for item in items})
+    metrics = {}
+    for category in categories:
+        category_items = [item for item in items if item["category"] == category]
+        total = len(category_items)
+        passed = sum(1 for item in category_items if item["passed"])
+        hallucinated = sum(1 for item in category_items if item["hallucinated"])
+        critical_failures = sum(
+            1 for item in category_items if item["critical_outdated_claim_failure"]
+        )
+        metrics[category] = {
+            "total_items": total,
+            "passed_items": passed,
+            "pass_rate": round(passed / total, 4) if total else 0.0,
+            "hallucinated_items": hallucinated,
+            "hallucination_rate": round(hallucinated / total, 4) if total else 0.0,
+            "critical_failures": critical_failures,
+        }
+    return metrics
 
 
 def _render_report(config: dict, metrics: dict, items: list[dict]) -> str:
@@ -256,6 +279,10 @@ def _render_report(config: dict, metrics: dict, items: list[dict]) -> str:
         f"- Unsupported claim refusal rate: `{metrics['unsupported_claim_refusal_rate']}`",
         f"- Regression score: `{metrics['regression_score']}`",
         "",
+        "## Category Metrics",
+        "",
+        *_render_category_metrics(metrics.get("by_category") or {}),
+        "",
         "## Items",
         "",
     ]
@@ -263,6 +290,19 @@ def _render_report(config: dict, metrics: dict, items: list[dict]) -> str:
         status = "PASS" if item["passed"] else "FAIL"
         lines.append(f"- `{status}` {item['category']}: {item['question']}")
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _render_category_metrics(by_category: dict) -> list[str]:
+    if not by_category:
+        return ["- No category metrics"]
+    return [
+        (
+            f"- `{category}`: {item.get('passed_items', 0)}/"
+            f"{item.get('total_items', 0)} pass, "
+            f"hallucination_rate `{item.get('hallucination_rate', 0.0)}`"
+        )
+        for category, item in sorted(by_category.items())
+    ]
 
 
 def _latest_adapter_id(project_root: Path) -> str | None:

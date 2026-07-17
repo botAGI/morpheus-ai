@@ -87,6 +87,7 @@ def test_check_verified_file_input_exits_zero_and_reports_json(tmp_path):
             "claims_contradicted",
             "claims_stale",
             "claims_not_found",
+            "by_class",
             "fail_on_unknown",
             "results",
         }
@@ -94,7 +95,9 @@ def test_check_verified_file_input_exits_zero_and_reports_json(tmp_path):
         assert payload["state_freshness"] == "fresh"
         assert payload["claims_supported"] == 1
         assert payload["claims_stale"] == 0
+        assert payload["by_class"]["product"] == 1
         assert payload["results"][0]["status"] == "verified"
+        assert payload["results"][0]["semantic_class"] == "product"
         assert payload["results"][0]["evidence"]["path"] == "README.md"
 
 
@@ -109,7 +112,9 @@ def test_check_stale_file_input_exits_one_with_source_span(tmp_path):
         assert result.exit_code == 1, result.output
         payload = json.loads(result.output)
         assert payload["claims_stale"] == 1
+        assert payload["by_class"]["stale"] == 1
         assert payload["results"][0]["status"] == "stale"
+        assert payload["results"][0]["semantic_class"] == "stale"
         assert payload["results"][0]["evidence"]["path"] == "WAKE.md"
         assert payload["results"][0]["evidence"]["line_start"] == 9
 

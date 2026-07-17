@@ -347,9 +347,12 @@ morpheus compile
 | `morpheus check --input FILE` | Verify agent text from a file |
 | `morpheus check --json` | Print a machine-readable check result |
 | `morpheus review list` | List semantic candidates awaiting review |
+| `morpheus review accept-proposed` | Accept freshly rescored `ACCEPT_SAFE` candidates without applying active state |
 | `morpheus review apply` | Apply accepted candidates into active state and sign a receipt |
 | `morpheus learn lab .` | Run the autonomous learning lab without activating adapters |
 | `morpheus learn dataset .` | Build a dataset from accepted source-backed candidates |
+| `morpheus learn quality .` | Write trainability, route, blocker, and dataset quality reports |
+| `morpheus learn benchmark . --dry-run` | Write benchmark-readiness artifacts without training or activation |
 | `morpheus learn status` | Show learning dataset and adapter status |
 | `morpheus learn train . --dry-run` | Generate local training artifacts without training |
 | `morpheus learn eval .` | Evaluate the latest dataset or planned adapter with the eval harness |

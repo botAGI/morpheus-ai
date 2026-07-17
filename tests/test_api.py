@@ -8,7 +8,9 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 
 from morpheus.core.config import MorpheusConfig
+from morpheus.core.learning.dataset import build_learning_dataset
 from morpheus.core.provenance import build_receipt, compute_sha256_file, receipt_file_name
+from tests.test_learning_dataset import copy_learning_project
 
 fastapi_testclient = pytest.importorskip(
     "fastapi.testclient",
@@ -444,6 +446,13 @@ def test_agent_connect_guides_uninitialized_project(tmp_path):
     assert parse_qs(config_url.query) == {"project_root": [str(tmp_path)]}
     assert payload["endpoints"]["integrations"]["method"] == "GET"
     assert urlparse(payload["endpoints"]["integrations"]["url"]).path == "/integrations"
+    assert payload["endpoints"]["learning_quality"]["method"] == "POST"
+    assert payload["endpoints"]["learning_quality"]["json"] == {"project_root": str(tmp_path)}
+    assert payload["endpoints"]["learning_benchmark"]["method"] == "POST"
+    assert payload["endpoints"]["learning_benchmark"]["json"] == {
+        "project_root": str(tmp_path),
+        "dry_run": True,
+    }
     assert payload["integrations"]["service"] == "morpheus"
     assert {service["id"] for service in payload["integrations"]["services"]} >= {
         "github",
@@ -459,11 +468,46 @@ def test_agent_connect_guides_uninitialized_project(tmp_path):
     assert payload["next_action"]["command"] == "morpheus prepare-agent"
     assert payload["next_action"]["request"] == payload["endpoints"]["prepare_agent"]
     assert payload["cli"]["agent_connect"] == "morpheus agent-connect --json"
+    assert payload["cli"]["learn_quality"] == "morpheus learn quality ."
+    assert payload["cli"]["learn_benchmark"] == "morpheus learn benchmark . --dry-run"
     assert (
         payload["cli"]["serve_ui"]
         == "morpheus serve --ui --host 127.0.0.1 --port 8000 --ui-port 5173"
     )
     assert "Fetch the connect manifest" in payload["agent_prompt"]
+
+
+def test_learning_quality_endpoint_writes_report(tmp_path):
+    project_root = copy_learning_project(tmp_path)
+    build_learning_dataset(project_root)
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post("/learning/quality", json={"project_root": str(project_root)})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["project_root"] == str(project_root)
+    assert payload["report"]["review"]["by_trainability"]["trainable"] >= 1
+    assert payload["paths"]["json_path"].endswith("quality_report.json")
+    assert Path(payload["paths"]["json_path"]).is_file()
+
+
+def test_learning_benchmark_endpoint_writes_readiness_report(tmp_path):
+    project_root = copy_learning_project(tmp_path)
+    build_learning_dataset(project_root)
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post(
+        "/learning/benchmark",
+        json={"project_root": str(project_root), "dry_run": True},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["project_root"] == str(project_root)
+    assert payload["dry_run"] is True
+    assert payload["paths"]["benchmark_report_path"].endswith("benchmark_report.json")
+    assert Path(payload["paths"]["benchmark_report_path"]).is_file()
 
 
 def test_integrations_endpoint_reports_services_for_agents(monkeypatch, tmp_path):
@@ -751,8 +795,12 @@ def test_agent_handoff_returns_bundle_for_uninitialized_project(tmp_path):
     assert payload["wake_md"] is None
     assert payload["commands"]["handoff"] == "morpheus handoff"
     assert payload["commands"]["prepare_agent"] == "morpheus prepare-agent"
+    assert payload["commands"]["learn_quality"] == "morpheus learn quality ."
+    assert payload["commands"]["learn_benchmark"] == "morpheus learn benchmark . --dry-run"
     assert "# Morpheus Agent Handoff" in payload["markdown"]
     assert "morpheus prepare-agent" in payload["markdown"]
+    assert "morpheus learn quality ." in payload["markdown"]
+    assert "morpheus learn benchmark . --dry-run" in payload["markdown"]
     assert "morpheus bootstrap-agent --dry-run" in payload["markdown"]
     assert not (tmp_path / "AGENTS.md").exists()
 
