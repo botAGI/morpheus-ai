@@ -10,8 +10,13 @@ import morpheus.core.learning.quality as quality_module
 from morpheus.core.config import MorpheusConfig
 from morpheus.core.learning.dataset import build_learning_dataset
 from morpheus.core.learning.dataset_validation import (
+    _validate_manifest_semantics,
     dataset_binding_sha256,
     validate_dataset,
+)
+from morpheus.core.learning.examples import (
+    chat_examples_from_instruction,
+    sharegpt_examples_from_instruction,
 )
 from morpheus.core.learning.eval import check_activation_gate, run_learning_eval
 from morpheus.core.learning.lab import run_autonomous_lab
@@ -367,6 +372,103 @@ def test_manifest_bound_jsonl_must_contain_strict_objects(tmp_path, artifact_tex
 
     assert validation["valid"] is False
     assert "dataset_manifest_semantics_invalid" in validation["blockers"]
+
+
+def test_manifest_semantics_rejects_source_unbound_training_row(tmp_path):
+    project_root = copy_learning_project(tmp_path)
+    result = build_learning_dataset(project_root)
+    dataset_dir = Path(result["dataset_dir"])
+    manifest = json.loads((dataset_dir / "manifest.json").read_text())
+    artifact_rows = {
+        name: _read_jsonl(dataset_dir / name)
+        for name in {
+            "dataset.instruction.jsonl",
+            "dataset.sharegpt.jsonl",
+            "eval.heldout.jsonl",
+            "eval.seed.jsonl",
+            "skipped.jsonl",
+            "test.jsonl",
+            "train.jsonl",
+            "valid.jsonl",
+        }
+    }
+    unbound = {
+        "instruction": "Apply a synthetic project rule.",
+        "input": "Can this unreviewed claim enter training?",
+        "output": "No.",
+        "metadata": {
+            "source_candidate_id": None,
+            "source_path": None,
+            "line_start": None,
+            "line_end": None,
+            "evidence_sha256": None,
+            "memory_route": None,
+            "example_type": "unsupported_claim_refusal",
+        },
+    }
+    instruction_rows = [*artifact_rows["dataset.instruction.jsonl"], unbound]
+    chat_rows = chat_examples_from_instruction(instruction_rows)
+    split_rows = dataset_module._split_chat_rows(chat_rows)
+    artifact_rows.update({
+        "dataset.instruction.jsonl": instruction_rows,
+        "dataset.sharegpt.jsonl": sharegpt_examples_from_instruction(
+            instruction_rows
+        ),
+        "train.jsonl": split_rows["train"],
+        "valid.jsonl": split_rows["valid"],
+        "test.jsonl": split_rows["test"],
+    })
+    manifest["examples_count"] = len(instruction_rows)
+    manifest["split_counts"] = {
+        split: len(rows)
+        for split, rows in split_rows.items()
+    }
+
+    semantics_valid, _ = _validate_manifest_semantics(manifest, artifact_rows)
+
+    assert semantics_valid is False
+
+
+def test_manifest_semantics_rejects_spoofed_training_span_and_evidence(tmp_path):
+    project_root = copy_learning_project(tmp_path)
+    result = build_learning_dataset(project_root)
+    dataset_dir = Path(result["dataset_dir"])
+    manifest = json.loads((dataset_dir / "manifest.json").read_text())
+    artifact_rows = {
+        name: _read_jsonl(dataset_dir / name)
+        for name in {
+            "dataset.instruction.jsonl",
+            "dataset.sharegpt.jsonl",
+            "eval.heldout.jsonl",
+            "eval.seed.jsonl",
+            "skipped.jsonl",
+            "test.jsonl",
+            "train.jsonl",
+            "valid.jsonl",
+        }
+    }
+    candidate_id = artifact_rows["dataset.instruction.jsonl"][0]["metadata"][
+        "source_candidate_id"
+    ]
+    for artifact_name in (
+        "dataset.instruction.jsonl",
+        "dataset.sharegpt.jsonl",
+        "train.jsonl",
+        "valid.jsonl",
+        "test.jsonl",
+    ):
+        for row in artifact_rows[artifact_name]:
+            metadata = row.get("metadata")
+            if metadata.get("source_candidate_id") == candidate_id:
+                metadata.update({
+                    "line_start": 999_999,
+                    "line_end": 999_999,
+                    "evidence_sha256": "f" * 64,
+                })
+
+    semantics_valid, _ = _validate_manifest_semantics(manifest, artifact_rows)
+
+    assert semantics_valid is False
 
 
 def test_semantic_manifest_lie_blocks_all_dataset_consumers(tmp_path):

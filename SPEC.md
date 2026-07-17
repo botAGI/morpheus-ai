@@ -291,6 +291,12 @@ Training examples may be created only from claims that satisfy all of these:
 - no secret-like content
 - not pending, rejected, `needs_review`, or inferred-only
 
+Every serialized instruction, ShareGPT, and MLX split row must carry a non-empty
+candidate ID, canonical source path, positive line span, evidence SHA-256, and
+an `adapter_training` or `negative_example` route matching that candidate.
+Built-in truth-gate scenarios without a reviewed candidate and source span may
+appear only in seed or held-out eval artifacts, never in training artifacts.
+
 Outdated claims can become correction/negative examples. They must not become
 positive project facts.
 

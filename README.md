@@ -186,7 +186,7 @@ The current local gate has been run against this repository, not only fixtures:
 | Capability | Tested result |
 | --- | --- |
 | `ruff check .` | passes |
-| `pytest tests/ -q` | 1015 passed, 1 skipped |
+| `pytest tests/ -q` | 1020 passed, 1 skipped |
 | `morpheus wake . --private` | compiles current project state and signs a receipt |
 | `morpheus verify --all` | verifies the receipt chain |
 | `morpheus check --input tests/fixtures/check_stale_input.txt --local` | exits 1 and reports the stale claim |
@@ -239,6 +239,12 @@ morpheus learn lab . --no-train
 
 No accepted source span means no training example. No eval pass means no adapter
 activation. No rollback means no production use.
+
+Built-in truth-gate scenarios without a reviewed candidate are eval-only. Every
+instruction, ShareGPT, and MLX split row carries a non-empty candidate ID,
+canonical source path, exact line span, evidence SHA-256, and an
+`adapter_training` or `negative_example` route. Dataset validation rejects
+missing or inconsistent training provenance before execution.
 
 Learning manifests bind the exact canonical review snapshot, routing policy,
 source/context hashes, and authority-derived dataset artifacts. Dataset and eval

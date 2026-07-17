@@ -53,6 +53,12 @@ def _route(candidate: SemanticCandidate) -> tuple[TrainabilityStatus, MemoryRout
         if candidate.label == "inferred":
             return "excluded", "excluded", "label_inferred"
         return "needs_review", "human_review", f"label_{candidate.label}"
+    if candidate.semantic_class == "stale" and candidate.kind != "outdated_claim":
+        return (
+            "needs_review",
+            "stale_archive",
+            "stale_class_requires_outdated_claim_kind",
+        )
     if candidate.kind == "outdated_claim":
         if candidate.status == "accepted":
             return "negative_example", "negative_example", "outdated_claim_correction"

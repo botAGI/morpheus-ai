@@ -241,6 +241,12 @@ morpheus learn lab . --no-train
 Нет accepted source span - нет training example. Нет успешного eval - нет
 activation. Нет rollback - нет production use.
 
+Встроенные truth-gate сценарии без reviewed candidate используются только для
+eval. Каждая строка instruction, ShareGPT и MLX split содержит candidate ID,
+канонический source path, точный line span, evidence SHA-256 и маршрут
+`adapter_training` или `negative_example`. Dataset validation блокирует
+отсутствующую или несогласованную training provenance до выполнения.
+
 Сейчас `morpheus learn eval` записывает deterministic fake diagnostic results
 для локальной разработки benchmark. Они могут показывать category deltas, но
 никогда не дают право на activation. Legacy option

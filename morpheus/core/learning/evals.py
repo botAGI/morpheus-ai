@@ -76,6 +76,9 @@ def heldout_eval_items_for_candidate(candidate: SemanticCandidate) -> list[dict]
 
 def _routing_metadata(candidate: SemanticCandidate) -> dict:
     return {
+        "line_start": candidate.line_start,
+        "line_end": candidate.line_end,
+        "evidence_sha256": candidate.evidence_sha256,
         "semantic_class": candidate.semantic_class,
         "trainability_status": candidate.trainability_status,
         "trainability_reason": candidate.trainability_reason,

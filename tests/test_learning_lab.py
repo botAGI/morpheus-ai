@@ -770,7 +770,7 @@ def test_mlx_generation_uses_python_module_and_training_system_prompt(monkeypatc
     assert calls
     assert f"{lab_module.sys.executable} -m mlx_lm generate" in calls[0]
     assert "--system-prompt" in calls[0]
-    assert "Use reviewed Morpheus state only" in calls[0]
+    assert "reviewed, source-bound project knowledge" in calls[0]
 
 
 def test_learn_lab_trained_fake_adapter_writes_base_vs_adapter_eval(tmp_path, monkeypatch):

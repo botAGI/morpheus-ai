@@ -16,6 +16,10 @@ All notable changes to Morpheus will be documented in this file.
 
 ### Fixed
 
+- Removed source-less synthetic truth-gate rows from adapter training, kept
+  those scenarios eval-only, archived stale-class candidates with incompatible
+  kinds, and made dataset and eval-receipt validation bind exact candidate,
+  source-span, evidence, and route metadata.
 - Made adapter activation fail closed: deterministic fake/dry-run evals are
   diagnostic-only, activation requires exact paired artifacts with consistent
   metrics, and the legacy force flag no longer bypasses a failed gate.

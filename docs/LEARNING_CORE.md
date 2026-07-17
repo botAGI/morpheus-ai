@@ -22,7 +22,13 @@ No rollback -> no production use.
 Training input may include only accepted, source-backed candidates whose source
 spans still match the current project files. The compiler must exclude secrets,
 ignored files, raw private notes, rejected candidates, pending candidates,
-`needs_review` candidates, inferred-only candidates, and stale claims.
+`needs_review` candidates, inferred-only candidates, and stale claims as
+positive facts. Accepted outdated candidates may produce only source-bound
+negative/correction examples. Built-in truth-gate scenarios without a reviewed
+candidate remain eval-only. Every instruction, ShareGPT, and MLX split row must
+carry the exact candidate ID, canonical source path, line span, evidence digest,
+and `adapter_training` or `negative_example` route; semantic validation rejects
+missing or inconsistent training provenance.
 
 The dataset manifest binds a canonical snapshot of review state, the routing
 policy, all source/context hashes, and authority-derived train/eval artifacts.

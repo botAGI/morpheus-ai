@@ -110,6 +110,18 @@ def test_route_candidate_keeps_stale_and_open_tasks_out_of_positive_training():
     assert task.memory_route == "prompt_context"
 
 
+def test_route_candidate_archives_stale_class_with_non_outdated_kind():
+    stale = route_candidate(candidate(
+        kind="current_state",
+        status="accepted",
+        semantic_class="stale",
+    ))
+
+    assert stale.trainability_status == "needs_review"
+    assert stale.memory_route == "stale_archive"
+    assert stale.trainability_reason == "stale_class_requires_outdated_claim_kind"
+
+
 def test_route_candidate_assigns_every_public_memory_channel():
     decisions = {
         "active_decision": route_candidate(candidate(kind="active_decision", status="accepted")),

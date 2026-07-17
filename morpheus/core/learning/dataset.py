@@ -34,7 +34,6 @@ from morpheus.core.learning.examples import (
     chat_examples_from_instruction,
     instruction_examples_for_candidate,
     sharegpt_examples_from_instruction,
-    truth_gate_negative_instruction_examples,
 )
 from morpheus.core.learning.registry import datasets_root
 from morpheus.core.learning.safety import (
@@ -63,17 +62,11 @@ POSITIVE_KINDS = {
 }
 TRAIN_REQUIRED_EXAMPLE_TYPES = {
     "eval_aligned_recall",
-    "outdated_claim_correction",
-    "unsupported_claim_refusal",
-    "agent_rule_adherence",
-    "command_cli_capability_claims",
+    "outdated_correction",
 }
 TRAIN_EXAMPLE_REPEATS = {
     "eval_aligned_recall": 3,
-    "outdated_claim_correction": 24,
-    "unsupported_claim_refusal": 16,
-    "agent_rule_adherence": 8,
-    "command_cli_capability_claims": 12,
+    "outdated_correction": 24,
 }
 
 
@@ -142,12 +135,7 @@ def build_learning_dataset(
             instruction_examples.extend(instruction_examples_for_candidate(item.candidate))
         eval_items.extend(eval_items_for_candidate(item.candidate))
         heldout_items.extend(heldout_eval_items_for_candidate(item.candidate))
-    if eligible and include_refusals:
-        instruction_examples.extend(truth_gate_negative_instruction_examples())
-        eval_items.append(unsupported_claim_eval_item())
-        eval_items.extend(truth_gate_negative_eval_items())
-        heldout_items.extend(heldout_truth_gate_negative_eval_items())
-    elif include_refusals:
+    if include_refusals:
         eval_items.append(unsupported_claim_eval_item())
         eval_items.extend(truth_gate_negative_eval_items())
         heldout_items.extend(heldout_truth_gate_negative_eval_items())

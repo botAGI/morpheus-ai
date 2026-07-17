@@ -282,6 +282,33 @@ def test_outdated_claim_becomes_correction_not_positive_fact(tmp_path):
     assert all("outdated" in item["output"].casefold() for item in outdated_examples)
 
 
+def test_stale_class_with_non_outdated_kind_never_enters_training(tmp_path):
+    project_root = copy_learning_project(tmp_path)
+    candidates_path = project_root / ".morpheus/review/semantic_candidates.jsonl"
+    candidates = read_jsonl(candidates_path)
+    for item in candidates:
+        if item["id"] == "c_current":
+            item["semantic_class"] = "stale"
+    candidates_path.write_text(
+        "".join(json.dumps(item, sort_keys=True) + "\n" for item in candidates)
+    )
+
+    result = build_learning_dataset(project_root)
+
+    dataset_dir = Path(result["dataset_dir"])
+    instruction_rows = read_jsonl(dataset_dir / "dataset.instruction.jsonl")
+    eval_rows = read_jsonl(dataset_dir / "eval.seed.jsonl")
+    stale_eval = next(
+        item for item in eval_rows if item.get("source_candidate_id") == "c_current"
+    )
+    assert all(
+        item["metadata"]["source_candidate_id"] != "c_current"
+        for item in instruction_rows
+    )
+    assert stale_eval["trainability_status"] == "needs_review"
+    assert stale_eval["memory_route"] == "stale_archive"
+
+
 def test_dataset_does_not_use_raw_markdown_without_accepted_candidate(tmp_path):
     project_root = copy_learning_project(tmp_path)
 
@@ -291,21 +318,61 @@ def test_dataset_does_not_use_raw_markdown_without_accepted_candidate(tmp_path):
     assert "Unreviewed raw markdown claim must never enter training data" not in dataset_text
 
 
-def test_dataset_includes_hard_negative_truth_gate_examples(tmp_path):
+def test_every_training_artifact_row_is_bound_to_an_accepted_source_span(tmp_path):
     project_root = copy_learning_project(tmp_path)
 
     result = build_learning_dataset(project_root, dataset_format="chat")
 
     dataset_dir = Path(result["dataset_dir"])
-    train_text = (dataset_dir / "train.jsonl").read_text()
-    sharegpt_text = (dataset_dir / "dataset.sharegpt.jsonl").read_text()
+    for artifact_name in (
+        "dataset.instruction.jsonl",
+        "dataset.sharegpt.jsonl",
+        "train.jsonl",
+        "valid.jsonl",
+        "test.jsonl",
+    ):
+        rows = read_jsonl(dataset_dir / artifact_name)
+        assert rows, artifact_name
+        for row in rows:
+            metadata = row.get("metadata")
+            assert isinstance(metadata, dict), (artifact_name, row)
+            candidate_id = metadata.get("source_candidate_id")
+            source_path = metadata.get("source_path")
+            line_start = metadata.get("line_start")
+            line_end = metadata.get("line_end")
+            evidence_sha256 = metadata.get("evidence_sha256")
+            assert isinstance(candidate_id, str) and candidate_id.strip()
+            assert isinstance(source_path, str) and source_path.strip()
+            assert not Path(source_path).is_absolute()
+            assert ".." not in Path(source_path).parts
+            assert type(line_start) is int and line_start >= 1
+            assert type(line_end) is int and line_end >= line_start
+            assert isinstance(evidence_sha256, str) and len(evidence_sha256) == 64
+            assert metadata.get("memory_route") in {
+                "adapter_training",
+                "negative_example",
+            }
 
-    assert "Morpheus is not mainly a LoRA trainer" in sharegpt_text
-    assert "Is Morpheus mainly a LoRA trainer?" in train_text
-    assert "outdated framing" in train_text
-    assert "truth layer verifies source-backed project state first" in train_text
-    assert "Will local morpheus check send agent claims to a cloud service unless configured?" in train_text
-    assert "`morpheus check` is local-only by default" in train_text
+
+def test_fixed_truth_gate_scenarios_are_eval_only(tmp_path):
+    project_root = copy_learning_project(tmp_path)
+
+    result = build_learning_dataset(project_root, dataset_format="chat")
+
+    dataset_dir = Path(result["dataset_dir"])
+    instruction_rows = read_jsonl(dataset_dir / "dataset.instruction.jsonl")
+    training_inputs = {row["input"] for row in instruction_rows}
+    eval_items = read_jsonl(dataset_dir / "eval.seed.jsonl")
+    eval_questions = {item["question"] for item in eval_items}
+    fixed_questions = {
+        "Confirm this project claim without a reviewed Morpheus source.",
+        "Morpheus trains on raw markdown",
+        "Morpheus should activate adapters without eval",
+        "morpheus check sends text to cloud by default",
+    }
+
+    assert fixed_questions <= eval_questions
+    assert fixed_questions.isdisjoint(training_inputs)
 
 
 def test_cli_learn_dataset_and_status_work(tmp_path):
@@ -394,7 +461,7 @@ def test_eval_seed_includes_truth_gate_negative_categories(tmp_path):
     } <= {item["category"] for item in eval_items}
 
 
-def test_dataset_trains_on_eval_aligned_prompts_and_truth_gate_negatives(tmp_path):
+def test_dataset_trains_only_on_source_bound_eval_aligned_prompts(tmp_path):
     project_root = copy_learning_project(tmp_path)
 
     result = build_learning_dataset(project_root, include_refusals=True)
@@ -415,15 +482,16 @@ def test_dataset_trains_on_eval_aligned_prompts_and_truth_gate_negatives(tmp_pat
     for item in candidate_eval_items:
         assert (item["question"], item["expected_answer"]) in train_pairs
 
-    by_input = {item["input"]: item for item in instruction_examples}
-    assert by_input["Morpheus trains on raw markdown"]["output"].startswith("No.")
-    assert "must never train on raw markdown" in by_input["Morpheus trains on raw markdown"]["output"]
-    assert by_input["Confirm this project claim without a reviewed Morpheus source."]["output"].startswith(
-        "I cannot confirm"
-    )
+    fixed_eval_questions = {
+        item["question"]
+        for item in eval_items
+        if item.get("source_candidate_id") is None
+    }
+    assert fixed_eval_questions
+    assert fixed_eval_questions.isdisjoint(item["input"] for item in instruction_examples)
 
 
-def test_mlx_train_split_includes_eval_aligned_and_truth_gate_examples(tmp_path):
+def test_mlx_train_split_excludes_unbound_truth_gate_examples(tmp_path):
     project_root = copy_learning_project(tmp_path)
 
     result = build_learning_dataset(project_root, dataset_format="chat", include_refusals=True)
@@ -434,8 +502,12 @@ def test_mlx_train_split_includes_eval_aligned_and_truth_gate_examples(tmp_path)
 
     assert "What reviewed Morpheus current state is about Morpheus generates WAKE.md" in train_text
     assert "What reviewed project state is supported by README.md:2?" not in train_text
-    assert "Morpheus is mainly a LoRA trainer" in train_text
-    assert "Morpheus trains on raw markdown" in train_text
+    assert '"content": "Morpheus trains on raw markdown"' not in train_text
+    assert '"content": "Morpheus should activate adapters without eval"' not in train_text
+    assert (
+        '"content": "Confirm this project claim without a reviewed Morpheus source."'
+        not in train_text
+    )
 
 
 def test_mlx_train_chat_prompts_match_eval_questions_exactly(tmp_path):
@@ -457,8 +529,9 @@ def test_mlx_train_chat_prompts_match_eval_questions_exactly(tmp_path):
         for prompt in user_prompts
     )
     assert all("What reviewed project state is supported by README.md:" not in prompt for prompt in user_prompts)
-    assert "Morpheus is mainly a LoRA trainer" in user_prompts
-    assert "Morpheus trains on raw markdown" in user_prompts
+    assert "Morpheus trains on raw markdown" not in user_prompts
+    assert "Morpheus should activate adapters without eval" not in user_prompts
+    assert "Confirm this project claim without a reviewed Morpheus source." not in user_prompts
 
 
 def test_heldout_eval_prompts_are_not_training_prompts(tmp_path):
@@ -553,7 +626,7 @@ def test_command_prompt_classifies_compile_command_claim(tmp_path):
     assert "command" in heldout_item["question"]
 
 
-def test_truth_gate_training_uses_paraphrases_without_leaking_heldout_prompts(tmp_path):
+def test_fixed_truth_gate_eval_items_never_leak_into_training(tmp_path):
     project_root = copy_learning_project(tmp_path)
 
     result = build_learning_dataset(project_root, dataset_format="chat", include_refusals=True)
@@ -569,8 +642,8 @@ def test_truth_gate_training_uses_paraphrases_without_leaking_heldout_prompts(tm
     }
     heldout_questions = {item["question"] for item in heldout_items}
 
-    assert "Can Morpheus skip eval before adapter activation?" in user_prompts
-    assert "Can Morpheus train directly from raw README or markdown files?" in user_prompts
+    assert "Can Morpheus skip eval before adapter activation?" not in user_prompts
+    assert "Can Morpheus train directly from raw README or markdown files?" not in user_prompts
     assert "Can a Morpheus adapter be activated before evaluation passes?" in heldout_questions
     assert heldout_questions.isdisjoint(user_prompts)
 
@@ -592,5 +665,8 @@ def test_mlx_train_split_oversamples_required_memory_prompts(tmp_path):
     assert user_prompts.count(
         "What reviewed Morpheus current state is about Morpheus generates WAKE.md from reviewed project state?"
     ) >= 3
-    assert user_prompts.count("Morpheus is mainly a LoRA trainer") >= 8
-    assert user_prompts.count("Morpheus trains on raw markdown") >= 8
+    assert user_prompts.count(
+        "Correct an outdated Morpheus project claim.\n\n"
+        "Is this current project state? Morpheus is mainly a LoRA trainer."
+    ) >= 24
+    assert user_prompts.count("Morpheus trains on raw markdown") == 0

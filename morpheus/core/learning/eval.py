@@ -62,6 +62,9 @@ _EVAL_ITEM_IDENTITY_FIELDS = (
     "expected_answer",
     "source_candidate_id",
     "source_path",
+    "line_start",
+    "line_end",
+    "evidence_sha256",
     "kind",
 )
 
@@ -884,6 +887,15 @@ def _eval_item_identity_digest(items: list[dict]) -> tuple[list[str], str]:
             for field in ("source_candidate_id", "source_path")
         ):
             raise ValueError("activation eval source identity is invalid")
+        if projection["source_candidate_id"] is not None and (
+            not projection["source_path"]
+            or type(projection["line_start"]) is not int
+            or projection["line_start"] < 1
+            or type(projection["line_end"]) is not int
+            or projection["line_end"] < projection["line_start"]
+            or not _valid_sha256(projection["evidence_sha256"])
+        ):
+            raise ValueError("activation eval source span identity is invalid")
         projections.append(projection)
         identities.append(_canonical_sha256(projection))
     return identities, _canonical_sha256(projections)
@@ -1538,6 +1550,9 @@ def _score_item(item: dict, answer: str) -> dict:
         "critical_outdated_claim_failure": critical_failure,
         "source_candidate_id": item.get("source_candidate_id"),
         "source_path": item.get("source_path"),
+        "line_start": item.get("line_start"),
+        "line_end": item.get("line_end"),
+        "evidence_sha256": item.get("evidence_sha256"),
         "kind": item.get("kind"),
     }
 

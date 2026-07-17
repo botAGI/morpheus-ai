@@ -20,7 +20,6 @@ from morpheus.core.learning.examples import (
     chat_examples_from_instruction,
     instruction_examples_for_candidate,
     sharegpt_examples_from_instruction,
-    truth_gate_negative_instruction_examples,
 )
 from morpheus.core.learning.safety import (
     contains_secret_like_text,
@@ -70,17 +69,11 @@ POSITIVE_KINDS = {
 }
 TRAIN_REQUIRED_EXAMPLE_TYPES = {
     "eval_aligned_recall",
-    "outdated_claim_correction",
-    "unsupported_claim_refusal",
-    "agent_rule_adherence",
-    "command_cli_capability_claims",
+    "outdated_correction",
 }
 TRAIN_EXAMPLE_REPEATS = {
     "eval_aligned_recall": 3,
-    "outdated_claim_correction": 24,
-    "unsupported_claim_refusal": 16,
-    "agent_rule_adherence": 8,
-    "command_cli_capability_claims": 12,
+    "outdated_correction": 24,
 }
 MANIFEST_COUNT_FIELDS = frozenset({
     "candidate_count",
@@ -1051,12 +1044,7 @@ def _expected_authority_dataset(
             instruction_rows.extend(instruction_examples_for_candidate(candidate))
         eval_rows.extend(eval_items_for_candidate(candidate))
         heldout_rows.extend(heldout_eval_items_for_candidate(candidate))
-    if eligible_candidates and include_refusals:
-        instruction_rows.extend(truth_gate_negative_instruction_examples())
-        eval_rows.append(unsupported_claim_eval_item())
-        eval_rows.extend(truth_gate_negative_eval_items())
-        heldout_rows.extend(heldout_truth_gate_negative_eval_items())
-    elif include_refusals:
+    if include_refusals:
         eval_rows.append(unsupported_claim_eval_item())
         eval_rows.extend(truth_gate_negative_eval_items())
         heldout_rows.extend(heldout_truth_gate_negative_eval_items())
@@ -1237,6 +1225,51 @@ def _train_required_row(row: dict) -> bool:
     )
 
 
+def _source_bound_training_metadata(row: object) -> dict | None:
+    if not isinstance(row, dict):
+        return None
+    metadata = row.get("metadata")
+    if not isinstance(metadata, dict):
+        return None
+    candidate_id = metadata.get("source_candidate_id")
+    source_path = metadata.get("source_path")
+    line_start = metadata.get("line_start")
+    line_end = metadata.get("line_end")
+    evidence_sha256 = metadata.get("evidence_sha256")
+    kind = metadata.get("kind")
+    semantic_class = metadata.get("semantic_class")
+    trainability_status = metadata.get("trainability_status")
+    memory_route = metadata.get("memory_route")
+    if not (
+        isinstance(candidate_id, str)
+        and candidate_id.strip()
+        and isinstance(source_path, str)
+        and canonical_source_path(source_path)
+        and type(line_start) is int
+        and line_start >= 1
+        and type(line_end) is int
+        and line_end >= line_start
+        and _valid_sha256(evidence_sha256)
+        and isinstance(kind, str)
+        and kind.strip()
+        and isinstance(semantic_class, str)
+        and semantic_class.strip()
+        and isinstance(trainability_status, str)
+        and trainability_status.strip()
+        and memory_route in {"adapter_training", "negative_example"}
+    ):
+        return None
+    if (
+        memory_route == "adapter_training"
+        and trainability_status != "trainable"
+    ) or (
+        memory_route == "negative_example"
+        and trainability_status != "negative_example"
+    ):
+        return None
+    return metadata
+
+
 def _expand_required_rows(rows: Iterable[dict]) -> list[dict]:
     expanded = []
     for row in rows:
@@ -1268,9 +1301,24 @@ def _validate_manifest_semantics(
         split: rows[f"{split}.jsonl"] or []
         for split in ("train", "valid", "test")
     }
+    valid = True
+    training_metadata = []
+    for item in [
+        *instruction_rows,
+        *sharegpt_rows,
+        *split_rows["train"],
+        *split_rows["valid"],
+        *split_rows["test"],
+    ]:
+        metadata = _source_bound_training_metadata(item)
+        if metadata is None:
+            valid = False
+        else:
+            training_metadata.append(metadata)
 
     valid = bool(
-        manifest.get("examples_count") == len(instruction_rows)
+        valid
+        and manifest.get("examples_count") == len(instruction_rows)
         and manifest.get("examples_count") == len(sharegpt_rows)
         and manifest.get("eval_items_count") == len(eval_rows)
         and manifest.get("heldout_eval_items_count") == len(heldout_rows)
@@ -1304,6 +1352,10 @@ def _validate_manifest_semantics(
             continue
         metadata = {
             "source_path": item.get("source_path"),
+            "line_start": item.get("line_start"),
+            "line_end": item.get("line_end"),
+            "evidence_sha256": item.get("evidence_sha256"),
+            "kind": item.get("kind"),
             "semantic_class": item.get("semantic_class"),
             "trainability_status": item.get("trainability_status"),
             "memory_route": item.get("memory_route"),
@@ -1312,14 +1364,44 @@ def _validate_manifest_semantics(
             not isinstance(candidate_id, str)
             or not candidate_id.strip()
             or candidate_id in candidates
+            or not isinstance(metadata["source_path"], str)
+            or not canonical_source_path(metadata["source_path"])
+            or type(metadata["line_start"]) is not int
+            or metadata["line_start"] < 1
+            or type(metadata["line_end"]) is not int
+            or metadata["line_end"] < metadata["line_start"]
+            or not _valid_sha256(metadata["evidence_sha256"])
             or any(
                 not isinstance(value, str) or not value.strip()
-                for value in metadata.values()
+                for field, value in metadata.items()
+                if field not in {
+                    "source_path",
+                    "line_start",
+                    "line_end",
+                    "evidence_sha256",
+                }
             )
         ):
             valid = False
             continue
         candidates[candidate_id] = metadata
+
+    for metadata in training_metadata:
+        candidate = candidates.get(metadata["source_candidate_id"])
+        if candidate is None or any(
+            metadata.get(field) != candidate.get(field)
+            for field in (
+                "source_path",
+                "line_start",
+                "line_end",
+                "evidence_sha256",
+                "kind",
+                "semantic_class",
+                "trainability_status",
+                "memory_route",
+            )
+        ):
+            valid = False
 
     skipped_candidate_ids = []
     for item in skipped_rows:
