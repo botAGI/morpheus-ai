@@ -5,6 +5,7 @@ import base64
 import gzip
 import json
 from datetime import datetime, timedelta, timezone
+from email.utils import format_datetime
 
 import httpx
 import pytest
@@ -603,6 +604,7 @@ def test_gmail_cache_loads_rfc3339_z_dates(tmp_path):
 
 
 def test_gmail_cache_loads_rfc2822_date_headers(tmp_path):
+    recent_rfc2822 = format_datetime(datetime.now(timezone.utc))
     cache_path = tmp_path / "gmail_cache.json"
     cache_path.write_text(
         json.dumps(
@@ -614,7 +616,7 @@ def test_gmail_cache_loads_rfc2822_date_headers(tmp_path):
                 },
                 {
                     "id": "new-email-header",
-                    "date": "Fri, 15 May 2026 10:30:00 -0400",
+                    "date": recent_rfc2822,
                     "snippet": "TODO: import Gmail Date header",
                 },
             ]
