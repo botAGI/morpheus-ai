@@ -1,13 +1,22 @@
 """Review-gated semantic candidate storage and reports."""
 from collections import Counter
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
 from fnmatch import fnmatch
 import hashlib
 import json
+import os
 import re
+import secrets
 import subprocess
+import threading
 from pathlib import Path
+
+try:
+    import fcntl
+except ModuleNotFoundError:  # pragma: no cover - Windows fallback uses the thread lock.
+    fcntl = None
 
 from morpheus.core.compiler import DEFAULT_EXCLUDE_PATTERNS, compile_project
 from morpheus.core.models import Claim, Evidence
@@ -75,6 +84,8 @@ SECRET_REGEXES = [
     re.compile(r"(?i)\b[A-Z0-9_]*(SECRET|TOKEN|PASSWORD|API_KEY)[A-Z0-9_]{16,}\b"),
     re.compile(r"\b(?:sk|ghp|xoxb|xoxp)-[A-Za-z0-9_-]{16,}\b"),
 ]
+PERSISTENT_REVIEW_PROVIDERS = {"morpheus-check", "morpheus-team-loop"}
+_REVIEW_THREAD_LOCK = threading.RLock()
 
 
 class ReviewStore:
@@ -92,10 +103,30 @@ class ReviewStore:
     def save_candidates(self, candidates: list[SemanticCandidate]) -> None:
         self.ensure()
         _reject_review_output(self.candidates_path)
-        self.candidates_path.write_text(
-            "\n".join(candidate.model_dump_json() for candidate in candidates)
-            + ("\n" if candidates else "")
+        content = "\n".join(candidate.model_dump_json() for candidate in candidates)
+        if candidates:
+            content += "\n"
+        temporary_path = self.review_dir / (
+            f".semantic_candidates.{os.getpid()}.{secrets.token_hex(8)}.tmp"
         )
+        _reject_review_output(temporary_path)
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        descriptor = os.open(temporary_path, flags, 0o600)
+        try:
+            with os.fdopen(descriptor, "w") as handle:
+                descriptor = -1
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            _reject_review_output(self.candidates_path)
+            os.replace(temporary_path, self.candidates_path)
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+            if temporary_path.exists():
+                temporary_path.unlink()
 
     def load_candidates(self) -> list[SemanticCandidate]:
         _reject_review_read_path(self.candidates_path)
@@ -106,6 +137,27 @@ class ReviewStore:
             for line in self.candidates_path.read_text().splitlines()
             if line.strip()
         ]
+
+    @contextmanager
+    def transaction(self):
+        """Serialize review-store read/modify/write operations across workers."""
+        self.ensure()
+        lock_path = self.review_dir / ".store.lock"
+        reject_symlink_paths([lock_path], "Semantic review lock")
+        reject_symlink_components(lock_path, "Semantic review lock")
+        flags = os.O_RDWR | os.O_CREAT
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        with _REVIEW_THREAD_LOCK:
+            descriptor = os.open(lock_path, flags, 0o600)
+            try:
+                if fcntl is not None:
+                    fcntl.flock(descriptor, fcntl.LOCK_EX)
+                yield
+            finally:
+                if fcntl is not None:
+                    fcntl.flock(descriptor, fcntl.LOCK_UN)
+                os.close(descriptor)
 
     def write_report(self, report: dict) -> None:
         self.ensure()
@@ -143,17 +195,18 @@ class ReviewStore:
         }
 
     def _update(self, candidate_id: str, **updates) -> SemanticCandidate:
-        candidates = self.load_candidates()
-        for index, candidate in enumerate(candidates):
-            if candidate.id != candidate_id:
-                continue
-            updated = route_candidate(candidate.model_copy(update={
-                **updates,
-                "reviewed_at": datetime.now(timezone.utc),
-            }))
-            candidates[index] = updated
-            self.save_candidates(candidates)
-            return updated
+        with self.transaction():
+            candidates = self.load_candidates()
+            for index, candidate in enumerate(candidates):
+                if candidate.id != candidate_id:
+                    continue
+                updated = route_candidate(candidate.model_copy(update={
+                    **updates,
+                    "reviewed_at": datetime.now(timezone.utc),
+                }))
+                candidates[index] = updated
+                self.save_candidates(candidates)
+                return updated
         raise KeyError(f"candidate not found: {candidate_id}")
 
     def accept_many(
@@ -208,10 +261,48 @@ def run_semantic_review(project_root: Path, *, provider: SemanticProvider) -> di
         sources_count=len(sources),
         candidates=candidates,
     )
-    store.save_candidates(candidates)
+    with store.transaction():
+        existing_candidates = store.load_candidates()
+        store.save_candidates(_merge_review_history(candidates, existing_candidates))
     store.write_report(report)
     store.write_draft_wake(candidates, report)
     return report
+
+
+def _candidate_history_key(candidate: SemanticCandidate) -> tuple:
+    return (
+        candidate.kind,
+        candidate.claim,
+        candidate.source_path,
+        candidate.source_sha256,
+        candidate.line_start,
+        candidate.line_end,
+        candidate.evidence_sha256,
+    )
+
+
+def _merge_review_history(
+    scanned: list[SemanticCandidate],
+    existing: list[SemanticCandidate],
+) -> list[SemanticCandidate]:
+    reviewed_by_key = {
+        _candidate_history_key(candidate): candidate
+        for candidate in existing
+        if candidate.status != "pending"
+    }
+    merged = [
+        reviewed_by_key.get(_candidate_history_key(candidate), candidate)
+        for candidate in scanned
+    ]
+    merged_keys = {_candidate_history_key(candidate) for candidate in merged}
+    for candidate in existing:
+        persistent = candidate.provider.get("name") in PERSISTENT_REVIEW_PROVIDERS
+        reviewed = candidate.status != "pending"
+        key = _candidate_history_key(candidate)
+        if (persistent or reviewed) and key not in merged_keys:
+            merged.append(candidate)
+            merged_keys.add(key)
+    return merged
 
 
 def semantic_report(
@@ -1092,26 +1183,32 @@ def apply_accepted_candidates(project_root: Path) -> dict:
     project_root = _safe_project_root(project_root)
     morpheus_dir = project_root / ".morpheus"
     store = ReviewStore(project_root)
-    candidates = store.load_candidates()
     accepted = []
-    changed = False
-    for index, candidate in enumerate(candidates):
-        if candidate.status != "accepted" or candidate.label != "source_backed":
-            continue
-        verified = verify_candidate_span(project_root, candidate)
-        if verified.label == "source_backed":
-            accepted.append(verified)
-            candidates[index] = verified
-            continue
-        candidates[index] = candidate.model_copy(update={
-            "status": "pending",
-            "label": "needs_review",
-            "review_reason": "source span changed before apply",
-            "reviewed_at": None,
-        })
-        changed = True
-    if changed:
-        store.save_candidates(candidates)
+    accepted_corrections = 0
+    with store.transaction():
+        candidates = store.load_candidates()
+        changed = False
+        for index, candidate in enumerate(candidates):
+            if candidate.status != "accepted" or candidate.label != "source_backed":
+                continue
+            verified = verify_candidate_span(project_root, candidate)
+            if verified.label == "source_backed":
+                if verified.kind == "outdated_claim":
+                    accepted_corrections += 1
+                    candidates[index] = verified
+                    continue
+                accepted.append(verified)
+                candidates[index] = verified
+                continue
+            candidates[index] = candidate.model_copy(update={
+                "status": "pending",
+                "label": "needs_review",
+                "review_reason": "source span changed before apply",
+                "reviewed_at": None,
+            })
+            changed = True
+        if changed:
+            store.save_candidates(candidates)
     state = compile_project(project_root)
     source_by_path = {source.path: source for source in state.sources}
     next_claim = len(state.claims)
@@ -1153,6 +1250,7 @@ def apply_accepted_candidates(project_root: Path) -> dict:
     receipt = _write_state_receipt(project_root, morpheus_dir, state)
     return {
         "accepted_applied": len(accepted),
+        "accepted_corrections_skipped": accepted_corrections,
         "receipt_id": receipt["receipt_id"],
     }
 

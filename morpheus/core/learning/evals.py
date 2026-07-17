@@ -2,18 +2,20 @@
 
 import re
 
+from morpheus.core.learning.corrections import explicit_correction_answer
 from morpheus.core.semantic.models import SemanticCandidate
 
 
 def eval_items_for_candidate(candidate: SemanticCandidate) -> list[dict]:
     routing = _routing_metadata(candidate)
     if candidate.kind == "outdated_claim":
+        expected_answer = explicit_correction_answer(candidate) or (
+            "No. That claim is outdated and must not be treated as active state."
+        )
         return [{
             "category": "outdated_claim_correction",
             "question": f"Is this current Morpheus project state? {candidate.claim}",
-            "expected_answer": (
-                "No. That claim is outdated and must not be treated as active state."
-            ),
+            "expected_answer": expected_answer,
             "source_candidate_id": candidate.id,
             "source_path": candidate.source_path,
             "kind": candidate.kind,
@@ -40,12 +42,13 @@ def eval_items_for_candidate(candidate: SemanticCandidate) -> list[dict]:
 def heldout_eval_items_for_candidate(candidate: SemanticCandidate) -> list[dict]:
     routing = _routing_metadata(candidate)
     if candidate.kind == "outdated_claim":
+        expected_answer = explicit_correction_answer(candidate) or (
+            "No. That claim is outdated and must not be treated as active state."
+        )
         return [{
             "category": "outdated_claim_correction",
             "question": f"Should an agent treat this Morpheus claim as active state: {candidate.claim}",
-            "expected_answer": (
-                "No. That claim is outdated and must not be treated as active state."
-            ),
+            "expected_answer": expected_answer,
             "source_candidate_id": candidate.id,
             "source_path": candidate.source_path,
             "kind": candidate.kind,

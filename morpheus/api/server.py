@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import toml
 
 try:
@@ -62,6 +62,7 @@ from morpheus.core.check import check_text
 from morpheus.core.compiler import compile_project
 from morpheus.core.learning.benchmark import write_benchmark_report
 from morpheus.core.learning.quality import build_quality_report, write_quality_report
+from morpheus.core.learning.team import run_team_learning_loop
 from morpheus.core.wake import generate_wake_md
 from morpheus.core.provenance import (
     compute_sha256_file,
@@ -119,6 +120,10 @@ class LearningBenchmarkRequest(BaseModel):
     dry_run: bool = True
     backend: str = "mlx"
     max_iters: int = 50
+
+class LearningTeamLoopRequest(BaseModel):
+    project_root: Optional[str] = None
+    items: list[dict] = Field(default_factory=list)
 
 class VerifyRequest(BaseModel):
     project_root: Optional[str] = None
@@ -678,6 +683,11 @@ def agent_connect_payload(request: Request, project_root: Path) -> dict:
             "url": f"{api_base}/learning/benchmark",
             "json": {**json_body, "dry_run": True},
         },
+        "learning_team_loop": {
+            "method": "POST",
+            "url": f"{api_base}/learning/team-loop",
+            "json": {**json_body, "items": []},
+        },
         "model_smoke": {
             "method": "POST",
             "url": f"{api_base}/models/smoke",
@@ -752,6 +762,7 @@ def agent_connect_payload(request: Request, project_root: Path) -> dict:
             "verify": "morpheus verify --all",
             "learn_quality": "morpheus learn quality .",
             "learn_benchmark": "morpheus learn benchmark . --dry-run",
+            "learn_team_loop": "morpheus learn team-loop . --json",
             "model_smoke": f"morpheus model-smoke --base-model {DEFAULT_MODEL_SMOKE_MODEL}",
             "serve": "morpheus serve --host 127.0.0.1 --port 8000",
             "serve_ui": "morpheus serve --ui --host 127.0.0.1 --port 8000 --ui-port 5173",
@@ -781,6 +792,11 @@ def agent_connect_payload(request: Request, project_root: Path) -> dict:
                 f"curl -s -X POST {shlex.quote(endpoints['learning_benchmark']['url'])} "
                 "-H 'Content-Type: application/json' "
                 f"-d {shlex.quote(json.dumps(endpoints['learning_benchmark']['json']))}"
+            ),
+            "learning_team_loop": (
+                f"curl -s -X POST {shlex.quote(endpoints['learning_team_loop']['url'])} "
+                "-H 'Content-Type: application/json' "
+                f"-d {shlex.quote(json.dumps(endpoints['learning_team_loop']['json']))}"
             ),
             "model_smoke": (
                 f"curl -s -X POST {shlex.quote(endpoints['model_smoke']['url'])} "
@@ -1400,6 +1416,7 @@ def agent_handoff_payload(request: Request, project_root: Path) -> dict:
         "verify": "morpheus verify --all",
         "learn_quality": "morpheus learn quality .",
         "learn_benchmark": "morpheus learn benchmark . --dry-run",
+        "learn_team_loop": "morpheus learn team-loop . --json",
         "serve_ui": "morpheus serve --ui --host 127.0.0.1 --port 8000 --ui-port 5173",
     }
     payload = {
@@ -1746,6 +1763,24 @@ def learning_benchmark(request: LearningBenchmarkRequest):
             "benchmark_report_md_path": result["benchmark_report_md_path"],
         },
         **result,
+    }
+
+
+@app.post("/learning/team-loop")
+def learning_team_loop(request: LearningTeamLoopRequest):
+    """Ingest local team corrections as pending review candidates only."""
+    root = Path(request.project_root) if request.project_root else Path.cwd()
+    try:
+        result = run_team_learning_loop(root, request.items)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "project_root": str(root.expanduser().resolve()),
+        "paths": {
+            "json_path": result["json_path"],
+            "markdown_path": result["markdown_path"],
+        },
+        "report": result["report"],
     }
 
 

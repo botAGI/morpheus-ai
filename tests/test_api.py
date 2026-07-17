@@ -19,6 +19,15 @@ fastapi_testclient = pytest.importorskip(
 TestClient = fastapi_testclient.TestClient
 
 
+def team_feedback_item() -> dict:
+    return {
+        "source_type": "pr_comment",
+        "external_id": "api-feedback-1",
+        "claim": "Morpheus trains raw Markdown directly.",
+        "correction": "Morpheus trains only accepted source-backed candidates.",
+    }
+
+
 def api_client(raise_server_exceptions: bool = True) -> TestClient:
     from morpheus.api.server import app
 
@@ -453,6 +462,11 @@ def test_agent_connect_guides_uninitialized_project(tmp_path):
         "project_root": str(tmp_path),
         "dry_run": True,
     }
+    assert payload["endpoints"]["learning_team_loop"]["method"] == "POST"
+    assert payload["endpoints"]["learning_team_loop"]["json"] == {
+        "project_root": str(tmp_path),
+        "items": [],
+    }
     assert payload["integrations"]["service"] == "morpheus"
     assert {service["id"] for service in payload["integrations"]["services"]} >= {
         "github",
@@ -470,6 +484,7 @@ def test_agent_connect_guides_uninitialized_project(tmp_path):
     assert payload["cli"]["agent_connect"] == "morpheus agent-connect --json"
     assert payload["cli"]["learn_quality"] == "morpheus learn quality ."
     assert payload["cli"]["learn_benchmark"] == "morpheus learn benchmark . --dry-run"
+    assert payload["cli"]["learn_team_loop"] == "morpheus learn team-loop . --json"
     assert (
         payload["cli"]["serve_ui"]
         == "morpheus serve --ui --host 127.0.0.1 --port 8000 --ui-port 5173"
@@ -514,6 +529,88 @@ def test_learning_benchmark_endpoint_writes_readiness_report(tmp_path):
     assert payload["critical_regressions"] == []
     assert payload["paths"]["benchmark_report_path"].endswith("benchmark_report.json")
     assert Path(payload["paths"]["benchmark_report_path"]).is_file()
+
+
+def test_learning_team_loop_endpoint_creates_pending_candidate(tmp_path):
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post(
+        "/learning/team-loop",
+        json={"project_root": str(tmp_path), "items": [team_feedback_item()]},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["project_root"] == str(tmp_path)
+    assert payload["report"]["created_count"] == 1
+    assert payload["report"]["review_counts"]["pending"] == 1
+    assert payload["report"]["actions"] == {
+        "dataset_generation_attempted": False,
+        "training_attempted": False,
+        "evaluation_attempted": False,
+        "adapter_activation_attempted": False,
+    }
+    assert payload["paths"]["json_path"].endswith("team_loop_report.json")
+
+
+def test_learning_team_loop_endpoint_rejects_secret_without_writes(tmp_path):
+    client = api_client(raise_server_exceptions=False)
+    item = team_feedback_item()
+    item["claim"] = "The api key is sk-abcdefghijklmnopqrstuvwxyz123456."
+
+    response = client.post(
+        "/learning/team-loop",
+        json={"project_root": str(tmp_path), "items": [item]},
+    )
+
+    assert response.status_code == 400
+    assert "secret-like" in response.json()["detail"]
+    assert not (tmp_path / ".morpheus" / "review" / "team_feedback").exists()
+
+
+def test_learning_team_loop_endpoint_uses_422_for_invalid_request_shape(tmp_path):
+    client = api_client(raise_server_exceptions=False)
+    malformed = client.post(
+        "/learning/team-loop",
+        content=(
+            '{"project_root":'
+            + json.dumps(str(tmp_path))
+            + ',"items":['
+        ),
+        headers={"content-type": "application/json"},
+    )
+    wrong_items_type = client.post(
+        "/learning/team-loop",
+        json={"project_root": str(tmp_path), "items": {"not": "a list"}},
+    )
+    wrong_item_type = client.post(
+        "/learning/team-loop",
+        json={"project_root": str(tmp_path), "items": ["not an object"]},
+    )
+
+    assert malformed.status_code == 422
+    assert wrong_items_type.status_code == 422
+    assert wrong_item_type.status_code == 422
+    assert not (tmp_path / ".morpheus" / "review" / "team_feedback").exists()
+
+
+def test_learning_team_loop_endpoint_rejects_invalid_batch_atomically(tmp_path):
+    client = api_client(raise_server_exceptions=False)
+    secret_item = team_feedback_item()
+    secret_item["external_id"] = "api-feedback-secret"
+    secret_item["correction"] = "The token is ghp_abcdefghijklmnopqrstuvwxyz123456."
+
+    response = client.post(
+        "/learning/team-loop",
+        json={
+            "project_root": str(tmp_path),
+            "items": [team_feedback_item(), secret_item],
+        },
+    )
+
+    assert response.status_code == 400
+    assert "secret-like" in response.json()["detail"]
+    assert not (tmp_path / ".morpheus" / "review" / "team_feedback").exists()
 
 
 def test_integrations_endpoint_reports_services_for_agents(monkeypatch, tmp_path):
@@ -803,6 +900,8 @@ def test_agent_handoff_returns_bundle_for_uninitialized_project(tmp_path):
     assert payload["commands"]["prepare_agent"] == "morpheus prepare-agent"
     assert payload["commands"]["learn_quality"] == "morpheus learn quality ."
     assert payload["commands"]["learn_benchmark"] == "morpheus learn benchmark . --dry-run"
+    assert payload["commands"]["learn_team_loop"] == "morpheus learn team-loop . --json"
+    assert "morpheus learn team-loop . --json" in payload["markdown"]
     assert "# Morpheus Agent Handoff" in payload["markdown"]
     assert "morpheus prepare-agent" in payload["markdown"]
     assert "morpheus learn quality ." in payload["markdown"]

@@ -17,6 +17,15 @@ from morpheus.core.provenance import build_receipt, compute_sha256_file, receipt
 from tests.test_learning_dataset import copy_learning_project
 
 
+def team_feedback_item() -> dict:
+    return {
+        "source_type": "human_correction",
+        "external_id": "cli-feedback-1",
+        "claim": "Morpheus trains raw Markdown directly.",
+        "correction": "Morpheus trains only accepted source-backed candidates.",
+    }
+
+
 def test_package_module_entrypoint_runs_cli_version():
     project_root = Path(__file__).resolve().parents[1]
 
@@ -417,10 +426,17 @@ def test_agent_connect_json_reports_manifest_without_server(tmp_path):
         assert payload["endpoints"]["integrations"]["url"] == "http://morpheus.local:8000/integrations"
         assert payload["endpoints"]["learning_quality"]["url"] == "http://morpheus.local:8000/learning/quality"
         assert payload["endpoints"]["learning_benchmark"]["url"] == "http://morpheus.local:8000/learning/benchmark"
+        assert payload["endpoints"]["learning_team_loop"] == {
+            "method": "POST",
+            "url": "http://morpheus.local:8000/learning/team-loop",
+            "json": {"project_root": str(Path.cwd()), "items": []},
+        }
         assert payload["integrations"]["service"] == "morpheus"
         assert payload["cli"]["agent_connect"] == "morpheus agent-connect --json"
         assert payload["cli"]["learn_quality"] == "morpheus learn quality ."
         assert payload["cli"]["learn_benchmark"] == "morpheus learn benchmark . --dry-run"
+        assert payload["cli"]["learn_team_loop"] == "morpheus learn team-loop . --json"
+        assert "/learning/team-loop" in payload["curl"]["learning_team_loop"]
         assert (
             payload["cli"]["serve_ui"]
             == "morpheus serve --ui --host 127.0.0.1 --port 8000 --ui-port 5173"
@@ -442,6 +458,113 @@ def test_agent_connect_human_output_includes_next_action(tmp_path):
         assert "morpheus agent-connect --json" in result.output
 
 
+def test_learn_team_loop_reads_jsonl_and_outputs_json(tmp_path):
+    input_path = tmp_path / "feedback.jsonl"
+    input_path.write_text(json.dumps(team_feedback_item()) + "\n")
+
+    result = CliRunner().invoke(
+        app,
+        ["learn", "team-loop", str(tmp_path), "--input", str(input_path), "--json"],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["report"]["created_count"] == 1
+    assert payload["report"]["review_counts"]["pending"] == 1
+    assert Path(payload["json_path"]).is_file()
+
+
+def test_learn_team_loop_reads_stdin(tmp_path):
+    result = CliRunner().invoke(
+        app,
+        ["learn", "team-loop", str(tmp_path), "--input", "-", "--json"],
+        input=json.dumps(team_feedback_item()) + "\n",
+    )
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["report"]["created_count"] == 1
+
+
+def test_learn_team_loop_rejects_malformed_json_without_writes(tmp_path):
+    input_path = tmp_path / "feedback.jsonl"
+    input_path.write_text("{not-json}\n")
+
+    result = CliRunner().invoke(
+        app,
+        ["learn", "team-loop", str(tmp_path), "--input", str(input_path), "--json"],
+    )
+
+    assert result.exit_code == 2
+    assert "invalid JSON on line 1" in result.output
+    assert not (tmp_path / ".morpheus" / "review" / "team_feedback").exists()
+
+
+def test_learn_team_loop_rejects_non_object_jsonl_without_writes(tmp_path):
+    input_path = tmp_path / "feedback.jsonl"
+    input_path.write_text('["not", "an", "object"]\n')
+
+    result = CliRunner().invoke(
+        app,
+        ["learn", "team-loop", str(tmp_path), "--input", str(input_path), "--json"],
+    )
+
+    assert result.exit_code == 2
+    assert "line 1 must be a JSON object" in result.output
+    assert not (tmp_path / ".morpheus" / "review" / "team_feedback").exists()
+
+
+def test_learn_team_loop_rejects_symlink_input_without_writes(tmp_path):
+    target = tmp_path / "feedback-target.jsonl"
+    target.write_text(json.dumps(team_feedback_item()) + "\n")
+    input_path = tmp_path / "feedback-link.jsonl"
+    try:
+        input_path.symlink_to(target)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unsupported: {exc}")
+
+    result = CliRunner().invoke(
+        app,
+        ["learn", "team-loop", str(tmp_path), "--input", str(input_path), "--json"],
+    )
+
+    assert result.exit_code == 2
+    assert "symlink" in result.output.casefold()
+    assert not (tmp_path / ".morpheus" / "review" / "team_feedback").exists()
+
+
+def test_learn_team_loop_rejects_unreadable_input_without_writes(tmp_path, monkeypatch):
+    input_path = tmp_path / "feedback.jsonl"
+    input_path.write_text(json.dumps(team_feedback_item()) + "\n")
+    original_read_text = Path.read_text
+
+    def deny_feedback_read(path: Path, *args, **kwargs):
+        if path == input_path:
+            raise PermissionError("feedback read denied")
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", deny_feedback_read)
+    result = CliRunner().invoke(
+        app,
+        ["learn", "team-loop", str(tmp_path), "--input", str(input_path), "--json"],
+    )
+
+    assert result.exit_code == 2
+    assert "feedback read denied" in result.output
+    assert not (tmp_path / ".morpheus" / "review" / "team_feedback").exists()
+
+
+def test_learn_team_loop_without_input_writes_audit_only_report(tmp_path):
+    result = CliRunner().invoke(
+        app,
+        ["learn", "team-loop", str(tmp_path), "--json"],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["report"]["input_count"] == 0
+    assert payload["report"]["created_count"] == 0
+
+
 def test_handoff_json_reports_bundle_without_server(tmp_path):
     runner = CliRunner()
 
@@ -460,8 +583,10 @@ def test_handoff_json_reports_bundle_without_server(tmp_path):
         assert payload["commands"]["handoff"] == "morpheus handoff"
         assert payload["commands"]["learn_quality"] == "morpheus learn quality ."
         assert payload["commands"]["learn_benchmark"] == "morpheus learn benchmark . --dry-run"
+        assert payload["commands"]["learn_team_loop"] == "morpheus learn team-loop . --json"
         assert "morpheus learn quality ." in payload["markdown"]
         assert "morpheus learn benchmark . --dry-run" in payload["markdown"]
+        assert "morpheus learn team-loop . --json" in payload["markdown"]
         assert "morpheus bootstrap-agent --dry-run" in payload["markdown"]
         assert not Path("AGENTS.md").exists()
 

@@ -199,6 +199,7 @@ morpheus learn lab .            # Run autonomous local learning experiment
 morpheus learn dataset .        # Build dataset from accepted candidates
 morpheus learn quality .        # Show trainability, routing, and dataset blockers
 morpheus learn benchmark . --dry-run
+morpheus learn team-loop . --input feedback.jsonl --json
 morpheus learn train . --dry-run
 morpheus learn eval .
 morpheus init                   # Initialize .morpheus/
@@ -293,6 +294,29 @@ Training examples may be created only from claims that satisfy all of these:
 Outdated claims can become correction/negative examples. They must not become
 positive project facts.
 
+### Team Feedback Event
+
+The local team-learning input is newline-delimited JSON:
+
+```python
+class TeamFeedbackEvent(BaseModel):
+    source_type: Literal["pr_comment", "rejected_agent_claim", "human_correction"]
+    external_id: str
+    claim: str
+    correction: str | None = None
+    author: str | None = None
+    url: str | None = None
+```
+
+Each validated event is stored as an immutable one-line local evidence artifact
+and projected into a `pending` `outdated_claim` candidate. The content hash is
+the stable candidate identity, so exact replay is idempotent and changed input
+creates a new auditable version. Acceptance may route the original claim to a
+negative/correction example; rejection or unresolved review state excludes it.
+The team loop never builds a dataset, trains, evaluates, or activates an adapter.
+The API returns `422` for malformed JSON or an invalid outer request shape and
+`400` for a parsed feedback event rejected by the local ingestion policy.
+
 Activation requires eval. Production use requires rollback.
 
 ## 10. Integrations
@@ -324,8 +348,8 @@ a verified classification-to-training pipeline:
 - **v0.6 Agent memory routing**: route facts to prompt context, retrieval,
   adapter training, eval-only, negative examples, stale archive, or human review.
 - **v0.7 Team learning loop**: convert PR comments, rejected agent claims, human
-  corrections, accepted candidates, and check results into reviewed continual
-  learning candidates.
+  corrections, accepted review candidates, check results, and stale-claim
+  corrections into reviewed continual learning candidates.
 
 The public claim is not "fine-tune an AI model on your codebase." The claim is:
 Morpheus builds a verified learning layer for agents, classifies project

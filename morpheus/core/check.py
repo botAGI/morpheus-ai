@@ -17,7 +17,11 @@ from morpheus.core.safe_io import reject_symlink_components, reject_symlink_path
 from morpheus.core.semantic.classifier import classify_claim
 from morpheus.core.semantic.models import SemanticCandidate
 from morpheus.core.semantic.review import ReviewStore
-from morpheus.core.semantic.routing import ROUTING_POLICY_VERSION, route_check_result
+from morpheus.core.semantic.routing import (
+    ROUTING_POLICY_VERSION,
+    route_candidate,
+    route_check_result,
+)
 
 
 CLAIM_SPLIT_RE = re.compile(r"(?:\n+|(?<=[.!?])\s+)")
@@ -169,9 +173,25 @@ def create_training_corrections(project_root: Path, check_result: dict) -> list[
         return []
 
     store = ReviewStore(project_root)
+    with store.transaction():
+        return _create_training_corrections_locked(
+            project_root,
+            check_result,
+            correction_results,
+            store,
+        )
+
+
+def _create_training_corrections_locked(
+    project_root: Path,
+    check_result: dict,
+    correction_results: list[dict],
+    store: ReviewStore,
+) -> list[SemanticCandidate]:
+    """Create check corrections while holding the shared review-store lock."""
     existing = store.load_candidates()
     existing_keys = {
-        _correction_key(candidate.claim, candidate.source_path)
+        _correction_key(candidate.claim, _candidate_correction_source_label(candidate))
         for candidate in existing
         if candidate.provider.get("name") == "morpheus-check"
     }
@@ -179,24 +199,32 @@ def create_training_corrections(project_root: Path, check_result: dict) -> list[
     corrections_dir = project_root / ".morpheus" / "review" / "check_corrections"
     _ensure_corrections_dir(corrections_dir)
     created = []
-    for index, item in enumerate(correction_results, 1):
+    for item in correction_results:
         claim = str(item.get("claim") or "").strip()
         evidence = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
         source_label = _source_label(evidence)
         key = _correction_key(claim, source_label)
         if key in existing_keys:
             continue
-        correction_id = _correction_id(run_id, index, claim)
+        correction_id = _correction_id(key)
         line = (
             f"Correction candidate: {item['status']} claim {json.dumps(claim)} "
             f"was flagged by morpheus check because {item.get('reason')}. "
             f"Source: {source_label}."
         )
         artifact = corrections_dir / f"{correction_id}.md"
-        artifact.write_text(line + "\n")
+        reject_symlink_paths([artifact], "Check correction artifact")
+        reject_symlink_components(artifact, "Check correction artifact")
+        if artifact.exists():
+            if not artifact.is_file() or artifact.read_text() != line + "\n":
+                raise ValueError(
+                    f"Check correction artifact already exists with different content: {artifact}"
+                )
+        else:
+            artifact.write_text(line + "\n")
         source_sha = compute_sha256_file(artifact)
         timestamp = datetime.now(timezone.utc)
-        candidate = SemanticCandidate(
+        candidate = route_candidate(SemanticCandidate(
             id=correction_id,
             run_id=run_id,
             kind="outdated_claim",
@@ -213,9 +241,13 @@ def create_training_corrections(project_root: Path, check_result: dict) -> list[
             label="source_backed",
             status="pending",
             created_at=timestamp,
-            provider={"name": "morpheus-check", "model": "local"},
+            provider={
+                "name": "morpheus-check",
+                "model": "local",
+                "source_label": source_label,
+            },
             prompt_sha256=CHECK_CORRECTION_PROMPT_SHA256,
-        )
+        ))
         created.append(candidate)
         existing_keys.add(key)
     if created:
@@ -290,9 +322,18 @@ def _correction_key(claim: str, source_label: str) -> str:
     return hashlib.sha256(f"{_normalize(claim)}\n{source_label}".encode()).hexdigest()
 
 
-def _correction_id(run_id: str, index: int, claim: str) -> str:
-    digest = hashlib.sha256(claim.encode()).hexdigest()[:8]
-    return f"corr_{run_id}_{index:02d}_{digest}"
+def _candidate_correction_source_label(candidate: SemanticCandidate) -> str:
+    source_label = candidate.provider.get("source_label")
+    if isinstance(source_label, str) and source_label.strip():
+        return source_label.strip()
+    match = re.search(r" Source: (.+)\.$", candidate.evidence_excerpt)
+    if match:
+        return match.group(1).strip()
+    return candidate.source_path
+
+
+def _correction_id(correction_key: str) -> str:
+    return f"corr_{correction_key[:24]}"
 
 
 def _classify_claim(claim: str, context: dict) -> dict:

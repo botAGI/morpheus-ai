@@ -70,6 +70,7 @@ class SemanticCandidate(BaseModel):
     run_id: str
     kind: CandidateKind
     claim: str
+    correction_text: str | None = None
     source_path: str
     source_sha256: str
     source_mtime: datetime

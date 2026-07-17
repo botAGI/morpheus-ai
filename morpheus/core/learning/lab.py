@@ -252,21 +252,22 @@ def lab_auto_accept(project_root: Path, *, reviewed_by: str = "lab") -> dict:
     result = _strict_accept_for_project(project_root)
     accepted_ids = {candidate.id for candidate in result["accepted"]}
     store = ReviewStore(project_root)
-    candidates = []
-    accepted_count = 0
-    now = datetime.now(timezone.utc)
-    for candidate in store.load_candidates():
-        if candidate.id in accepted_ids:
-            candidates.append(candidate.model_copy(update={
-                "status": "accepted",
-                "reviewed_by": reviewed_by,
-                "reviewed_at": now,
-                "review_reason": "strict lab-only machine accept",
-            }))
-            accepted_count += 1
-        else:
-            candidates.append(candidate)
-    store.save_candidates(candidates)
+    with store.transaction():
+        candidates = []
+        accepted_count = 0
+        now = datetime.now(timezone.utc)
+        for candidate in store.load_candidates():
+            if candidate.id in accepted_ids:
+                candidates.append(candidate.model_copy(update={
+                    "status": "accepted",
+                    "reviewed_by": reviewed_by,
+                    "reviewed_at": now,
+                    "review_reason": "strict lab-only machine accept",
+                }))
+                accepted_count += 1
+            else:
+                candidates.append(candidate)
+        store.save_candidates(candidates)
     return {
         "accepted": accepted_count,
         "candidates_total": len(candidates),

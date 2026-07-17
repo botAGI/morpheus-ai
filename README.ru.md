@@ -312,6 +312,30 @@ Start screen позволяет выбрать project root, настроить 
 diagnostics, подготовить агента, проверить integrations, протестировать MCP tools
 и скопировать полный handoff bundle.
 
+## Reviewed Team Corrections
+
+Командная обратная связь попадает в learning только через локальный review gate.
+Запишите по одному JSON object на строку: `source_type` (`pr_comment`,
+`rejected_agent_claim` или `human_correction`), стабильный `external_id`,
+отклонённый `claim` и optional явный `correction`:
+
+```json
+{"source_type":"pr_comment","external_id":"review-42","claim":"Morpheus trains raw Markdown directly.","correction":"Morpheus trains only accepted source-backed candidates."}
+```
+
+```bash
+morpheus learn team-loop . --input feedback.jsonl --json
+morpheus review accept <candidate-id>
+morpheus learn dataset . --from accepted --format instruction
+```
+
+Import создаёт pending source-backed correction candidates с immutable local
+evidence artifacts. Точный повтор идемпотентен. Pending и rejected feedback не
+попадает в dataset; accepted correction может стать negative/correction example
+только после обычной проверки актуального source span. `team-loop` не собирает
+dataset, не запускает train/eval/activation и не делает исходящих сетевых
+запросов.
+
 ## Архитектура
 
 ```text
@@ -354,6 +378,7 @@ morpheus compile
 | `morpheus learn dataset .` | Собрать dataset из accepted source-backed candidates |
 | `morpheus learn quality .` | Записать отчёты по trainability, routing, blockers и dataset quality |
 | `morpheus learn benchmark . --dry-run` | Записать benchmark-readiness artifacts без обучения и activation |
+| `morpheus learn team-loop . --input FILE --json` | Импортировать локальные team corrections как pending review candidates |
 | `morpheus learn status` | Показать learning dataset и adapter status |
 | `morpheus learn train . --dry-run` | Сгенерировать training artifacts без обучения |
 | `morpheus learn eval .` | Запустить eval harness для latest dataset или planned adapter |

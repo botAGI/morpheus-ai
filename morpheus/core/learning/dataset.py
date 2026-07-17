@@ -28,6 +28,7 @@ from morpheus.core.learning.safety import (
     load_morpheusignore,
     path_is_ignored,
 )
+from morpheus.core.learning.team import team_feedback_projection_error
 from morpheus.core.provenance import compute_sha256_file, latest_receipt_file
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
 from morpheus.core.semantic.models import SemanticCandidate
@@ -256,8 +257,15 @@ def _eligible_candidate(
     verified = verify_candidate_span(project_root, candidate)
     if verified.label != "source_backed":
         return None, "invalid_source_span", current_sha
-    if contains_secret_like_text(candidate.claim) or contains_secret_like_text(candidate.evidence_excerpt):
+    if (
+        contains_secret_like_text(candidate.claim)
+        or contains_secret_like_text(candidate.evidence_excerpt)
+        or contains_secret_like_text(candidate.correction_text or "")
+    ):
         return None, "secret_like", current_sha
+    projection_error = team_feedback_projection_error(verified)
+    if projection_error:
+        return None, projection_error, current_sha
 
     verified = route_candidate(verified)
     return Eligibility(

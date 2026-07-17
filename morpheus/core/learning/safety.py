@@ -17,6 +17,10 @@ SECRET_REGEXES = [
     re.compile(r"\b(?:sk|ghp|xoxb|xoxp)-[A-Za-z0-9_-]{16,}\b"),
 ]
 PERSONAL_JOURNAL_PATTERNS = {"journal", "diary", "daily-notes", "private-notes"}
+REVIEWED_LEARNING_SOURCE_PREFIXES = {
+    (".morpheus", "review", "check_corrections"),
+    (".morpheus", "review", "team_feedback"),
+}
 
 
 def load_morpheusignore(project_root: Path) -> set[str]:
@@ -34,7 +38,7 @@ def load_morpheusignore(project_root: Path) -> set[str]:
 
 
 def path_is_ignored(rel_path: Path, ignore_patterns: set[str]) -> bool:
-    if rel_path.parts[:3] == (".morpheus", "review", "check_corrections"):
+    if rel_path.parts[:3] in REVIEWED_LEARNING_SOURCE_PREFIXES:
         return False
     rel_text = rel_path.as_posix()
     patterns = DEFAULT_EXCLUDE_PATTERNS | SECRET_PATTERNS | ignore_patterns

@@ -4,6 +4,22 @@ All notable changes to Morpheus will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Added an idempotent local `morpheus learn team-loop` and
+  `POST /learning/team-loop` flow that stores PR comments, rejected agent claims,
+  and human corrections as pending review candidates without training or adapter
+  activation.
+- Accepted corrections can now carry explicit replacement text into
+  negative/correction training and eval examples while remaining excluded from
+  positive active project state.
+
+### Fixed
+
+- Preserved reviewed and correction candidates across semantic rescans, made
+  repeated check-correction creation idempotent, and hardened correction artifact
+  writes against symlink targets.
+
 ## [0.2.0b1] - 2026-05-20
 
 ### Added

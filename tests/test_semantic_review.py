@@ -216,6 +216,25 @@ def test_review_store_accepts_and_rejects_candidates(tmp_path):
     assert updated[candidates[1].id].review_reason == "too broad"
 
 
+def test_run_semantic_review_preserves_existing_review_decision(tmp_path):
+    write(tmp_path / "README.md", "Morpheus generates WAKE.md for AI agents.\n")
+    run_semantic_review(tmp_path, provider=FakeProvider())
+    store = ReviewStore(tmp_path)
+    candidate = store.load_candidates()[0]
+    store.accept(candidate.id, reviewed_by="tester")
+
+    run_semantic_review(tmp_path, provider=FakeProvider())
+
+    matching = [
+        item
+        for item in store.load_candidates()
+        if item.claim == candidate.claim and item.source_sha256 == candidate.source_sha256
+    ]
+    assert len(matching) == 1
+    assert matching[0].status == "accepted"
+    assert matching[0].reviewed_by == "tester"
+
+
 def test_review_store_diff_reports_pending_accepted_rejected(tmp_path):
     write(
         tmp_path / "README.md",

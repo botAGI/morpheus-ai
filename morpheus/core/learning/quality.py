@@ -5,7 +5,12 @@ import json
 from pathlib import Path
 
 from morpheus.core.learning.registry import dataset_manifest, latest_dataset_dir
-from morpheus.core.learning.safety import load_morpheusignore, path_is_ignored
+from morpheus.core.learning.safety import (
+    contains_secret_like_text,
+    load_morpheusignore,
+    path_is_ignored,
+)
+from morpheus.core.learning.team import team_feedback_projection_error
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
 from morpheus.core.semantic.review import ReviewStore
 from morpheus.core.semantic.routing import ROUTING_POLICY_VERSION, route_candidate
@@ -283,7 +288,17 @@ def _quality_candidate(project_root: Path, candidate, ignore_patterns: set[str])
     route = routed.memory_route
     label = routed.label
     rel_path = Path(routed.source_path)
-    if rel_path.is_absolute() or ".." in rel_path.parts:
+    projection_error = team_feedback_projection_error(routed)
+    if contains_secret_like_text(routed.correction_text or ""):
+        status = "unsafe"
+        route = "excluded"
+        reason = "secret_like_content"
+    elif projection_error:
+        status = "needs_review"
+        route = "human_review"
+        reason = projection_error
+        label = "needs_review"
+    elif rel_path.is_absolute() or ".." in rel_path.parts:
         status = "excluded"
         route = "excluded"
         reason = "invalid_source_path"

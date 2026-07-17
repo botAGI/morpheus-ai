@@ -1,5 +1,6 @@
 """Example generation from reviewed semantic candidates."""
 
+from morpheus.core.learning.corrections import explicit_correction_answer
 from morpheus.core.learning.evals import (
     candidate_recall_question,
     claim_answer_text,
@@ -205,13 +206,14 @@ def candidate_metadata(candidate: SemanticCandidate) -> dict:
 
 
 def _outdated_instruction_example(candidate: SemanticCandidate, metadata: dict) -> dict:
+    output = explicit_correction_answer(candidate) or (
+        "No. That is an outdated claim in reviewed Morpheus state; do not "
+        "train or act on it as an active project fact. Check accepted "
+        "source-backed state before using the claim."
+    )
     return {
         "instruction": "Correct an outdated Morpheus project claim.",
         "input": f"Is this current project state? {candidate.claim}",
-        "output": (
-            "No. That is an outdated claim in reviewed Morpheus state; do not "
-            "train or act on it as an active project fact. Check accepted "
-            "source-backed state before using the claim."
-        ),
+        "output": output,
         "metadata": {**metadata, "example_type": "outdated_correction"},
     }

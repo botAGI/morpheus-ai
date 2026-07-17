@@ -46,6 +46,7 @@ from morpheus.core.learning.lab import (
 )
 from morpheus.core.learning.quality import write_quality_report
 from morpheus.core.learning.registry import learning_status
+from morpheus.core.learning.team import run_team_learning_loop
 from morpheus.core.learning.train import plan_training_run
 from morpheus.core.wake import generate_wake_md
 from morpheus.core.provenance import (
@@ -1525,6 +1526,68 @@ def learn_quality(
     console.print(f"train_allowed={result['report']['train_allowed']}")
     if result["report"]["train_blockers"]:
         console.print("blockers: " + ", ".join(result["report"]["train_blockers"]))
+
+
+def _read_team_feedback_input(input_value: str | None) -> list[dict]:
+    if input_value is None:
+        return []
+    if input_value == "-":
+        content = typer.get_text_stream("stdin").read()
+    else:
+        input_path = Path(input_value).expanduser()
+        reject_symlink_paths([input_path], "Team feedback input")
+        reject_symlink_components(input_path, "Team feedback input")
+        if not input_path.is_file():
+            raise ValueError(f"Team feedback input is not a file: {input_path}")
+        content = input_path.read_text()
+    items = []
+    for line_number, line in enumerate(content.splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"invalid JSON on line {line_number}: {exc.msg}") from exc
+        if not isinstance(item, dict):
+            raise ValueError(f"team feedback line {line_number} must be a JSON object")
+        items.append(item)
+    return items
+
+
+@learn_app.command("team-loop")
+def learn_team_loop(
+    project: Path = typer.Argument(Path("."), help="Project path"),
+    input_value: str | None = typer.Option(
+        None,
+        "--input",
+        help="JSONL feedback path, or - for stdin",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON"),
+):
+    """Ingest team corrections as pending review candidates without training."""
+    try:
+        result = run_team_learning_loop(project, _read_team_feedback_input(input_value))
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        console.print(f"[red]Team learning loop failed:[/red] {exc}")
+        raise typer.Exit(2) from exc
+    if json_output:
+        console.out(json.dumps(result, indent=2, sort_keys=True))
+        return
+    report = result["report"]
+    console.print(f"team loop report: {result['markdown_path']}")
+    console.print(
+        "feedback: "
+        f"input={report['input_count']} "
+        f"created={report['created_count']} "
+        f"existing={report['existing_count']}"
+    )
+    console.print(
+        "review: "
+        f"accepted={report['review_counts']['accepted']} "
+        f"pending={report['review_counts']['pending']} "
+        f"rejected={report['review_counts']['rejected']}"
+    )
+    console.print("training=false activation=false")
 
 
 @learn_app.command("benchmark")
