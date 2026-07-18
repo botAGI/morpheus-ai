@@ -98,8 +98,11 @@ class ReviewStore:
     def save_candidates(self, candidates: list[SemanticCandidate]) -> None:
         self.ensure()
         _reject_review_output(self.candidates_path)
-        content = "\n".join(candidate.model_dump_json() for candidate in candidates)
-        if candidates:
+        routed_candidates = route_candidates(candidates)
+        content = "\n".join(
+            candidate.model_dump_json() for candidate in routed_candidates
+        )
+        if routed_candidates:
             content += "\n"
         temporary_path = self.review_dir / (
             f".semantic_candidates.{os.getpid()}.{secrets.token_hex(8)}.tmp"

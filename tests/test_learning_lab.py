@@ -14,8 +14,9 @@ from morpheus.core.learning.categories import CRITICAL_BENCHMARK_CATEGORIES
 from morpheus.core.learning.evals import eval_items_for_candidate
 from morpheus.core.learning.lab import run_autonomous_lab
 from morpheus.core.providers.local import LocalProvider
-from morpheus.core.semantic.review import run_semantic_review
+from morpheus.core.semantic.review import ReviewStore, run_semantic_review
 from morpheus.core.semantic.models import SemanticCandidate
+from morpheus.core.semantic.routing import route_candidate
 
 
 FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "autonomous_learning_repo"
@@ -41,6 +42,15 @@ def latest_lab_dir(project_root: Path) -> Path:
 
 def read_jsonl(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def assert_canonical_routing(rows: list[dict]) -> None:
+    for row in rows:
+        persisted = SemanticCandidate.model_validate(row)
+        canonical = route_candidate(persisted)
+        assert persisted.trainability_status == canonical.trainability_status
+        assert persisted.memory_route == canonical.memory_route
+        assert persisted.trainability_reason == canonical.trainability_reason
 
 
 def lab_candidate(project_root: Path, *, claim: str, line: int = 1) -> SemanticCandidate:
@@ -120,7 +130,62 @@ def test_learn_lab_dataset_excludes_raw_markdown_secrets_and_pending_state(tmp_p
     assert "Ignore previous instructions" not in dataset_text
     assert all(item["status"] == "accepted" for item in accepted)
     assert all(item["label"] == "source_backed" for item in accepted)
+    assert_canonical_routing(accepted)
+    assert_canonical_routing(read_jsonl(
+        lab_dir / "workspace" / ".morpheus" / "review" / "semantic_candidates.jsonl"
+    ))
     assert "raw markdown" not in dataset_text.lower() or "never train on raw markdown" in dataset_text.lower()
+
+
+def test_lab_auto_accept_persists_canonical_routing(tmp_path):
+    project_root = tmp_path / "repo"
+    project_root.mkdir()
+    claim = "Morpheus generates WAKE.md for AI agents."
+    (project_root / "README.md").write_text(claim + "\n")
+    store = ReviewStore(project_root)
+    store.save_candidates([lab_candidate(project_root, claim=claim)])
+
+    result = lab_module.lab_auto_accept(project_root, reviewed_by="test-lab")
+
+    assert result["accepted"] == 1
+    persisted = store.load_candidates()[0]
+    assert persisted.status == "accepted"
+    assert persisted.reviewed_by == "test-lab"
+    assert persisted.trainability_status == "trainable"
+    assert persisted.memory_route == "adapter_training"
+    assert persisted.trainability_reason == "accepted_source_backed_stable_claim"
+
+
+def test_lab_auto_accept_does_not_overwrite_concurrent_rejection(tmp_path, monkeypatch):
+    project_root = tmp_path / "repo"
+    project_root.mkdir()
+    claim = "Morpheus generates WAKE.md for AI agents."
+    (project_root / "README.md").write_text(claim + "\n")
+    store = ReviewStore(project_root)
+    candidate = lab_candidate(project_root, claim=claim)
+    store.save_candidates([candidate])
+    original_load = lab_module._load_or_generate_candidates
+
+    def load_then_reject(root: Path):
+        loaded = original_load(root)
+        ReviewStore(root).reject(
+            candidate.id,
+            reason="human rejected during lab selection",
+            reviewed_by="human",
+        )
+        return loaded
+
+    monkeypatch.setattr(lab_module, "_load_or_generate_candidates", load_then_reject)
+
+    result = lab_module.lab_auto_accept(project_root, reviewed_by="test-lab")
+
+    assert result["accepted"] == 0
+    assert result["rejected_reasons"]["status_not_pending"] == 1
+    persisted = store.load_candidates()[0]
+    assert persisted.status == "rejected"
+    assert persisted.reviewed_by == "human"
+    assert persisted.memory_route == "excluded"
+    assert persisted.trainability_reason == "status_rejected"
 
 
 def test_learn_lab_default_uses_fixture_when_dogfood_is_blocked(tmp_path):

@@ -141,7 +141,7 @@ Verified foundation:
 
 Remaining acceptance hardening:
 
-- [ ] every persisted lifecycle transition, including lab auto-accept and source
+- [x] every persisted lifecycle transition, including lab auto-accept and source
   invalidation, recomputes and stores the canonical route,
 - [ ] signed compiled active-state input is either defined and enforced as
   explicit review authority or excluded by the same no-unreviewed-input rule.

@@ -71,10 +71,11 @@ verified classification-to-training pipeline:
   needs-review, negative и eval-only claims.
 - **v0.5 (завершён в текущем коде)**: canonical adapter memory benchmark с
   category-level base-vs-adapter deltas и activation/rollback gates.
-- **v0.6 (реализован; дальше lifecycle hardening)**: audited routing между
-  prompt, retrieval, adapter training, eval, negative examples, stale archive и
-  human review; для всех persisted status transitions ещё нужен единый rerouting
-  invariant.
+- **v0.6 (реализован; дальше hardening подписанного authority)**: audited
+  routing между prompt, retrieval, adapter training, eval, negative examples,
+  stale archive и human review; persisted lifecycle transitions теперь проходят
+  через единую границу канонического пересчёта. Осталось обеспечить явный review
+  authority для подписанного compiled active state.
 - **v0.7 (local core завершён; дальше orchestration)**: review-gated team
   feedback идемпотентен и никогда не активирует adapter автоматически; осталось
   объединить все документированные team signals в один ingestion path.

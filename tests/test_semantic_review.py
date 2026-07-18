@@ -216,6 +216,26 @@ def test_review_store_accepts_and_rejects_candidates(tmp_path):
     assert updated[candidates[1].id].review_reason == "too broad"
 
 
+def test_review_store_canonicalizes_routing_before_persisting(tmp_path):
+    write(tmp_path / "README.md", "Morpheus generates WAKE.md for AI agents.\n")
+    run_semantic_review(tmp_path, provider=FakeProvider())
+    store = ReviewStore(tmp_path)
+    candidate = store.load_candidates()[0].model_copy(update={
+        "status": "accepted",
+        "trainability_status": "needs_review",
+        "trainability_reason": "status_pending",
+        "memory_route": "human_review",
+    })
+
+    store.save_candidates([candidate])
+
+    persisted = store.load_candidates()[0]
+    assert persisted.status == "accepted"
+    assert persisted.trainability_status == "trainable"
+    assert persisted.memory_route == "adapter_training"
+    assert persisted.trainability_reason == "accepted_source_backed_stable_claim"
+
+
 def test_run_semantic_review_preserves_existing_review_decision(tmp_path):
     write(tmp_path / "README.md", "Morpheus generates WAKE.md for AI agents.\n")
     run_semantic_review(tmp_path, provider=FakeProvider())
@@ -268,6 +288,9 @@ def test_review_apply_rechecks_source_spans_before_promoting(tmp_path):
     assert updated.status == "pending"
     assert updated.label == "needs_review"
     assert updated.review_reason == "source span changed before apply"
+    assert updated.trainability_status == "needs_review"
+    assert updated.memory_route == "human_review"
+    assert updated.trainability_reason == "label_needs_review"
 
 
 def test_run_semantic_review_rejects_symlinked_review_dir_without_writing_target(tmp_path):

@@ -122,8 +122,8 @@ The roadmap milestones are:
   needs-review, negative, and eval-only state.
 - v0.5 adapter memory benchmark: complete in the current code.
 - v0.6 agent memory routing: implemented with audited decisions and guarded
-  dataset consumption; lifecycle rerouting and explicit active-state review
-  authority remain to harden.
+  dataset consumption; persisted lifecycle rerouting is canonical, while
+  explicit signed active-state review authority remains to harden.
 - v0.7 team learning loop: the idempotent, pending-review local feedback core is
   complete; unified ingestion for every documented team signal remains.
 

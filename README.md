@@ -70,10 +70,11 @@ verified classification-to-training pipeline:
   unsafe, needs-review, negative, and eval-only claims.
 - **v0.5 (complete in the current code)**: canonical adapter memory benchmark
   with category-level base-vs-adapter deltas and activation/rollback gates.
-- **v0.6 (implemented; lifecycle hardening next)**: audited routing across
-  prompt, retrieval, adapter training, eval, negative examples, stale archive,
-  and human review; every persisted status transition still needs one shared
-  rerouting invariant.
+- **v0.6 (implemented; signed authority hardening next)**: audited routing
+  across prompt, retrieval, adapter training, eval, negative examples, stale
+  archive, and human review; persisted lifecycle transitions now share one
+  canonical rerouting boundary. Signed compiled active-state review authority
+  remains to be enforced.
 - **v0.7 (local core complete; orchestration next)**: review-gated team feedback
   is idempotent and never auto-activates; the remaining work is one ingestion
   path for every documented team signal.

@@ -427,11 +427,12 @@ a verified classification-to-training pipeline:
 - **v0.5 Adapter memory benchmark (complete in current code)**: evaluate product
   identity, commands, architecture, safety rules, team conventions, stale
   correction, and unsupported-claim refusal separately.
-- **v0.6 Agent memory routing (implemented; lifecycle hardening remains)**:
-  audited route selection exists for prompt context, retrieval, adapter
-  training, eval-only, negative examples, stale archive, and human review. The
-  remaining milestone work is to enforce route recomputation on every persisted
-  candidate-state transition and make active-state review authority explicit.
+- **v0.6 Agent memory routing (implemented; signed authority hardening
+  remains)**: audited route selection exists for prompt context, retrieval,
+  adapter training, eval-only, negative examples, stale archive, and human
+  review. Every persisted candidate-state transition recomputes its canonical
+  route; the remaining milestone work is to make signed compiled active-state
+  review authority explicit.
 - **v0.7 Team learning loop (local reviewed-feedback core complete)**: PR
   comments, rejected agent claims, and human corrections enter an idempotent
   pending-review flow that never activates adapters. One orchestration path for

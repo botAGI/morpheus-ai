@@ -46,6 +46,7 @@ from morpheus.core.providers.local import LocalProvider
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
 from morpheus.core.semantic.models import SemanticCandidate
 from morpheus.core.semantic.review import ReviewStore, run_semantic_review
+from morpheus.core.semantic.routing import route_candidate
 from morpheus.core.semantic.scanner import scan_semantic_sources
 from morpheus.core.semantic.verifier import verify_candidate_span
 
@@ -267,15 +268,16 @@ def strict_lab_accept_candidates(project_root: Path) -> dict:
 def lab_auto_accept(project_root: Path, *, reviewed_by: str = "lab") -> dict:
     """Explicit lab-only status mutation for strict accepted candidates."""
     project_root = _safe_project_root(project_root)
-    result = _strict_accept_for_project(project_root)
-    accepted_ids = {candidate.id for candidate in result["accepted"]}
+    _load_or_generate_candidates(project_root)
     store = ReviewStore(project_root)
     with store.transaction():
         candidates = []
         accepted_count = 0
+        rejected_reasons: Counter = Counter()
         now = datetime.now(timezone.utc)
         for candidate in store.load_candidates():
-            if candidate.id in accepted_ids:
+            ok, reason = _strict_lab_accept_reason(project_root, candidate)
+            if ok:
                 candidates.append(candidate.model_copy(update={
                     "status": "accepted",
                     "reviewed_by": reviewed_by,
@@ -285,11 +287,12 @@ def lab_auto_accept(project_root: Path, *, reviewed_by: str = "lab") -> dict:
                 accepted_count += 1
             else:
                 candidates.append(candidate)
+                rejected_reasons[reason] += 1
         store.save_candidates(candidates)
     return {
         "accepted": accepted_count,
         "candidates_total": len(candidates),
-        "rejected_reasons": result["rejected_reasons"],
+        "rejected_reasons": rejected_reasons,
     }
 
 
@@ -433,12 +436,12 @@ def _strict_accept_for_project(project_root: Path) -> dict:
     for candidate in candidates:
         ok, reason = _strict_lab_accept_reason(project_root, candidate)
         if ok:
-            accepted.append(candidate.model_copy(update={
+            accepted.append(route_candidate(candidate.model_copy(update={
                 "status": "accepted",
                 "reviewed_by": "morpheus-lab",
                 "reviewed_at": datetime.now(timezone.utc),
                 "review_reason": "strict lab machine accept",
-            }))
+            })))
         else:
             rejected_reasons[reason] += 1
     return {
@@ -640,11 +643,7 @@ def _prepare_lab_workspace(
         dest = workspace / rel_path
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, dest)
-    review_dir = workspace / ".morpheus" / "review"
-    review_dir.mkdir(parents=True, exist_ok=True)
-    _write_jsonl(review_dir / "semantic_candidates.jsonl", [
-        candidate.model_dump(mode="json") for candidate in accepted
-    ])
+    ReviewStore(workspace).save_candidates(accepted)
     return workspace
 
 
