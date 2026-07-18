@@ -14,6 +14,7 @@ from morpheus.core.learning.dataset_validation import (
     dataset_binding_sha256,
     validate_dataset,
 )
+from morpheus.core.learning.categories import CANONICAL_BENCHMARK_CATEGORIES
 from morpheus.core.learning.examples import (
     chat_examples_from_instruction,
     sharegpt_examples_from_instruction,
@@ -544,7 +545,15 @@ def test_dataset_manifest_binds_review_state_and_generated_artifacts(tmp_path):
     dataset_dir = Path(result["dataset_dir"])
     manifest = json.loads((dataset_dir / "manifest.json").read_text())
     provenance = manifest["provenance"]
-    assert manifest["format_versions"]["manifest"] == "morpheus-learning-manifest/2"
+    assert manifest["format_versions"] == {
+        "instruction": "morpheus-instruction/1",
+        "sharegpt": "morpheus-sharegpt/1",
+        "chat": "morpheus-chat/1",
+        "manifest": "morpheus-learning-manifest/3",
+        "eval_seed": "morpheus-eval-seed/2",
+        "heldout_eval": "morpheus-heldout-eval/2",
+        "benchmark_categories": "morpheus-benchmark-categories/1",
+    }
     assert provenance["schema"] == "morpheus-dataset-provenance/1"
     assert provenance["source_scope"] == "accepted_review_live"
     assert provenance["routing_policy_version"] == "morpheus-memory-routing/1"
@@ -667,6 +676,60 @@ def test_legacy_unbound_manifest_is_visible_but_not_usable(tmp_path):
     assert "legacy_unbound_manifest" in validation["blockers"]
     with pytest.raises(ValueError, match="legacy_unbound_manifest"):
         plan_training_run(project_root, dry_run=True)
+
+
+def test_project_recall_diagnostic_category_is_valid_but_noncanonical(tmp_path):
+    project_root = copy_learning_project(tmp_path)
+    store = ReviewStore(project_root)
+    candidates = store.load_candidates()
+    index = next(index for index, candidate in enumerate(candidates) if candidate.id == "c_current")
+    candidates[index] = candidates[index].model_copy(update={
+        "semantic_class": "implementation",
+    })
+    store.save_candidates(candidates)
+
+    result = build_learning_dataset(project_root)
+    dataset_dir = Path(result["dataset_dir"])
+    eval_rows = _read_jsonl(dataset_dir / "eval.seed.jsonl")
+    diagnostic = next(item for item in eval_rows if item["source_candidate_id"] == "c_current")
+    validation = validate_dataset(project_root, dataset_dir)
+
+    assert diagnostic["category"] == "project_recall"
+    assert diagnostic["category"] not in CANONICAL_BENCHMARK_CATEGORIES
+    assert validation["valid"] is True
+
+
+@pytest.mark.parametrize(
+    ("format_name", "legacy_value", "expected_blocker"),
+    [
+        ("manifest", "morpheus-learning-manifest/2", "legacy_unbound_manifest"),
+        ("eval_seed", "morpheus-eval-seed/1", "dataset_manifest_semantics_invalid"),
+        ("heldout_eval", "morpheus-heldout-eval/1", "dataset_manifest_semantics_invalid"),
+        (
+            "benchmark_categories",
+            "morpheus-benchmark-categories/0",
+            "dataset_manifest_semantics_invalid",
+        ),
+    ],
+)
+def test_manifest_requires_current_eval_and_category_schema_bindings(
+    tmp_path,
+    format_name,
+    legacy_value,
+    expected_blocker,
+):
+    project_root = copy_learning_project(tmp_path)
+    result = build_learning_dataset(project_root)
+    dataset_dir = Path(result["dataset_dir"])
+    manifest_path = dataset_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["format_versions"][format_name] = legacy_value
+    _rewrite_manifest(dataset_dir, manifest)
+
+    validation = validate_dataset(project_root, dataset_dir)
+
+    assert validation["valid"] is False
+    assert expected_blocker in validation["blockers"]
 
 
 def test_zero_example_dataset_cannot_be_evaluated(tmp_path):

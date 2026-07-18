@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from morpheus.core.compiler import compute_sha256
+from morpheus.core.learning.authority import learning_authority_transaction
+from morpheus.core.learning.categories import BENCHMARK_CATEGORY_SCHEMA
 from morpheus.core.learning.evals import (
     eval_items_for_candidate,
     heldout_eval_items_for_candidate,
@@ -49,6 +51,7 @@ from morpheus.core.semantic.models import SemanticCandidate
 from morpheus.core.semantic.review import ReviewStore
 from morpheus.core.semantic.routing import route_candidate
 from morpheus.core.semantic.verifier import verify_candidate_span
+from morpheus.core.state_authority import state_authority_transaction
 
 
 DATASET_FORMATS = {"instruction", "sharegpt", "chat"}
@@ -250,9 +253,10 @@ def build_learning_dataset(
             "instruction": INSTRUCTION_FORMAT_VERSION,
             "sharegpt": SHAREGPT_FORMAT_VERSION,
             "chat": CHAT_FORMAT_VERSION,
-            "eval_seed": "morpheus-eval-seed/1",
-            "heldout_eval": "morpheus-heldout-eval/1",
+            "eval_seed": "morpheus-eval-seed/2",
+            "heldout_eval": "morpheus-heldout-eval/2",
             "manifest": MANIFEST_FORMAT_VERSION,
+            "benchmark_categories": BENCHMARK_CATEGORY_SCHEMA,
         },
     }
     manifest["dataset_binding_sha256"] = dataset_binding_sha256(manifest)
@@ -281,25 +285,26 @@ def build_learning_dataset(
                 ),
             )
     else:
-        _ensure_active_authority_current(
-            project_root,
-            active_authority,
-            source_paths,
-            source_hashes,
-        )
-        _write_private_text(manifest_path, _manifest_text(manifest))
-        _publish_staged_dataset(
-            staging_dir,
-            out_dir,
-            staging_identity=staging_identity,
-            expected_manifest=manifest,
-            authority_check=lambda: _ensure_active_authority_current(
+        with state_authority_transaction(project_root):
+            _ensure_active_authority_current(
                 project_root,
                 active_authority,
                 source_paths,
                 source_hashes,
-            ),
-        )
+            )
+            _write_private_text(manifest_path, _manifest_text(manifest))
+            _publish_staged_dataset(
+                staging_dir,
+                out_dir,
+                staging_identity=staging_identity,
+                expected_manifest=manifest,
+                authority_check=lambda: _ensure_active_authority_current(
+                    project_root,
+                    active_authority,
+                    source_paths,
+                    source_hashes,
+                ),
+            )
     published_selected_path = out_dir / canonical_selected_path.name
     selected_path = published_selected_path
     if output is not None:
@@ -597,24 +602,26 @@ def _publish_staged_dataset(
     lock_path = registry_root / ".registry.lock"
     reject_symlink_paths([lock_path], "Dataset registry lock")
     reject_symlink_components(lock_path, "Dataset registry lock")
-    with portable_file_lock(lock_path):
-        if _descriptor_publish_supported():
-            _publish_staged_dataset_with_descriptors(
-                registry_root,
-                staging_dir,
-                out_dir,
-                staging_identity=staging_identity,
-                expected_manifest=expected_manifest,
-                authority_check=authority_check,
-            )
-        else:  # pragma: no cover - descriptor-relative APIs are available on POSIX.
-            _publish_staged_dataset_with_paths(
-                staging_dir,
-                out_dir,
-                staging_identity=staging_identity,
-                expected_manifest=expected_manifest,
-                authority_check=authority_check,
-            )
+    authority_root = registry_root.parents[2]
+    with learning_authority_transaction(authority_root):
+        with portable_file_lock(lock_path):
+            if _descriptor_publish_supported():
+                _publish_staged_dataset_with_descriptors(
+                    registry_root,
+                    staging_dir,
+                    out_dir,
+                    staging_identity=staging_identity,
+                    expected_manifest=expected_manifest,
+                    authority_check=authority_check,
+                )
+            else:  # pragma: no cover - descriptor APIs are available on POSIX.
+                _publish_staged_dataset_with_paths(
+                    staging_dir,
+                    out_dir,
+                    staging_identity=staging_identity,
+                    expected_manifest=expected_manifest,
+                    authority_check=authority_check,
+                )
 
 
 def _publish_staged_dataset_with_descriptors(

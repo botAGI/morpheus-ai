@@ -359,6 +359,48 @@ dataset and eval-seed item identities, and the complete config/results hashes;
 editing diagnostic JSON cannot create that provenance. A force flag must never
 bypass a failed eval gate.
 
+### Canonical v0.5 Benchmark Contract
+
+The category schema is `morpheus-benchmark-categories/1`. Canonical coverage is
+exactly these seven IDs:
+
+- `product_identity`
+- `commands_and_cli_behavior`
+- `architecture`
+- `safety_rules`
+- `team_conventions`
+- `stale_claim_correction`
+- `unsupported_claim_refusal`
+
+`project_recall` is diagnostic and must not satisfy canonical coverage.
+`security` and `convention` source classes, and their corresponding
+`safety_rules` and `team_conventions` eval categories, are independent
+requirements; one must not substitute for the other.
+
+The manifest binds the category schema, and base/adapter eval config, results,
+and activation receipts bind the same exact dataset and schema. A legacy or
+mismatched manifest, eval artifact, or category schema is readable only where
+explicitly supported; it is not activation authority. The executable recovery
+path is to rebuild the dataset and rerun both base and adapter evals, not edit
+old JSON.
+
+Every comparison reports pass-rate and hallucination-rate deltas per category,
+all category regressions, and the critical-regression subset. Critical means
+`safety_rules`, `stale_claim_correction`, or `unsupported_claim_refusal`.
+
+Both activation and rollback to an adapter invoke the same live,
+adapter-bound readiness/eval gate and repeat its authority capture before the
+active pointer commit. It covers the current dataset identity and binding,
+canonical coverage and readiness, paired activation-eligible base/adapter eval
+artifacts and receipts, metrics and critical regressions, and the registered
+weight artifact. `--force` cannot bypass failure. Rollback to no adapter remains
+the fail-safe path and does not require an adapter target to pass the gate.
+
+Weight authority is the trained adapter manifest's single non-empty, regular,
+non-symlink `.safetensors` file. Its exact relative path, byte size, and SHA-256
+must match current bytes and are bound into the activation/rollback authority,
+active pointer, and receipts.
+
 ## 10. Integrations
 
 Integrations contribute evidence. They do not change the product identity.
@@ -382,14 +424,18 @@ a verified classification-to-training pipeline:
   stale claims, team conventions, open tasks, or temporary facts.
 - **v0.4 Dataset quality dashboard**: expose trainable, retrievable, stale,
   unsafe, needs-review, negative, and eval-only state.
-- **v0.5 Adapter memory benchmark**: evaluate product identity, commands,
-  architecture, safety rules, team conventions, stale correction, and
-  unsupported-claim refusal separately.
-- **v0.6 Agent memory routing**: route facts to prompt context, retrieval,
-  adapter training, eval-only, negative examples, stale archive, or human review.
-- **v0.7 Team learning loop**: convert PR comments, rejected agent claims, human
-  corrections, accepted review candidates, check results, and stale-claim
-  corrections into reviewed continual learning candidates.
+- **v0.5 Adapter memory benchmark (complete in current code)**: evaluate product
+  identity, commands, architecture, safety rules, team conventions, stale
+  correction, and unsupported-claim refusal separately.
+- **v0.6 Agent memory routing (implemented; lifecycle hardening remains)**:
+  audited route selection exists for prompt context, retrieval, adapter
+  training, eval-only, negative examples, stale archive, and human review. The
+  remaining milestone work is to enforce route recomputation on every persisted
+  candidate-state transition and make active-state review authority explicit.
+- **v0.7 Team learning loop (local reviewed-feedback core complete)**: PR
+  comments, rejected agent claims, and human corrections enter an idempotent
+  pending-review flow that never activates adapters. One orchestration path for
+  accepted review candidates, check results, and stale corrections remains.
 
 The public claim is not "fine-tune an AI model on your codebase." The claim is:
 Morpheus builds a verified learning layer for agents, classifies project

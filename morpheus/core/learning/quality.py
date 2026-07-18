@@ -8,6 +8,7 @@ from morpheus.core.learning.dataset_validation import (
     manifest_count,
     validation_blocker_messages,
 )
+from morpheus.core.learning.readiness import benchmark_readiness_gate
 from morpheus.core.learning.registry import dataset_manifest, latest_effective_dataset
 from morpheus.core.learning.safety import (
     contains_secret_like_text,
@@ -23,27 +24,6 @@ from morpheus.core.semantic.verifier import verify_candidate_span
 
 TRAIN_MIN_ACCEPTED = 20
 TRAIN_MIN_EXAMPLES = 100
-BENCHMARK_MIN_TRAINABLE = 20
-BENCHMARK_MIN_EXAMPLES = 100
-BENCHMARK_MIN_EVAL_ITEMS = 30
-BENCHMARK_MIN_SOURCE_PATHS = 3
-BENCHMARK_CLASS_MINIMUMS = {
-    "product": 1,
-    "command": 2,
-    "architecture": 1,
-}
-BENCHMARK_CLASS_GROUPS = {
-    "security_or_convention": {
-        "classes": ("security", "convention"),
-        "minimum": 1,
-    },
-}
-BENCHMARK_EVAL_CATEGORY_MINIMUMS = {
-    "unsupported_claim_refusal": 1,
-    "outdated_claim_correction": 1,
-}
-
-
 def build_quality_report(project_root: Path) -> dict:
     project_root = project_root.expanduser().resolve()
     candidates = ReviewStore(project_root).load_candidates()
@@ -92,10 +72,8 @@ def build_quality_report(project_root: Path) -> dict:
         else root_accepted_trainable
     )
     examples_count = manifest_count(raw_latest_manifest, "examples_count")
-    eval_category_counts = _eval_category_counts(latest / "eval.seed.jsonl") if latest is not None else {}
-    benchmark_gate = _benchmark_gate(
+    benchmark_gate = benchmark_readiness_gate(
         raw_latest_manifest,
-        eval_category_counts,
         validation,
     )
     train_blockers = []
@@ -327,105 +305,3 @@ def _quality_candidate(project_root: Path, candidate, ignore_patterns: set[str])
 
 def _counts(values) -> dict:
     return dict(sorted(Counter(values).items()))
-
-
-def _benchmark_gate(
-    manifest: dict | None,
-    eval_category_counts: dict[str, int],
-    validation: dict,
-) -> dict:
-    manifest = manifest if isinstance(manifest, dict) else {}
-    raw_class_counts = manifest.get("class_counts")
-    class_counts = raw_class_counts if isinstance(raw_class_counts, dict) else {}
-    raw_route_counts = manifest.get("route_counts")
-    route_counts = raw_route_counts if isinstance(raw_route_counts, dict) else {}
-    raw_source_paths = manifest.get("source_paths")
-    source_paths = raw_source_paths if isinstance(raw_source_paths, list) else []
-    trainable_count = manifest_count(manifest, "trainable_candidate_count")
-    examples_count = manifest_count(manifest, "examples_count")
-    eval_items_count = manifest_count(manifest, "eval_items_count")
-    blockers = []
-    if trainable_count < BENCHMARK_MIN_TRAINABLE:
-        blockers.append("trainable_candidate_count < 20")
-    if examples_count < BENCHMARK_MIN_EXAMPLES:
-        blockers.append("examples < 100")
-    if eval_items_count < BENCHMARK_MIN_EVAL_ITEMS:
-        blockers.append("eval_items < 30")
-    if len(source_paths) < BENCHMARK_MIN_SOURCE_PATHS:
-        blockers.append("source_paths < 3")
-    if not validation["valid"] and validation.get("blockers"):
-        blockers.extend(validation_blocker_messages(validation))
-
-    class_requirements = {}
-    for class_name, minimum in BENCHMARK_CLASS_MINIMUMS.items():
-        count = manifest_count(class_counts, class_name)
-        class_requirements[class_name] = {"count": count, "minimum": minimum}
-        if count < minimum:
-            blockers.append(f"class {class_name} < {minimum}")
-
-    class_group_requirements = {}
-    for group_name, config in BENCHMARK_CLASS_GROUPS.items():
-        count = sum(
-            manifest_count(class_counts, class_name)
-            for class_name in config["classes"]
-        )
-        minimum = int(config["minimum"])
-        class_group_requirements[group_name] = {
-            "classes": list(config["classes"]),
-            "count": count,
-            "minimum": minimum,
-        }
-        if count < minimum:
-            blockers.append(f"class_group {group_name} < {minimum}")
-
-    eval_requirements = {}
-    for category, minimum in BENCHMARK_EVAL_CATEGORY_MINIMUMS.items():
-        count = manifest_count(eval_category_counts, category)
-        eval_requirements[category] = {"count": count, "minimum": minimum}
-        if count < minimum:
-            blockers.append(f"eval_category {category} < {minimum}")
-
-    return {
-        "allowed": not blockers,
-        "blockers": blockers,
-        "eval_category_counts": eval_category_counts,
-        "requirements": {
-            "class_counts": class_requirements,
-            "class_groups": class_group_requirements,
-            "eval_categories": eval_requirements,
-            "route_counts": {
-                "adapter_training": {
-                    "count": manifest_count(route_counts, "adapter_training"),
-                    "minimum": BENCHMARK_MIN_TRAINABLE,
-                },
-            },
-            "source_paths": {
-                "count": len(source_paths),
-                "minimum": BENCHMARK_MIN_SOURCE_PATHS,
-            },
-        },
-    }
-
-
-def _eval_category_counts(eval_path: Path) -> dict[str, int]:
-    try:
-        if eval_path.is_symlink() or not eval_path.is_file():
-            return {}
-        reject_symlink_components(eval_path, "Learning eval seed")
-        lines = eval_path.read_text().splitlines()
-    except (OSError, ValueError):
-        return {}
-    counts = Counter()
-    for line in lines:
-        if not line.strip():
-            continue
-        try:
-            item = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(item, dict):
-            continue
-        category = item.get("category")
-        if isinstance(category, str) and category:
-            counts[category] += 1
-    return dict(sorted(counts.items()))

@@ -1,6 +1,8 @@
 """Deterministic product-class classifier for semantic candidates."""
 from pathlib import PurePosixPath
+import re
 
+from morpheus.core.command_contract import MORPHEUS_TOP_LEVEL_COMMANDS
 from morpheus.core.semantic.models import CandidateClass, SemanticCandidate
 
 
@@ -20,21 +22,18 @@ SECURITY_TERMS = {
     "127.0.0.1",
 }
 INTEGRATION_TERMS = {"api", "endpoint", "mcp", "a2a", "server", "serve", "truth tools"}
-COMMAND_TERMS = {
-    "morpheus check",
-    "morpheus learn",
-    "morpheus review",
-    "morpheus serve",
-    "morpheus wake",
-    "uvx ",
-    "pipx ",
-    "pytest",
-    "ruff",
-    "make ",
-    "python ",
-    "cli",
-    "--",
-}
+COMMAND_TOOL_PATTERN = re.compile(
+    r"(?:\b(?:cli|pytest|ruff)\b|\b(?:make|pipx|python|uvx)(?:\s|$)|"
+    r"(?<![\w-])--[a-z0-9][a-z0-9-]*\b)"
+)
+MORPHEUS_COMMAND_PATTERN = re.compile(
+    r"(?<![\w-])morpheus\s+(?:"
+    + "|".join(
+        re.escape(command)
+        for command in sorted(MORPHEUS_TOP_LEVEL_COMMANDS, key=len, reverse=True)
+    )
+    + r")\b"
+)
 ARCHITECTURE_TERMS = {
     "adapter",
     "classifier",
@@ -90,17 +89,21 @@ def classify_claim(*, kind: str, claim: str, source_path: str) -> CandidateClass
         return "stale"
     if kind == "open_task":
         return "open_task"
-    if kind == "agent_rule":
-        return "convention"
     if _has_any(folded_claim, TEMPORARY_TERMS):
         return "temporary"
     if _has_any(folded_claim, SECURITY_TERMS):
         return "security"
+    if kind == "agent_rule":
+        return "convention"
     if _path_in(path, "docs/architecture"):
         return "architecture"
     if _is_integration_source(path_text) or _has_any(folded_claim, INTEGRATION_TERMS):
         return "integration"
-    if _is_command_source(path_text) or _has_any(folded_claim, COMMAND_TERMS):
+    if (
+        _is_command_source(path_text)
+        or MORPHEUS_COMMAND_PATTERN.search(folded_claim)
+        or COMMAND_TOOL_PATTERN.search(folded_claim)
+    ):
         return "command"
     if _has_any(folded_claim, PRODUCT_TERMS):
         return "product"

@@ -67,7 +67,7 @@ def test_distribution_name_avoids_existing_pypi_project():
     assert 'version = "0.2.0b1"' in pyproject
     assert 'name = "morpheus-ai"' not in pyproject
     assert 'morpheus = "morpheus.cli:app"' in pyproject
-    assert '"typer>=0.12.0"' in pyproject
+    assert '"typer>=0.12.0,<0.26"' in pyproject
     assert "typer[all]" not in pyproject
     assert_contains_all(
         pyproject,

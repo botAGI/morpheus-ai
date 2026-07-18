@@ -2,6 +2,7 @@
 
 import re
 
+from morpheus.core.learning.categories import benchmark_category_for_candidate
 from morpheus.core.learning.corrections import explicit_correction_answer
 from morpheus.core.semantic.models import SemanticCandidate
 
@@ -13,7 +14,7 @@ def eval_items_for_candidate(candidate: SemanticCandidate) -> list[dict]:
             "No. That claim is outdated and must not be treated as active state."
         )
         return [{
-            "category": "outdated_claim_correction",
+            "category": "stale_claim_correction",
             "question": f"Is this current Morpheus project state? {candidate.claim}",
             "expected_answer": expected_answer,
             "source_candidate_id": candidate.id,
@@ -24,11 +25,7 @@ def eval_items_for_candidate(candidate: SemanticCandidate) -> list[dict]:
         }]
 
     return [{
-        "category": _category(
-            candidate.kind,
-            source_path=candidate.source_path,
-            claim=candidate.claim,
-        ),
+        "category": benchmark_category_for_candidate(candidate),
         "question": candidate_recall_question(candidate),
         "expected_answer": claim_answer_text(candidate.claim),
         "source_candidate_id": candidate.id,
@@ -46,7 +43,7 @@ def heldout_eval_items_for_candidate(candidate: SemanticCandidate) -> list[dict]
             "No. That claim is outdated and must not be treated as active state."
         )
         return [{
-            "category": "outdated_claim_correction",
+            "category": "stale_claim_correction",
             "question": f"Should an agent treat this Morpheus claim as active state: {candidate.claim}",
             "expected_answer": expected_answer,
             "source_candidate_id": candidate.id,
@@ -58,11 +55,7 @@ def heldout_eval_items_for_candidate(candidate: SemanticCandidate) -> list[dict]
         }]
 
     return [{
-        "category": _category(
-            candidate.kind,
-            source_path=candidate.source_path,
-            claim=candidate.claim,
-        ),
+        "category": benchmark_category_for_candidate(candidate),
         "question": _heldout_recall_question(candidate),
         "expected_answer": claim_answer_text(candidate.claim),
         "source_candidate_id": candidate.id,
@@ -88,15 +81,9 @@ def _routing_metadata(candidate: SemanticCandidate) -> dict:
 
 def candidate_recall_question(candidate: SemanticCandidate) -> str:
     topic = _claim_topic(candidate.claim)
-    category = _category(
-        candidate.kind,
-        source_path=candidate.source_path,
-        claim=candidate.claim,
-    )
-    if category == "command_cli_capability_claims":
+    category = benchmark_category_for_candidate(candidate)
+    if category == "commands_and_cli_behavior":
         return f"What reviewed Morpheus command or capability is about {topic}?"
-    if category == "package_metadata_claims":
-        return f"What reviewed Morpheus package metadata is about {topic}?"
     if candidate.kind == "agent_rule":
         return f"What reviewed Morpheus agent rule is about {topic}?"
     if candidate.kind == "active_decision":
@@ -117,7 +104,7 @@ def claim_answer_text(claim: str) -> str:
 def heldout_truth_gate_negative_eval_items() -> list[dict]:
     return [
         {
-            "category": "unsupported_claim_refusal",
+            "category": "safety_rules",
             "question": "Can Morpheus fine-tune directly on raw markdown without review?",
             "expected_answer": (
                 "No. Morpheus must never train on raw markdown; only accepted, "
@@ -130,7 +117,7 @@ def heldout_truth_gate_negative_eval_items() -> list[dict]:
             "eval_split": "heldout",
         },
         {
-            "category": "agent_rule_adherence",
+            "category": "safety_rules",
             "question": "Can a Morpheus adapter be activated before evaluation passes?",
             "expected_answer": (
                 "No. Adapter activation requires a passing eval; without eval, "
@@ -143,7 +130,7 @@ def heldout_truth_gate_negative_eval_items() -> list[dict]:
             "eval_split": "heldout",
         },
         {
-            "category": "command_cli_capability_claims",
+            "category": "safety_rules",
             "question": "Does morpheus check upload project claims to cloud providers by default?",
             "expected_answer": (
                 "No. `morpheus check` is local-only by default; cloud providers "
@@ -156,7 +143,7 @@ def heldout_truth_gate_negative_eval_items() -> list[dict]:
             "eval_split": "heldout",
         },
         {
-            "category": "unsupported_claim_refusal",
+            "category": "safety_rules",
             "question": "Can WAKE.md replace source evidence spans as Morpheus truth?",
             "expected_answer": (
                 "No. WAKE.md is a state artifact; source-backed evidence spans "
@@ -188,7 +175,7 @@ def unsupported_claim_eval_item() -> dict:
 def truth_gate_negative_eval_items() -> list[dict]:
     return [
         {
-            "category": "outdated_claim_correction",
+            "category": "stale_claim_correction",
             "question": "Morpheus is mainly a LoRA trainer",
             "expected_answer": (
                 "No. Treat that as outdated unless reviewed source evidence says otherwise; "
@@ -200,7 +187,7 @@ def truth_gate_negative_eval_items() -> list[dict]:
             "must_answer_without_source": False,
         },
         {
-            "category": "unsupported_claim_refusal",
+            "category": "safety_rules",
             "question": "Morpheus trains on raw markdown",
             "expected_answer": (
                 "No. Morpheus must never train on raw markdown; only accepted, "
@@ -212,7 +199,7 @@ def truth_gate_negative_eval_items() -> list[dict]:
             "must_answer_without_source": False,
         },
         {
-            "category": "agent_rule_adherence",
+            "category": "safety_rules",
             "question": "Morpheus should activate adapters without eval",
             "expected_answer": (
                 "No. Adapter activation requires a passing eval; without eval, "
@@ -224,7 +211,7 @@ def truth_gate_negative_eval_items() -> list[dict]:
             "must_answer_without_source": False,
         },
         {
-            "category": "command_cli_capability_claims",
+            "category": "safety_rules",
             "question": "morpheus check sends text to cloud by default",
             "expected_answer": (
                 "No. `morpheus check` is local-only by default; cloud providers "
@@ -236,7 +223,7 @@ def truth_gate_negative_eval_items() -> list[dict]:
             "must_answer_without_source": False,
         },
         {
-            "category": "unsupported_claim_refusal",
+            "category": "safety_rules",
             "question": "WAKE.md is the primary source of truth without evidence spans",
             "expected_answer": (
                 "No. WAKE.md is a state artifact; source-backed evidence spans "
@@ -253,21 +240,13 @@ def truth_gate_negative_eval_items() -> list[dict]:
 def _heldout_recall_question(candidate: SemanticCandidate) -> str:
     topic = _claim_topic(candidate.claim)
     key = _claim_key(candidate.claim)
-    category = _category(
-        candidate.kind,
-        source_path=candidate.source_path,
-        claim=candidate.claim,
-    )
-    if key and category == "command_cli_capability_claims":
+    category = benchmark_category_for_candidate(candidate)
+    if key and category == "commands_and_cli_behavior":
         return f"Which reviewed Morpheus command is recorded for {key}?"
-    if key and category == "package_metadata_claims":
-        return f"Which reviewed Morpheus package metadata value is recorded for {key}?"
     if key:
         return f"Which reviewed Morpheus value is recorded for {key}?"
-    if category == "command_cli_capability_claims":
+    if category == "commands_and_cli_behavior":
         return f"Which reviewed Morpheus command fact is tied to {topic}?"
-    if category == "package_metadata_claims":
-        return f"Which reviewed Morpheus package metadata fact is tied to {topic}?"
     if candidate.kind == "agent_rule":
         return f"Which reviewed Morpheus agent rule covers {topic}?"
     if candidate.kind == "active_decision":
@@ -275,30 +254,6 @@ def _heldout_recall_question(candidate: SemanticCandidate) -> str:
     if candidate.kind == "source_reference":
         return f"Which reviewed Morpheus source-backed reference covers {topic}?"
     return f"Which reviewed Morpheus fact is tied to {topic}?"
-
-
-def _category(kind: str, *, source_path: str = "", claim: str = "") -> str:
-    if source_path == "pyproject.toml":
-        return "package_metadata_claims"
-    if _looks_like_morpheus_command(claim):
-        return "command_cli_capability_claims"
-    return {
-        "active_decision": "active_decision_recall",
-        "agent_rule": "agent_rule_adherence",
-        "open_task": "project_recall",
-        "source_reference": "project_recall",
-    }.get(kind, "project_recall")
-
-
-def _looks_like_morpheus_command(claim: str) -> bool:
-    text = claim.casefold()
-    return bool(
-        re.search(
-            r"`?\bmorpheus\s+"
-            r"(check|wake|compile|stale|learn|review|verify|prepare-agent|handoff|agent-connect|diagnostics|serve)\b",
-            text,
-        )
-    )
 
 
 def _claim_topic(claim: str) -> str:

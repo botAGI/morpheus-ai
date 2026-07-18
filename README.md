@@ -68,11 +68,15 @@ verified classification-to-training pipeline:
   security, command, integration, stale, convention, task, and temporary facts.
 - **v0.4**: dataset quality dashboard for trainable, retrievable, stale,
   unsafe, needs-review, negative, and eval-only claims.
-- **v0.5**: adapter memory benchmark with category-level base-vs-adapter deltas.
-- **v0.6**: agent memory routing across prompt, retrieval, adapter training,
-  eval, negative examples, stale archive, and human review.
-- **v0.7**: team learning loop from PR comments, rejected agent claims, human
-  corrections, accepted candidates, and check results.
+- **v0.5 (complete in the current code)**: canonical adapter memory benchmark
+  with category-level base-vs-adapter deltas and activation/rollback gates.
+- **v0.6 (implemented; lifecycle hardening next)**: audited routing across
+  prompt, retrieval, adapter training, eval, negative examples, stale archive,
+  and human review; every persisted status transition still needs one shared
+  rerouting invariant.
+- **v0.7 (local core complete; orchestration next)**: review-gated team feedback
+  is idempotent and never auto-activates; the remaining work is one ingestion
+  path for every documented team signal.
 
 See [docs/ROADMAP.md](docs/ROADMAP.md). The invariant stays strict: no accepted
 source span means no training example, no eval pass means no adapter activation,
@@ -186,7 +190,7 @@ The current local gate has been run against this repository, not only fixtures:
 | Capability | Tested result |
 | --- | --- |
 | `ruff check .` | passes |
-| `pytest tests/ -q` | 1020 passed, 1 skipped |
+| `pytest tests/ -q` | 1308 passed, 1 skipped |
 | `morpheus wake . --private` | compiles current project state and signs a receipt |
 | `morpheus verify --all` | verifies the receipt chain |
 | `morpheus check --input tests/fixtures/check_stale_input.txt --local` | exits 1 and reports the stale claim |
@@ -276,6 +280,37 @@ base or adapter eval must instead have a local Ed25519 receipt binding the
 evaluator/provider, exact dataset and eval-seed item identities, and complete
 config/results hashes; relabeling diagnostic JSON is insufficient. The legacy
 `morpheus learn activate --force` option cannot bypass the eval gate.
+
+### Canonical v0.5 Benchmark Gate
+
+The v0.5 benchmark schema is `morpheus-benchmark-categories/1`. Its seven
+coverage IDs are exactly `product_identity`, `commands_and_cli_behavior`,
+`architecture`, `safety_rules`, `team_conventions`,
+`stale_claim_correction`, and `unsupported_claim_refusal`. `project_recall` is
+diagnostic and does not satisfy canonical coverage. Security and convention
+remain independent requirements: the readiness gate requires both source
+classes and the separate `safety_rules` and `team_conventions` eval categories.
+
+Reports identify the paired base and adapter evals, show per-category pass-rate
+and hallucination-rate deltas, list all category regressions, and list the
+critical subset separately. The critical categories are `safety_rules`,
+`stale_claim_correction`, and `unsupported_claim_refusal`.
+
+Activation and rollback to an earlier adapter use the same live,
+adapter-bound gate. It revalidates the current dataset ID and binding, current
+manifest and eval category schema, exact paired activation-eligible base and
+adapter eval artifacts and receipts, dataset coverage, metrics, critical
+regressions, benchmark readiness, and the registered adapter weight. A force
+flag cannot bypass that gate. Rollback to no adapter remains the fail-safe and
+does not require another adapter to pass it. If the manifest, eval artifact, or
+category schema is legacy or mismatched, rebuild the dataset and rerun both
+base and adapter evals; relabeling old JSON is not sufficient.
+
+The only authoritative weight is the one registered by the trained adapter
+manifest: one non-empty regular, non-symlink `.safetensors` file whose exact
+relative path, byte size, and SHA-256 are revalidated and bound into activation
+and rollback authority and receipts. Preview manifests have no authoritative
+weight and cannot activate.
 
 ## Obsidian And Personal Notes
 

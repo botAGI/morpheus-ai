@@ -1,6 +1,7 @@
 """
 Tests for morpheus.cli.
 """
+import inspect
 import json
 import os
 import subprocess
@@ -9,12 +10,52 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import typer
 from typer.testing import CliRunner
 
 import morpheus.cli as cli_module
 from morpheus.cli import app
+from morpheus.core.command_contract import (
+    MORPHEUS_NESTED_COMMANDS,
+    MORPHEUS_REQUIRED_POSITIONAL_ARITY,
+    MORPHEUS_TOP_LEVEL_COMMANDS,
+)
 from morpheus.core.provenance import build_receipt, compute_sha256_file, receipt_file_name
 from tests.test_learning_dataset import copy_learning_project
+
+
+def test_learning_command_contract_matches_registered_cli_commands():
+    command_names = {
+        command.name or command.callback.__name__.replace("_", "-")
+        for command in app.registered_commands
+    }
+    group_names = {group.name for group in app.registered_groups}
+    nested_names = {
+        group.name: frozenset(
+            command.name or command.callback.__name__.replace("_", "-")
+            for command in group.typer_instance.registered_commands
+        )
+        for group in app.registered_groups
+    }
+
+    assert frozenset(command_names | group_names) == MORPHEUS_TOP_LEVEL_COMMANDS
+    assert nested_names == MORPHEUS_NESTED_COMMANDS
+
+
+def test_learning_command_contract_matches_required_cli_positionals():
+    required_positionals = {}
+    for group in app.registered_groups:
+        for command in group.typer_instance.registered_commands:
+            command_name = command.name or command.callback.__name__.replace("_", "-")
+            arity = sum(
+                isinstance(parameter.default, typer.models.ArgumentInfo)
+                and parameter.default.default is ...
+                for parameter in inspect.signature(command.callback).parameters.values()
+            )
+            if arity:
+                required_positionals[(group.name, command_name)] = arity
+
+    assert required_positionals == MORPHEUS_REQUIRED_POSITIONAL_ARITY
 
 
 def team_feedback_item() -> dict:
@@ -24,6 +65,61 @@ def team_feedback_item() -> dict:
         "claim": "Morpheus trains raw Markdown directly.",
         "correction": "Morpheus trains only accepted source-backed candidates.",
     }
+
+
+def test_learn_benchmark_human_output_exposes_canonical_gate_state(
+    monkeypatch,
+    tmp_path,
+):
+    benchmark_dir = tmp_path / ".morpheus" / "training" / "benchmarks" / "bench_test"
+    benchmark_dir.mkdir(parents=True)
+    result_payload = {
+        "benchmark_report_md_path": str(benchmark_dir / "benchmark_report.md"),
+        "benchmark_config_path": str(benchmark_dir / "benchmark_config.json"),
+        "benchmark_report_path": str(benchmark_dir / "benchmark_report.json"),
+        "benchmark_allowed": False,
+        "benchmark_blockers": ["eval_category safety_rules < 1"],
+        "benchmark_category_schema": "morpheus-benchmark-categories/1",
+        "activation_ready": False,
+        "activation_reason": "benchmark_blocked",
+        "latest_base_eval": {"eval_id": "eval_base_1"},
+        "latest_adapter_eval": {"eval_id": "eval_adapter_1"},
+        "category_deltas": {
+            "safety_rules": {
+                "pass_rate_delta": -0.25,
+                "hallucination_rate_delta": 0.25,
+            }
+        },
+        "category_regressions": [
+            {"category": "safety_rules", "reasons": ["pass_rate_decreased"]}
+        ],
+        "critical_regressions": [
+            {"category": "safety_rules", "reasons": ["pass_rate_decreased"]}
+        ],
+        "next_command": "morpheus learn quality .",
+    }
+    monkeypatch.setattr(
+        cli_module,
+        "write_benchmark_report",
+        lambda *args, **kwargs: result_payload,
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["learn", "benchmark", str(tmp_path), "--dry-run"],
+        terminal_width=1000,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "benchmark_readiness=blocked" in result.output
+    assert "benchmark_category_schema=morpheus-benchmark-categories/1" in result.output
+    assert "base_eval=eval_base_1" in result.output
+    assert "adapter_eval=eval_adapter_1" in result.output
+    assert "activation_gate_reason=benchmark_blocked" in result.output
+    assert 'category_deltas={"safety_rules":' in result.output
+    assert "category_regressions=1" in result.output
+    assert "critical_regressions=1" in result.output
+    assert 'benchmark_blockers=["eval_category safety_rules < 1"]' in result.output
 
 
 def test_package_module_entrypoint_runs_cli_version():

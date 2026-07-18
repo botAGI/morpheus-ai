@@ -1671,10 +1671,37 @@ def learn_benchmark(
     if json_output:
         console.out(json.dumps(payload, indent=2, sort_keys=True))
         return
+    base_eval = result.get("latest_base_eval") or {}
+    adapter_eval = result.get("latest_adapter_eval") or {}
+    activation_reason = result.get("activation_reason") or (
+        result.get("activation_gate") or {}
+    ).get("reason") or "unknown"
+    compact_json = {"sort_keys": True, "separators": (",", ":")}
     console.print(f"benchmark report: {result['benchmark_report_md_path']}")
     console.print(f"benchmark_allowed={result['benchmark_allowed']}")
+    console.print(
+        "benchmark_readiness="
+        + ("ready" if result["benchmark_allowed"] else "blocked")
+    )
+    console.print(
+        f"benchmark_category_schema={result.get('benchmark_category_schema') or 'none'}"
+    )
     console.print(f"activation_ready={result['activation_ready']}")
+    console.print(f"base_eval={base_eval.get('eval_id') or 'none'}")
+    console.print(f"adapter_eval={adapter_eval.get('eval_id') or 'none'}")
+    console.print(f"activation_gate_reason={activation_reason}")
+    console.print(
+        "category_deltas="
+        + json.dumps(result.get("category_deltas") or {}, **compact_json)
+    )
+    console.print(
+        f"category_regressions={len(result.get('category_regressions') or [])}"
+    )
     console.print(f"critical_regressions={len(result['critical_regressions'])}")
+    console.print(
+        "benchmark_blockers="
+        + json.dumps(result.get("benchmark_blockers") or [], **compact_json)
+    )
     if result["benchmark_blockers"]:
         console.print("blockers: " + ", ".join(result["benchmark_blockers"]))
     console.print(f"next: {result['next_command']}")

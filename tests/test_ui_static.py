@@ -220,14 +220,26 @@ def test_ui_exposes_learning_quality_and_benchmark_dashboard():
         "renderLearningBenchmark",
         "routing.policy_version || 'none'",
         "String((routing.decisions || []).length)",
+        "benchmark_readiness=${payload.benchmark_allowed ? 'ready' : 'blocked'}",
+        "benchmark_category_schema=${payload.benchmark_category_schema || 'none'}",
         "activation_ready=${payload.activation_ready}",
         "base_eval=${payload.latest_base_eval",
         "adapter_eval=${payload.latest_adapter_eval",
-        "critical_regressions=${(payload.critical_regressions",
+        "activation_gate_reason=${payload.activation_reason",
         "category_deltas=${JSON.stringify(payload.category_deltas",
+        "category_regressions=${(payload.category_regressions || []).length}",
+        "critical_regressions=${(payload.critical_regressions || []).length}",
+        "benchmark_blockers=${JSON.stringify(payload.benchmark_blockers",
     ]
     for snippet in required_snippets:
         assert snippet in html
+
+    benchmark_renderer = html.split(
+        "function renderLearningBenchmark(payload) {",
+        1,
+    )[1].split("async function runLearningBenchmark()", 1)[0]
+    assert "learningBenchmarkOutput.textContent" in benchmark_renderer
+    assert "innerHTML" not in benchmark_renderer
 
 
 def test_ui_exposes_launchpad_for_humans_and_agents():

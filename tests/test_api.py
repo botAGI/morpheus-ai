@@ -526,6 +526,8 @@ def test_learning_benchmark_endpoint_writes_readiness_report(tmp_path):
     assert payload["activation_ready"] is False
     assert payload["latest_base_eval"] is None
     assert payload["latest_adapter_eval"] is None
+    assert payload["benchmark_category_schema"] == "morpheus-benchmark-categories/1"
+    assert payload["category_regressions"] == []
     assert payload["critical_regressions"] == []
     assert payload["paths"]["benchmark_report_path"].endswith("benchmark_report.json")
     assert Path(payload["paths"]["benchmark_report_path"]).is_file()

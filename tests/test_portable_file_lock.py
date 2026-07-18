@@ -10,6 +10,7 @@ import pytest
 
 
 _WINDOWS_LOCK_PREAMBLE = """
+import subprocess
 import sys
 import types
 

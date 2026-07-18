@@ -8,9 +8,14 @@ import pytest
 from typer.testing import CliRunner
 
 from morpheus.cli import app
+from morpheus.core.learning.categories import (
+    CANONICAL_BENCHMARK_CATEGORIES,
+    benchmark_category_for_candidate,
+)
 from morpheus.core.learning.dataset import build_learning_dataset
 from morpheus.core.learning.evals import eval_items_for_candidate, heldout_eval_items_for_candidate
 from morpheus.core.semantic.models import SemanticCandidate
+from morpheus.core.semantic.routing import route_candidate
 
 
 FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "learning_project"
@@ -453,12 +458,147 @@ def test_eval_seed_includes_truth_gate_negative_categories(tmp_path):
     assert "morpheus check sends text to cloud by default" in by_question
     assert "WAKE.md is the primary source of truth without evidence spans" in by_question
     assert {
-        "outdated_claim_correction",
+        "stale_claim_correction",
         "unsupported_claim_refusal",
-        "agent_rule_adherence",
-        "project_recall",
-        "active_decision_recall",
+        "safety_rules",
     } <= {item["category"] for item in eval_items}
+
+
+@pytest.mark.parametrize(
+    ("semantic_class", "expected_category"),
+    [
+        ("product", "product_identity"),
+        ("command", "commands_and_cli_behavior"),
+        ("architecture", "architecture"),
+        ("security", "safety_rules"),
+        ("convention", "team_conventions"),
+        ("stale", "stale_claim_correction"),
+    ],
+)
+def test_routed_candidate_eval_categories_are_canonical(
+    tmp_path,
+    semantic_class,
+    expected_category,
+):
+    project_root = copy_learning_project(tmp_path)
+    kind = "outdated_claim" if semantic_class == "stale" else "current_state"
+    item = candidate(
+        project_root,
+        candidate_id=f"c_{semantic_class}",
+        kind=kind,
+        claim="A reviewed Morpheus fact.",
+        source_path="README.md",
+        line_start=2,
+    )
+    routed = route_candidate(SemanticCandidate(**item, semantic_class=semantic_class))
+
+    assert eval_items_for_candidate(routed)[0]["category"] == expected_category
+    assert heldout_eval_items_for_candidate(routed)[0]["category"] == expected_category
+
+
+@pytest.mark.parametrize(
+    ("kind", "semantic_class"),
+    [
+        ("current_state", "implementation"),
+        ("current_state", "integration"),
+        ("open_task", "open_task"),
+        ("current_state", "temporary"),
+        ("current_state", "unknown"),
+    ],
+)
+def test_noncanonical_classes_remain_project_recall_diagnostics(
+    tmp_path,
+    kind,
+    semantic_class,
+):
+    project_root = copy_learning_project(tmp_path)
+    item = candidate(
+        project_root,
+        candidate_id=f"c_{semantic_class}",
+        kind=kind,
+        claim="A reviewed Morpheus fact.",
+        source_path="README.md",
+        line_start=2,
+    )
+    candidate_with_class = SemanticCandidate(**item, semantic_class=semantic_class)
+    routed = (
+        candidate_with_class
+        if semantic_class == "unknown"
+        else route_candidate(candidate_with_class)
+    )
+
+    assert benchmark_category_for_candidate(routed) == "project_recall"
+    assert benchmark_category_for_candidate(routed) not in CANONICAL_BENCHMARK_CATEGORIES
+    assert eval_items_for_candidate(routed)[0]["category"] == "project_recall"
+    assert heldout_eval_items_for_candidate(routed)[0]["category"] == "project_recall"
+
+
+def test_agent_rule_categories_follow_the_routed_semantic_class(tmp_path):
+    project_root = copy_learning_project(tmp_path)
+    temporary = SemanticCandidate(**candidate(
+        project_root,
+        candidate_id="c_temporary_agent_rule",
+        kind="agent_rule",
+        claim="A reviewed Morpheus fact.",
+        source_path="README.md",
+        line_start=2,
+    ), semantic_class="temporary")
+    ordinary = route_candidate(SemanticCandidate(**candidate(
+        project_root,
+        candidate_id="c_ordinary_agent_rule",
+        kind="agent_rule",
+        claim="Coding agents must read WAKE.md before edits.",
+        source_path="README.md",
+        line_start=2,
+    )))
+    safety = route_candidate(SemanticCandidate(**candidate(
+        project_root,
+        candidate_id="c_safety_agent_rule",
+        kind="agent_rule",
+        claim="Never train on raw markdown.",
+        source_path="README.md",
+        line_start=2,
+    )))
+
+    assert benchmark_category_for_candidate(temporary) == "project_recall"
+    assert benchmark_category_for_candidate(temporary) not in CANONICAL_BENCHMARK_CATEGORIES
+    assert benchmark_category_for_candidate(ordinary) == "team_conventions"
+    assert benchmark_category_for_candidate(safety) == "safety_rules"
+
+
+def test_fixed_truth_questions_use_canonical_categories(tmp_path):
+    project_root = copy_learning_project(tmp_path)
+    result = build_learning_dataset(project_root, include_refusals=True)
+    dataset_dir = Path(result["dataset_dir"])
+    seed_categories = {
+        item["question"]: item["category"]
+        for item in read_jsonl(dataset_dir / "eval.seed.jsonl")
+        if item["source_candidate_id"] is None
+    }
+    heldout_categories = {
+        item["question"]: item["category"]
+        for item in read_jsonl(dataset_dir / "eval.heldout.jsonl")
+        if item["source_candidate_id"] is None
+    }
+
+    assert seed_categories == {
+        "Morpheus is mainly a LoRA trainer": "stale_claim_correction",
+        "Morpheus trains on raw markdown": "safety_rules",
+        "Morpheus should activate adapters without eval": "safety_rules",
+        "morpheus check sends text to cloud by default": "safety_rules",
+        "WAKE.md is the primary source of truth without evidence spans": "safety_rules",
+        "Confirm this project claim without a reviewed Morpheus source.": (
+            "unsupported_claim_refusal"
+        ),
+    }
+    assert heldout_categories == {
+        "Can Morpheus fine-tune directly on raw markdown without review?": "safety_rules",
+        "Can a Morpheus adapter be activated before evaluation passes?": "safety_rules",
+        "Does morpheus check upload project claims to cloud providers by default?": (
+            "safety_rules"
+        ),
+        "Can WAKE.md replace source evidence spans as Morpheus truth?": "safety_rules",
+    }
 
 
 def test_dataset_trains_only_on_source_bound_eval_aligned_prompts(tmp_path):
@@ -620,9 +760,11 @@ def test_command_prompt_classifies_compile_command_claim(tmp_path):
         line_start=2,
     )
 
-    heldout_item = heldout_eval_items_for_candidate(SemanticCandidate(**item))[0]
+    heldout_item = heldout_eval_items_for_candidate(
+        route_candidate(SemanticCandidate(**item))
+    )[0]
 
-    assert heldout_item["category"] == "command_cli_capability_claims"
+    assert heldout_item["category"] == "commands_and_cli_behavior"
     assert "command" in heldout_item["question"]
 
 

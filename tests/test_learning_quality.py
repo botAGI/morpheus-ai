@@ -7,8 +7,89 @@ from typer.testing import CliRunner
 import morpheus.core.learning.quality as quality_module
 from morpheus.cli import app
 from morpheus.core.learning.dataset import build_learning_dataset
+from morpheus.core.learning.categories import CANONICAL_BENCHMARK_CATEGORIES
 from morpheus.core.learning.quality import build_quality_report, write_quality_report
+from morpheus.core.learning.readiness import benchmark_readiness_gate
 from tests.test_learning_dataset import copy_learning_project
+
+
+def benchmark_ready_manifest() -> dict:
+    return {
+        "trainable_candidate_count": 20,
+        "examples_count": 100,
+        "eval_items_count": 30,
+        "source_paths": ["README.md", "SPEC.md", "docs/ROADMAP.md"],
+        "class_counts": {
+            "product": 1,
+            "command": 2,
+            "architecture": 1,
+            "security": 1,
+            "convention": 1,
+        },
+        "route_counts": {"adapter_training": 20},
+    }
+
+
+def benchmark_ready_validation() -> dict:
+    return {
+        "valid": True,
+        "blockers": [],
+        "eval_coverage": {
+            "total_items": len(CANONICAL_BENCHMARK_CATEGORIES) + 100,
+            "by_category": {
+                **{
+                    category: 1 for category in CANONICAL_BENCHMARK_CATEGORIES
+                },
+                "project_recall": 100,
+            },
+        },
+    }
+
+
+@pytest.mark.parametrize("missing_category", sorted(CANONICAL_BENCHMARK_CATEGORIES))
+def test_benchmark_readiness_requires_every_canonical_category(missing_category):
+    manifest = benchmark_ready_manifest()
+    validation = benchmark_ready_validation()
+    validation["eval_coverage"]["by_category"].pop(missing_category)
+
+    gate = benchmark_readiness_gate(manifest, validation)
+
+    assert gate["allowed"] is False
+    assert f"eval_category {missing_category} < 1" in gate["blockers"]
+    assert gate["blockers"] == sorted(gate["blockers"])
+
+
+@pytest.mark.parametrize("missing_class", ["security", "convention"])
+def test_benchmark_readiness_requires_security_and_convention_independently(
+    missing_class,
+):
+    manifest = benchmark_ready_manifest()
+    manifest["class_counts"][missing_class] = 0
+
+    gate = benchmark_readiness_gate(manifest, benchmark_ready_validation())
+
+    assert gate["allowed"] is False
+    assert f"class {missing_class} < 1" in gate["blockers"]
+
+
+@pytest.mark.parametrize(
+    "validation",
+    [
+        {"valid": False, "blockers": []},
+        {},
+    ],
+    ids=["false-without-blockers", "missing-validation-status"],
+)
+def test_benchmark_readiness_fails_closed_without_validation_details(validation):
+    validation = {
+        **validation,
+        "eval_coverage": benchmark_ready_validation()["eval_coverage"],
+    }
+
+    gate = benchmark_readiness_gate(benchmark_ready_manifest(), validation)
+
+    assert gate["allowed"] is False
+    assert gate["blockers"] == ["dataset provenance invalid"]
 
 
 def test_quality_report_counts_review_routes_dataset_and_blockers(tmp_path):

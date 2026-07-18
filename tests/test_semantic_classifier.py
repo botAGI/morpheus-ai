@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
 import hashlib
 
+import pytest
+
 from morpheus.core.providers.fake import FakeProvider
 from morpheus.core.semantic.classifier import classify_candidate
 from morpheus.core.semantic.models import SemanticCandidate
@@ -46,11 +48,68 @@ def test_classify_candidate_uses_kind_source_and_claim_signals():
     assert classify_candidate(candidate(kind="outdated_claim")) == "stale"
     assert classify_candidate(candidate(kind="open_task")) == "open_task"
     assert classify_candidate(candidate(kind="agent_rule")) == "convention"
+    assert classify_candidate(candidate(
+        kind="agent_rule",
+        claim="Never train on raw markdown or secrets.",
+    )) == "security"
     assert classify_candidate(candidate(source_path="pyproject.toml")) == "command"
     assert classify_candidate(candidate(claim="Never train on raw markdown or secrets.")) == "security"
     assert classify_candidate(candidate(claim="Morpheus serve exposes MCP truth tools.")) == "integration"
     assert classify_candidate(candidate(claim="WAKE.md is compiled project state.")) == "architecture"
     assert classify_candidate(candidate(claim="Morpheus is a verified learning layer.")) == "product"
+
+
+def test_classify_candidate_routes_every_real_morpheus_cli_family_as_command():
+    claims = [
+        "morpheus init initializes .morpheus",
+        "morpheus learn dataset . builds reviewed artifacts",
+        "morpheus model-smoke --base-model qwen2.5:0.5b checks the model",
+        "morpheus bootstrap-agent writes the agent bootstrap",
+        "morpheus eval evaluates a legacy adapter",
+    ]
+
+    assert {
+        classify_candidate(candidate(claim=claim))
+        for claim in claims
+    } == {"command"}
+
+
+@pytest.mark.parametrize(
+    "claim",
+    [
+        "Morpheus learns from reviewed project evidence.",
+        "Morpheus trains adapter weights from reviewed datasets.",
+        "Morpheus initialization produces compiled project state.",
+        "Morpheus learning uses the truth layer.",
+    ],
+)
+def test_classify_candidate_does_not_treat_command_prefix_prose_as_cli(claim):
+    assert classify_candidate(candidate(claim=claim)) == "architecture"
+
+
+@pytest.mark.parametrize(
+    "claim",
+    [
+        "Morpheus provides a client library.",
+        "Morpheus clicks through the workflow.",
+        "The truffle formatter is optional.",
+    ],
+)
+def test_classify_candidate_requires_boundaries_for_command_tool_terms(claim):
+    assert classify_candidate(candidate(claim=claim)) != "command"
+
+
+@pytest.mark.parametrize(
+    "claim",
+    [
+        "The CLI prints reviewed state.",
+        "Run ruff before committing.",
+        "Use pytest for the suite.",
+        "Pass --json to print machine output.",
+    ],
+)
+def test_classify_candidate_preserves_exact_command_tool_terms(claim):
+    assert classify_candidate(candidate(claim=claim)) == "command"
 
 
 def test_semantic_report_counts_candidate_classes():

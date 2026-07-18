@@ -6,6 +6,19 @@ All notable changes to Morpheus will be documented in this file.
 
 ### Added
 
+- Completed the canonical v0.5 adapter benchmark contract with schema
+  `morpheus-benchmark-categories/1` and the exact coverage IDs
+  `product_identity`, `commands_and_cli_behavior`, `architecture`,
+  `safety_rules`, `team_conventions`, `stale_claim_correction`, and
+  `unsupported_claim_refusal`; diagnostic `project_recall` does not satisfy
+  coverage, and security/safety plus convention/team-convention remain
+  independent requirements.
+- Added human CLI and static UI visibility for benchmark schema, paired base and
+  adapter eval IDs, readiness and gate reason, category deltas, all/critical
+  regression counts, and blockers while preserving the existing JSON/API
+  contract.
+- Benchmark comparisons expose per-category pass-rate and hallucination-rate
+  deltas, all regressions, and the critical subset.
 - Added an idempotent local `morpheus learn team-loop` and
   `POST /learning/team-loop` flow that stores PR comments, rejected agent claims,
   and human corrections as pending review candidates without training or adapter
@@ -16,6 +29,13 @@ All notable changes to Morpheus will be documented in this file.
 
 ### Fixed
 
+- Bound the live activation and rollback-to-adapter path to the same exact
+  dataset/eval/readiness/category gate. Force cannot bypass it; rollback-to-none
+  remains the fail-safe. Legacy or mismatched manifest/eval/category schema
+  requires a dataset rebuild and new base/adapter evals.
+- Made the trained adapter manifest's exact regular `.safetensors` path, byte
+  size, and SHA-256 authoritative for activation and rollback; preview artifacts
+  remain ineligible.
 - Removed source-less synthetic truth-gate rows from adapter training, kept
   those scenarios eval-only, archived stale-class candidates with incompatible
   kinds, and made dataset and eval-receipt validation bind exact candidate,

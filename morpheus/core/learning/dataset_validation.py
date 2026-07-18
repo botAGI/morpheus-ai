@@ -9,6 +9,10 @@ from pathlib import Path, PurePosixPath
 from typing import Iterable
 
 from morpheus.core.compiler import compute_sha256
+from morpheus.core.learning.categories import (
+    BENCHMARK_CATEGORY_SCHEMA,
+    KNOWN_BENCHMARK_CATEGORIES,
+)
 from morpheus.core.learning.evals import (
     eval_items_for_candidate,
     heldout_eval_items_for_candidate,
@@ -38,7 +42,7 @@ from morpheus.core.state_authority import state_authority_transaction
 from morpheus.core.verify import verify_receipt_chain
 
 
-MANIFEST_FORMAT_VERSION = "morpheus-learning-manifest/2"
+MANIFEST_FORMAT_VERSION = "morpheus-learning-manifest/3"
 PROVENANCE_SCHEMA = "morpheus-dataset-provenance/1"
 REVIEW_SNAPSHOT_SCHEMA = "morpheus-review-snapshot/1"
 ACCEPTED_REVIEW_SCOPE = "accepted_review_live"
@@ -1336,6 +1340,9 @@ def _validate_manifest_semantics(
         or manifest.get("selected_dataset_file") != format_binding[0]
         or manifest.get("format_version") != format_binding[1]
         or format_versions.get(selected_format) != format_binding[1]
+        or format_versions.get("eval_seed") != "morpheus-eval-seed/2"
+        or format_versions.get("heldout_eval") != "morpheus-heldout-eval/2"
+        or format_versions.get("benchmark_categories") != BENCHMARK_CATEGORY_SCHEMA
     ):
         valid = False
 
@@ -1343,7 +1350,7 @@ def _validate_manifest_semantics(
     candidates: dict[str, dict] = {}
     for item in eval_rows:
         category = item.get("category")
-        if not isinstance(category, str) or not category.strip():
+        if category not in KNOWN_BENCHMARK_CATEGORIES:
             valid = False
             continue
         eval_categories[category] += 1

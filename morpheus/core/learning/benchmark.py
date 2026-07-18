@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 
+from morpheus.core.learning.categories import BENCHMARK_CATEGORY_SCHEMA
 from morpheus.core.learning.eval import (
     check_activation_gate,
     latest_eval_category_comparison,
@@ -44,9 +45,17 @@ def write_benchmark_report(
         dataset_binding_sha256=(str(dataset_binding) if dataset_binding else None),
     )
     if benchmark_allowed and dataset_id and eval_comparison["base_eval"] is None:
+        compared_adapter = eval_comparison.get("adapter_eval") or {}
+        compared_adapter_id = compared_adapter.get("adapter_id")
         run_learning_eval(
             project_root,
             base_only=True,
+            adapter_id=(
+                str(compared_adapter_id)
+                if isinstance(compared_adapter_id, str)
+                and compared_adapter_id
+                else None
+            ),
             dry_run=True,
             dataset_id=str(dataset_id),
         )
@@ -109,11 +118,20 @@ def write_benchmark_report(
         "benchmark_allowed": benchmark_allowed,
         "benchmark_blockers": benchmark_blockers,
         "benchmark_gate": quality.get("benchmark_gate") or {},
+        "benchmark_category_schema": BENCHMARK_CATEGORY_SCHEMA,
         "latest_base_eval": eval_comparison["base_eval"],
         "latest_adapter_eval": latest_adapter_eval,
         "category_deltas": eval_comparison["category_deltas"],
+        "category_regressions": eval_comparison["category_regressions"],
+        "category_regression_count": len(
+            eval_comparison["category_regressions"]
+        ),
         "critical_regressions": eval_comparison["critical_regressions"],
+        "critical_regression_count": len(
+            eval_comparison["critical_regressions"]
+        ),
         "activation_gate": activation_gate,
+        "activation_reason": activation_gate["reason"],
         "activation_ready": activation_ready,
         "quality_report": quality,
         "next_command": next_command,
@@ -144,7 +162,11 @@ def render_benchmark_report(report: dict) -> str:
         f"- Dry run: {report['dry_run']}",
         f"- Base eval: `{(report.get('latest_base_eval') or {}).get('eval_id') or 'none'}`",
         f"- Adapter eval: `{(report.get('latest_adapter_eval') or {}).get('eval_id') or 'none'}`",
+        f"- Category schema: `{report['benchmark_category_schema']}`",
+        f"- Category regression count: {report['category_regression_count']}",
+        f"- Critical regression count: {report['critical_regression_count']}",
         f"- Activation ready: {report.get('activation_ready', False)}",
+        f"- Activation reason: `{report['activation_reason']}`",
         "",
         "## Gate",
         "",
@@ -176,13 +198,25 @@ def render_benchmark_report(report: dict) -> str:
             lines.append(
                 f"- `{category}`: base `{item['base_pass_rate']}`, "
                 f"adapter `{item['adapter_pass_rate']}`, "
-                f"delta `{item['pass_rate_delta']}`"
+                f"pass delta `{item['pass_rate_delta']}`; "
+                f"base hallucination `{item['base_hallucination_rate']}`, "
+                f"adapter hallucination `{item['adapter_hallucination_rate']}`, "
+                f"hallucination delta `{item['hallucination_rate_delta']}`"
             )
 
-    regressions = report.get("critical_regressions") or []
-    if regressions:
+    category_regressions = report.get("category_regressions") or []
+    if category_regressions:
+        lines.extend(["", "## Category Regressions", ""])
+        for item in category_regressions:
+            lines.append(
+                f"- `{item['category']}`: "
+                + ", ".join(item.get("reasons") or [])
+            )
+
+    critical_regressions = report.get("critical_regressions") or []
+    if critical_regressions:
         lines.extend(["", "## Critical Regressions", ""])
-        for item in regressions:
+        for item in critical_regressions:
             lines.append(
                 f"- `{item['category']}`: "
                 + ", ".join(item.get("reasons") or [])

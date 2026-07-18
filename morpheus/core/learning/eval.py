@@ -2,6 +2,7 @@
 import base64
 from collections import Counter
 from contextlib import ExitStack, contextmanager
+from fractions import Fraction
 from hashlib import sha256
 import json
 import math
@@ -15,8 +16,14 @@ from pathlib import Path
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
+from morpheus.core.command_contract import canonical_command_answer_passes
 from morpheus.core.learning.adapter_artifacts import (
     validate_registered_adapter_artifact,
+)
+from morpheus.core.learning.authority import learning_authority_transaction
+from morpheus.core.learning.categories import (
+    BENCHMARK_CATEGORY_SCHEMA,
+    CRITICAL_BENCHMARK_CATEGORIES,
 )
 from morpheus.core.learning.dataset_validation import (
     manifest_count,
@@ -24,6 +31,12 @@ from morpheus.core.learning.dataset_validation import (
     validate_dataset,
 )
 from morpheus.core.learning.registry import latest_effective_dataset
+from morpheus.core.learning.readiness import benchmark_readiness_gate
+from morpheus.core.learning.scoring import (
+    critical_answer_hallucinates,
+    critical_answer_passes,
+)
+from morpheus.core.learning.train import DEFAULT_BASE_MODEL
 from morpheus.core.portable_lock import portable_file_lock
 from morpheus.core.provenance import receipt_signature_payload
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
@@ -31,18 +44,6 @@ from morpheus.core.semantic.review import ReviewStore
 from morpheus.core.state_authority import state_authority_transaction
 
 
-EVAL_CATEGORIES = {
-    "project_recall",
-    "active_decision_recall",
-    "outdated_claim_correction",
-    "unsupported_claim_refusal",
-    "agent_rule_adherence",
-}
-CRITICAL_BENCHMARK_CATEGORIES = frozenset({
-    "outdated_claim_correction",
-    "unsupported_claim_refusal",
-    "agent_rule_adherence",
-})
 DEFAULT_PASS_RATE_THRESHOLD = 0.8
 DEFAULT_HALLUCINATION_RATE_THRESHOLD = 0.05
 _BASE_EVAL_ARTIFACT_NAMES = frozenset({
@@ -51,10 +52,11 @@ _BASE_EVAL_ARTIFACT_NAMES = frozenset({
     "eval_report.md",
 })
 _ACTIVATION_EVAL_RECEIPT_NAME = "activation_eval_receipt.json"
-_ACTIVATION_EVAL_RECEIPT_SCHEMA = "morpheus-activation-eval-receipt/1"
+_ACTIVATION_EVAL_RECEIPT_SCHEMA = "morpheus-activation-eval-receipt/2"
+_EVAL_PAIR_SCHEMA = "morpheus-eval-pair/1"
 _ACTIVATION_EVALUATOR = {
     "name": "morpheus-learning-eval",
-    "contract_version": 1,
+    "contract_version": 2,
 }
 _EVAL_ITEM_IDENTITY_FIELDS = (
     "category",
@@ -81,7 +83,7 @@ class FakeInferenceProvider:
         expected = str(item.get("expected_answer") or "")
         if category == "unsupported_claim_refusal":
             return "I cannot confirm unsupported project claims without reviewed source evidence."
-        if category == "outdated_claim_correction":
+        if category == "stale_claim_correction":
             return expected if expected else "No. That claim is outdated and must not be treated as active state."
         return expected
 
@@ -170,8 +172,15 @@ def _run_learning_eval_locked(
                 + ", ".join(adapter_binding["blockers"])
             )
 
+    base_model = _base_model_for_eval(
+        project_root,
+        adapter_id=(adapter_id if resolved_base_only else resolved_adapter_id),
+        dataset_id=dataset_manifest.get("dataset_id"),
+        dataset_binding_sha256=validation["dataset_binding_sha256"],
+    )
+
     provider = FakeInferenceProvider(
-        name="fake-base" if resolved_base_only else "fake-adapter",
+        name="diagnostic-fake",
         quality=fake_quality,
     )
     eval_id = _timestamp_id("eval")
@@ -188,6 +197,15 @@ def _run_learning_eval_locked(
         != validation["dataset_binding_sha256"]
     ):
         raise ValueError("Dataset binding changed while preparing evaluation.")
+    benchmark_category_schema = dataset_manifest["format_versions"][
+        "benchmark_categories"
+    ]
+    pair_config = _build_eval_pair_config(
+        provider={"name": provider.name},
+        evaluation_mode="diagnostic_fake",
+        base_model=base_model,
+    )
+    pair_config_sha256 = _canonical_sha256(pair_config)
     config = {
         "eval_id": eval_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -198,10 +216,14 @@ def _run_learning_eval_locked(
         "adapter_id": resolved_adapter_id,
         "base_only": resolved_base_only,
         "dry_run": dry_run,
-        "provider": {"name": provider.name, "quality": provider.quality},
+        "provider": {"name": provider.name},
+        "diagnostic_quality": provider.quality,
         "evaluator": dict(_ACTIVATION_EVALUATOR),
         "evaluation_mode": "diagnostic_fake",
+        "eval_pair_config": pair_config,
+        "eval_pair_config_sha256": pair_config_sha256,
         "activation_eligible": False,
+        "benchmark_category_schema": benchmark_category_schema,
         "categories": sorted({str(item["category"]) for item in seed_items}),
     }
     results_items = [_score_item(item, provider.infer(item)) for item in seed_items]
@@ -214,7 +236,10 @@ def _run_learning_eval_locked(
         "dataset_id": dataset_manifest.get("dataset_id"),
         "dataset_binding_sha256": validation["dataset_binding_sha256"],
         "evaluation_mode": "diagnostic_fake",
+        "eval_pair_config": pair_config,
+        "eval_pair_config_sha256": pair_config_sha256,
         "activation_eligible": False,
+        "benchmark_category_schema": benchmark_category_schema,
         "metrics": metrics,
         "items": results_items,
     }
@@ -320,6 +345,8 @@ def check_activation_gate(
         results,
         expected_adapter_id=adapter_id,
         expected_base_only=False,
+        require_current_category_schema=True,
+        require_current_pair_identity=True,
     ):
         return {
             "allowed": False,
@@ -360,6 +387,26 @@ def check_activation_gate(
             "dataset_id": dataset_id,
             "dataset_binding_sha256": dataset_binding,
             "adapter_blockers": adapter_binding["blockers"],
+        }
+    eval_pair = _eval_pair_identity(config, results)
+    pair_model = (
+        eval_pair.get("config", {}).get("model")
+        if isinstance(eval_pair.get("config"), dict)
+        else {}
+    )
+    adapter_base_model = adapter_binding.get("base_model")
+    if (
+        not isinstance(pair_model, dict)
+        or not isinstance(adapter_base_model, str)
+        or not adapter_base_model.strip()
+        or pair_model.get("base_model") != adapter_base_model.strip()
+    ):
+        return {
+            "allowed": False,
+            "reason": "adapter_eval_pair_model_mismatch",
+            "adapter_id": adapter_id,
+            "eval_id": results.get("eval_id"),
+            "eval_pair_config_sha256": eval_pair.get("sha256"),
         }
     if not _eval_is_activation_eligible(config, results):
         provider = config.get("provider") if isinstance(config.get("provider"), dict) else {}
@@ -412,50 +459,65 @@ def check_activation_gate(
             "eval_id": results.get("eval_id"),
             "eval_receipt_blockers": eval_receipt["blockers"],
         }
-    pass_rate = float(metrics["pass_rate"])
-    hallucination_rate = float(metrics["hallucination_rate"])
+    total_items = int(metrics["total_items"])
+    passed_items = int(metrics["passed_items"])
+    hallucinated_items = int(metrics["hallucinated_items"])
     critical_outdated_failures = int(metrics["critical_outdated_claim_failures"])
-    if pass_rate < pass_rate_threshold:
-        return {
+    metric_failure = None
+    if _rate_below_threshold(
+        passed_items,
+        total_items,
+        pass_rate_threshold,
+    ):
+        metric_failure = {
             "allowed": False,
             "reason": "pass_rate_below_threshold",
             "adapter_id": adapter_id,
             "eval_id": results.get("eval_id"),
             "metrics": metrics,
         }
-    if hallucination_rate > hallucination_rate_threshold:
-        return {
+    elif _rate_above_threshold(
+        hallucinated_items,
+        total_items,
+        hallucination_rate_threshold,
+    ):
+        metric_failure = {
             "allowed": False,
             "reason": "hallucination_rate_above_threshold",
             "adapter_id": adapter_id,
             "eval_id": results.get("eval_id"),
             "metrics": metrics,
         }
-    if critical_outdated_failures:
-        return {
+    elif critical_outdated_failures:
+        metric_failure = {
             "allowed": False,
             "reason": "critical_outdated_claim_failure",
             "adapter_id": adapter_id,
             "eval_id": results.get("eval_id"),
             "metrics": metrics,
         }
+
+    def base_failure(failure: dict) -> dict:
+        return metric_failure if metric_failure is not None else failure
+
     if not isinstance(dataset_id, str) or not dataset_id:
-        return {
+        return base_failure({
             "allowed": False,
             "reason": "missing_base_eval",
             "adapter_id": adapter_id,
             "eval_id": results.get("eval_id"),
             "dataset_id": dataset_id,
             "metrics": metrics,
-        }
+        })
     try:
         base_eval = _latest_base_eval_for_dataset(
             project_root,
             dataset_id,
             dataset_binding_sha256=str(dataset_binding),
+            eval_pair_config_sha256=str(eval_pair["sha256"]),
         )
     except (OSError, ValueError) as exc:
-        return {
+        return base_failure({
             "allowed": False,
             "reason": "base_eval_registry_invalid",
             "adapter_id": adapter_id,
@@ -463,21 +525,31 @@ def check_activation_gate(
             "dataset_id": dataset_id,
             "metrics": metrics,
             "error": str(exc),
-        }
+        })
     if base_eval is None:
-        return {
+        missing_base_reason = (
+            "missing_matching_base_eval"
+            if _has_base_eval_for_dataset(
+                project_root,
+                dataset_id,
+                dataset_binding_sha256=str(dataset_binding),
+            )
+            else "missing_base_eval"
+        )
+        return base_failure({
             "allowed": False,
-            "reason": "missing_base_eval",
+            "reason": missing_base_reason,
             "adapter_id": adapter_id,
             "eval_id": results.get("eval_id"),
             "dataset_id": dataset_id,
+            "eval_pair_config_sha256": eval_pair["sha256"],
             "metrics": metrics,
-        }
+        })
     try:
         base_config = _read_json(base_eval / "eval_config.json", "Base eval config")
         base_results = _read_json(base_eval / "eval_results.json", "Base eval results")
     except (OSError, ValueError) as exc:
-        return {
+        return base_failure({
             "allowed": False,
             "reason": "base_eval_artifacts_invalid",
             "adapter_id": adapter_id,
@@ -487,15 +559,17 @@ def check_activation_gate(
             "dataset_id": dataset_id,
             "metrics": metrics,
             "error": str(exc),
-        }
+        })
     if not _eval_artifact_identity_is_valid(
         base_eval,
         base_config,
         base_results,
         expected_adapter_id=None,
         expected_base_only=True,
+        require_current_category_schema=True,
+        require_current_pair_identity=True,
     ):
-        return {
+        return base_failure({
             "allowed": False,
             "reason": "base_eval_artifact_identity_mismatch",
             "adapter_id": adapter_id,
@@ -504,12 +578,25 @@ def check_activation_gate(
             "dataset_id": dataset_id,
             "base_eval_dir": str(base_eval),
             "metrics": metrics,
-        }
+        })
+    base_pair = _eval_pair_identity(base_config, base_results)
+    if base_pair.get("sha256") != eval_pair.get("sha256"):
+        return base_failure({
+            "allowed": False,
+            "reason": "base_eval_pair_identity_mismatch",
+            "adapter_id": adapter_id,
+            "eval_id": results.get("eval_id"),
+            "base_eval_id": base_results.get("eval_id"),
+            "dataset_id": dataset_id,
+            "eval_pair_config_sha256": eval_pair.get("sha256"),
+            "base_eval_pair_config_sha256": base_pair.get("sha256"),
+            "metrics": metrics,
+        })
     if (
         base_results.get("dataset_id") != dataset_id
         or base_results.get("dataset_binding_sha256") != dataset_binding
     ):
-        return {
+        return base_failure({
             "allowed": False,
             "reason": "base_eval_dataset_binding_mismatch",
             "adapter_id": adapter_id,
@@ -518,9 +605,9 @@ def check_activation_gate(
             "dataset_id": dataset_id,
             "dataset_binding_sha256": dataset_binding,
             "metrics": metrics,
-        }
+        })
     if not _eval_is_activation_eligible(base_config, base_results):
-        return {
+        return base_failure({
             "allowed": False,
             "reason": "diagnostic_base_eval_not_activation_eligible",
             "adapter_id": adapter_id,
@@ -528,14 +615,14 @@ def check_activation_gate(
             "base_eval_id": base_results.get("eval_id") or base_config.get("eval_id"),
             "dataset_id": dataset_id,
             "metrics": metrics,
-        }
+        })
     base_metrics = (
         base_results.get("metrics")
         if isinstance(base_results.get("metrics"), dict)
         else {}
     )
     if not _eval_metrics_are_valid(base_metrics):
-        return {
+        return base_failure({
             "allowed": False,
             "reason": "invalid_base_eval_metrics",
             "adapter_id": adapter_id,
@@ -543,12 +630,12 @@ def check_activation_gate(
             "base_eval_id": base_results.get("eval_id"),
             "dataset_id": dataset_id,
             "metrics": metrics,
-        }
+        })
     if not _eval_matches_dataset_coverage(
         base_results,
         current_dataset.get("eval_coverage"),
     ):
-        return {
+        return base_failure({
             "allowed": False,
             "reason": "base_eval_dataset_coverage_mismatch",
             "adapter_id": adapter_id,
@@ -556,9 +643,9 @@ def check_activation_gate(
             "base_eval_id": base_results.get("eval_id"),
             "dataset_id": dataset_id,
             "metrics": metrics,
-        }
+        })
     if not _eval_metrics_match_result_items(base_results):
-        return {
+        return base_failure({
             "allowed": False,
             "reason": "invalid_base_eval_metrics",
             "adapter_id": adapter_id,
@@ -566,7 +653,7 @@ def check_activation_gate(
             "base_eval_id": base_results.get("eval_id"),
             "dataset_id": dataset_id,
             "metrics": metrics,
-        }
+        })
     base_receipt = _validate_activation_eval_receipt(
         project_root,
         base_eval,
@@ -575,7 +662,7 @@ def check_activation_gate(
         current_dataset=current_dataset,
     )
     if not base_receipt["valid"]:
-        return {
+        return base_failure({
             "allowed": False,
             "reason": "base_eval_activation_receipt_invalid",
             "adapter_id": adapter_id,
@@ -584,18 +671,54 @@ def check_activation_gate(
             "dataset_id": dataset_id,
             "metrics": metrics,
             "base_eval_receipt_blockers": base_receipt["blockers"],
-        }
+        })
     comparison = _eval_category_comparison(base_results, results)
+    if metric_failure is not None:
+        return {
+            **metric_failure,
+            "base_eval_id": base_results.get("eval_id"),
+            "dataset_binding_sha256": dataset_binding,
+            "eval_pair_config_sha256": eval_pair["sha256"],
+            "category_deltas": comparison["category_deltas"],
+            "category_regressions": comparison["category_regressions"],
+            "critical_regressions": comparison["critical_regressions"],
+        }
     if comparison["critical_regressions"]:
         return {
             "allowed": False,
             "reason": "critical_category_regression",
             "adapter_id": adapter_id,
             "eval_id": results.get("eval_id"),
+            "base_eval_id": base_results.get("eval_id"),
             "dataset_id": dataset_id,
+            "dataset_binding_sha256": dataset_binding,
+            "eval_pair_config_sha256": eval_pair["sha256"],
             "metrics": metrics,
             "category_deltas": comparison["category_deltas"],
+            "category_regressions": comparison["category_regressions"],
             "critical_regressions": comparison["critical_regressions"],
+        }
+    benchmark_gate = benchmark_readiness_gate(
+        current_dataset.get("manifest"),
+        current_dataset,
+    )
+    if not benchmark_gate["allowed"]:
+        return {
+            "allowed": False,
+            "reason": "benchmark_blocked",
+            "adapter_id": adapter_id,
+            "eval_id": results.get("eval_id"),
+            "base_eval_id": base_results.get("eval_id"),
+            "dataset_id": dataset_id,
+            "dataset_binding_sha256": dataset_binding,
+            "eval_pair_config_sha256": eval_pair["sha256"],
+            "dataset_dir": current_dataset.get("dataset_dir"),
+            "metrics": metrics,
+            "category_deltas": comparison["category_deltas"],
+            "category_regressions": comparison["category_regressions"],
+            "critical_regressions": [],
+            "benchmark_blockers": benchmark_gate["blockers"],
+            "benchmark_gate": benchmark_gate,
         }
     return {
         "allowed": True,
@@ -605,13 +728,16 @@ def check_activation_gate(
         "base_eval_id": base_results.get("eval_id"),
         "dataset_id": dataset_id,
         "dataset_binding_sha256": dataset_binding,
+        "eval_pair_config_sha256": eval_pair["sha256"],
         "dataset_dir": current_dataset.get("dataset_dir"),
         "eval_activation_receipt_sha256": eval_receipt["sha256"],
         "base_eval_activation_receipt_sha256": base_receipt["sha256"],
         "weight_artifact": adapter_artifact["artifact"],
         "metrics": metrics,
         "category_deltas": comparison["category_deltas"],
+        "category_regressions": comparison["category_regressions"],
         "critical_regressions": [],
+        "benchmark_gate": benchmark_gate,
     }
 
 
@@ -622,12 +748,16 @@ def _eval_artifact_identity_is_valid(
     *,
     expected_adapter_id: str | None,
     expected_base_only: bool,
+    require_current_category_schema: bool = False,
+    require_current_pair_identity: bool = False,
 ) -> bool:
     eval_id = config.get("eval_id")
     dataset_id = config.get("dataset_id")
     dataset_binding = config.get("dataset_binding_sha256")
     adapter_id = config.get("adapter_id")
     base_only = config.get("base_only")
+    category_schema = config.get("benchmark_category_schema")
+    pair_identity = _eval_pair_identity(config, results)
     return bool(
         isinstance(eval_id, str)
         and eval_id
@@ -644,7 +774,137 @@ def _eval_artifact_identity_is_valid(
         and base_only is expected_base_only
         and type(results.get("base_only")) is bool
         and results.get("base_only") is base_only
+        and results.get("benchmark_category_schema") == category_schema
+        and pair_identity["valid"]
+        and (
+            not require_current_pair_identity
+            or pair_identity["current"]
+        )
+        and (
+            not require_current_category_schema
+            or category_schema == BENCHMARK_CATEGORY_SCHEMA
+        )
     )
+
+
+def _build_eval_pair_config(
+    *,
+    provider: dict,
+    evaluation_mode: str,
+    base_model: str,
+    inference_config: dict | None = None,
+) -> dict:
+    """Build the role-neutral configuration shared by a base/adapter eval pair."""
+    provider_name = provider.get("name") if isinstance(provider, dict) else None
+    if not isinstance(provider_name, str) or not provider_name.strip():
+        raise ValueError("Eval pair provider identity is invalid")
+    if not isinstance(evaluation_mode, str) or not evaluation_mode.strip():
+        raise ValueError("Eval pair evaluation mode is invalid")
+    if not isinstance(base_model, str) or not base_model.strip():
+        raise ValueError("Eval pair base model identity is invalid")
+    resolved_inference_config = (
+        {} if inference_config is None else inference_config
+    )
+    if not isinstance(resolved_inference_config, dict):
+        raise ValueError("Eval pair inference config is invalid")
+    pair_config = {
+        "schema": _EVAL_PAIR_SCHEMA,
+        "provider": provider,
+        "evaluation_mode": evaluation_mode,
+        "evaluator": dict(_ACTIVATION_EVALUATOR),
+        "model": {
+            "base_model": base_model,
+            "inference_config": resolved_inference_config,
+        },
+    }
+    try:
+        _canonical_sha256(pair_config)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Eval pair config must be canonical JSON") from exc
+    return pair_config
+
+
+def _eval_pair_identity(config: dict, results: dict) -> dict:
+    config_pair = config.get("eval_pair_config")
+    results_pair = results.get("eval_pair_config")
+    config_sha = config.get("eval_pair_config_sha256")
+    results_sha = results.get("eval_pair_config_sha256")
+    values = (config_pair, results_pair, config_sha, results_sha)
+    if all(value is None for value in values):
+        return {
+            "valid": True,
+            "current": False,
+            "sha256": None,
+            "config": None,
+        }
+    if not isinstance(config_pair, dict) or results_pair != config_pair:
+        return {"valid": False, "current": False, "sha256": None, "config": None}
+    try:
+        expected_sha = _canonical_sha256(config_pair)
+    except (TypeError, ValueError):
+        return {"valid": False, "current": False, "sha256": None, "config": None}
+    provider = config_pair.get("provider")
+    model = config_pair.get("model")
+    inference_config = (
+        model.get("inference_config") if isinstance(model, dict) else None
+    )
+    base_model = model.get("base_model") if isinstance(model, dict) else None
+    valid = bool(
+        config_pair.get("schema") == _EVAL_PAIR_SCHEMA
+        and isinstance(provider, dict)
+        and isinstance(provider.get("name"), str)
+        and provider.get("name").strip()
+        and provider == config.get("provider")
+        and isinstance(config_pair.get("evaluation_mode"), str)
+        and config_pair.get("evaluation_mode")
+        and config_pair.get("evaluation_mode") == config.get("evaluation_mode")
+        and config_pair.get("evaluation_mode") == results.get("evaluation_mode")
+        and config_pair.get("evaluator") == _ACTIVATION_EVALUATOR
+        and config.get("evaluator") == _ACTIVATION_EVALUATOR
+        and isinstance(base_model, str)
+        and base_model.strip()
+        and isinstance(inference_config, dict)
+        and isinstance(config_sha, str)
+        and config_sha == expected_sha
+        and results_sha == expected_sha
+    )
+    return {
+        "valid": valid,
+        "current": valid,
+        "sha256": expected_sha if valid else None,
+        "config": config_pair if valid else None,
+    }
+
+
+def _config_eval_pair_sha256(config: object) -> str | None:
+    """Return a trustworthy config-only pair id for registry relevance checks."""
+    if not isinstance(config, dict):
+        return None
+    pair_config = config.get("eval_pair_config")
+    claimed_sha = config.get("eval_pair_config_sha256")
+    if not isinstance(pair_config, dict) or not isinstance(claimed_sha, str):
+        return None
+    try:
+        expected_sha = _canonical_sha256(pair_config)
+    except (TypeError, ValueError):
+        return None
+    provider = pair_config.get("provider")
+    model = pair_config.get("model")
+    return expected_sha if bool(
+        claimed_sha == expected_sha
+        and pair_config.get("schema") == _EVAL_PAIR_SCHEMA
+        and isinstance(provider, dict)
+        and isinstance(provider.get("name"), str)
+        and provider.get("name").strip()
+        and provider == config.get("provider")
+        and pair_config.get("evaluation_mode") == config.get("evaluation_mode")
+        and pair_config.get("evaluator") == _ACTIVATION_EVALUATOR
+        and config.get("evaluator") == _ACTIVATION_EVALUATOR
+        and isinstance(model, dict)
+        and isinstance(model.get("base_model"), str)
+        and model.get("base_model").strip()
+        and isinstance(model.get("inference_config"), dict)
+    ) else None
 
 
 def _eval_is_activation_eligible(config: dict, results: dict) -> bool:
@@ -819,6 +1079,14 @@ def _activation_eval_receipt_claims(
     base_only = config.get("base_only")
     dataset_id = config.get("dataset_id")
     dataset_binding = config.get("dataset_binding_sha256")
+    benchmark_category_schema = config.get("benchmark_category_schema")
+    eval_pair = _eval_pair_identity(config, results)
+    if (
+        benchmark_category_schema != BENCHMARK_CATEGORY_SCHEMA
+        or results.get("benchmark_category_schema")
+        != BENCHMARK_CATEGORY_SCHEMA
+    ):
+        raise ValueError("activation benchmark category schema is invalid")
     if (
         not _is_canonical_eval_id(eval_id)
         or results.get("eval_id") != eval_id
@@ -841,12 +1109,18 @@ def _activation_eval_receipt_claims(
         raise ValueError("activation eval artifact identity is invalid")
     if config.get("evaluator") != _ACTIVATION_EVALUATOR:
         raise ValueError("activation evaluator identity is invalid")
+    if not eval_pair["valid"] or not eval_pair["current"]:
+        raise ValueError("activation eval pair identity is invalid")
     provider = config.get("provider")
     if not isinstance(provider, dict):
         raise ValueError("activation eval provider identity is invalid")
     result_items = results.get("items")
     if not isinstance(result_items, list) or not result_items:
         raise ValueError("activation eval result items are invalid")
+    if not _eval_metrics_match_result_items(results):
+        raise ValueError(
+            "activation eval results do not match canonical scoring"
+        )
     result_identities, result_digest = _eval_item_identity_digest(result_items)
     seed_identities, seed_digest = _eval_item_identity_digest(seed_items)
     if result_identities != seed_identities or result_digest != seed_digest:
@@ -861,6 +1135,9 @@ def _activation_eval_receipt_claims(
         "base_only": base_only,
         "dataset_id": dataset_id,
         "dataset_binding_sha256": dataset_binding,
+        "benchmark_category_schema": benchmark_category_schema,
+        "eval_pair_config": eval_pair["config"],
+        "eval_pair_config_sha256": eval_pair["sha256"],
         "item_identities": result_identities,
         "items_sha256": result_digest,
         "eval_seed_sha256": sha256(seed_bytes).hexdigest(),
@@ -1127,9 +1404,22 @@ def _eval_metrics_match_result_items(results: dict) -> bool:
             not isinstance(item, dict)
             or not isinstance(item.get("category"), str)
             or not item["category"].strip()
+            or not isinstance(item.get("expected_answer"), str)
+            or not item["expected_answer"].strip()
+            or not isinstance(item.get("answer"), str)
             or type(item.get("passed")) is not bool
             or type(item.get("hallucinated")) is not bool
             or type(item.get("critical_outdated_claim_failure")) is not bool
+        ):
+            return False
+        canonical = _score_item(item, item["answer"])
+        if any(
+            item[field] != canonical[field]
+            for field in (
+                "passed",
+                "hallucinated",
+                "critical_outdated_claim_failure",
+            )
         ):
             return False
     return metrics == _metrics(items)
@@ -1153,6 +1443,22 @@ def _rate_matches_count(rate: object, count: int, total: int) -> bool:
             rel_tol=0.0,
             abs_tol=1e-9,
         )
+    )
+
+
+def _rate_below_threshold(count: int, total: int, threshold: float) -> bool:
+    threshold_fraction = Fraction(str(float(threshold)))
+    return (
+        count * threshold_fraction.denominator
+        < threshold_fraction.numerator * total
+    )
+
+
+def _rate_above_threshold(count: int, total: int, threshold: float) -> bool:
+    threshold_fraction = Fraction(str(float(threshold)))
+    return (
+        count * threshold_fraction.denominator
+        > threshold_fraction.numerator * total
     )
 
 
@@ -1242,22 +1548,46 @@ def _eval_category_comparison(
             adapter = adapter_categories.get(category) or {}
             base_rate = float(base.get("pass_rate") or 0.0)
             adapter_rate = float(adapter.get("pass_rate") or 0.0)
+            base_hallucination_rate = float(
+                base.get("hallucination_rate") or 0.0
+            )
+            adapter_hallucination_rate = float(
+                adapter.get("hallucination_rate") or 0.0
+            )
             category_deltas[category] = {
                 "base_pass_rate": round(base_rate, 4),
                 "adapter_pass_rate": round(adapter_rate, 4),
                 "pass_rate_delta": round(adapter_rate - base_rate, 4),
+                "base_hallucination_rate": round(
+                    base_hallucination_rate,
+                    4,
+                ),
+                "adapter_hallucination_rate": round(
+                    adapter_hallucination_rate,
+                    4,
+                ),
+                "hallucination_rate_delta": round(
+                    adapter_hallucination_rate - base_hallucination_rate,
+                    4,
+                ),
                 "base_total_items": int(base.get("total_items") or 0),
                 "adapter_total_items": int(adapter.get("total_items") or 0),
             }
-    critical_regressions = _critical_category_regressions(
+    category_regressions = _category_regressions(
         category_deltas,
         base_categories,
         adapter_categories,
     )
+    critical_regressions = [
+        regression
+        for regression in category_regressions
+        if regression["category"] in CRITICAL_BENCHMARK_CATEGORIES
+    ]
     return {
         "base_eval": _eval_summary(base_eval),
         "adapter_eval": _eval_summary(adapter_eval),
         "category_deltas": category_deltas,
+        "category_regressions": category_regressions,
         "critical_regressions": critical_regressions,
     }
 
@@ -1321,6 +1651,30 @@ def _latest_eval_results_for_dataset(
                 base_result = marker
             if adapter_result is None:
                 adapter_result = marker
+    adapter_pair_sha256 = (
+        adapter_result.get("eval_pair_config_sha256")
+        if isinstance(adapter_result, dict)
+        and not adapter_result.get("_registry_invalid")
+        else None
+    )
+    if isinstance(adapter_pair_sha256, str) and _valid_sha256(
+        adapter_pair_sha256
+    ):
+        exact_base = _latest_base_eval_for_dataset(
+            project_root,
+            dataset_id,
+            dataset_binding_sha256=dataset_binding_sha256,
+            eval_pair_config_sha256=adapter_pair_sha256,
+        )
+        if exact_base is None:
+            base_result = None
+        else:
+            exact_inspection = _inspect_eval_entry(exact_base)
+            base_result = (
+                exact_inspection["results"]
+                if exact_inspection.get("valid") is True
+                else _invalid_eval_marker(exact_base, exact_inspection)
+            )
     return base_result, adapter_result
 
 
@@ -1474,27 +1828,34 @@ def _normalize_eval_results_for_reporting(result: dict) -> dict:
     }
 
 
-def _critical_category_regressions(
+def _category_regressions(
     category_deltas: dict,
     base_categories: dict,
     adapter_categories: dict,
 ) -> list[dict]:
     regressions = []
-    for category in sorted(CRITICAL_BENCHMARK_CATEGORIES):
-        delta = category_deltas.get(category)
-        if delta is None or int(delta["base_total_items"]) <= 0:
-            continue
+    for category, delta in sorted(category_deltas.items()):
         base = base_categories.get(category) or {}
         adapter = adapter_categories.get(category) or {}
+        base_total = _category_metric_count(base, "total_items")
+        adapter_total = _category_metric_count(adapter, "total_items")
         reasons = []
-        if int(delta["adapter_total_items"]) < int(delta["base_total_items"]):
+        if adapter_total < base_total:
             reasons.append("coverage_decreased")
-        if float(delta["adapter_pass_rate"]) < float(delta["base_pass_rate"]):
-            reasons.append("pass_rate_decreased")
-        if int(adapter.get("critical_failures") or 0) > int(
-            base.get("critical_failures") or 0
+        if _rate_decreased(
+            adapter_count=_category_metric_count(adapter, "passed_items"),
+            adapter_total=adapter_total,
+            base_count=_category_metric_count(base, "passed_items"),
+            base_total=base_total,
         ):
-            reasons.append("critical_failures_increased")
+            reasons.append("pass_rate_decreased")
+        if _rate_increased(
+            adapter_count=_category_metric_count(adapter, "hallucinated_items"),
+            adapter_total=adapter_total,
+            base_count=_category_metric_count(base, "hallucinated_items"),
+            base_total=base_total,
+        ):
+            reasons.append("hallucination_rate_increased")
         if reasons:
             regressions.append({
                 "category": category,
@@ -1502,6 +1863,39 @@ def _critical_category_regressions(
                 "reasons": reasons,
             })
     return regressions
+
+
+def _category_metric_count(metrics: dict, field: str) -> int:
+    value = metrics.get(field)
+    return value if type(value) is int and value >= 0 else 0
+
+
+def _rate_decreased(
+    *,
+    adapter_count: int,
+    adapter_total: int,
+    base_count: int,
+    base_total: int,
+) -> bool:
+    if adapter_total == 0:
+        return base_total > 0 and base_count > 0
+    if base_total == 0:
+        return False
+    return adapter_count * base_total < base_count * adapter_total
+
+
+def _rate_increased(
+    *,
+    adapter_count: int,
+    adapter_total: int,
+    base_count: int,
+    base_total: int,
+) -> bool:
+    if adapter_total == 0:
+        return False
+    if base_total == 0:
+        return adapter_count > 0
+    return adapter_count * base_total > base_count * adapter_total
 
 
 def _category_metrics(eval_results: dict | None) -> dict:
@@ -1523,6 +1917,9 @@ def _eval_summary(eval_results: dict | None) -> dict | None:
         "base_only": bool(eval_results.get("base_only")),
         "dataset_id": eval_results.get("dataset_id"),
         "dataset_binding_sha256": eval_results.get("dataset_binding_sha256"),
+        "eval_pair_config_sha256": eval_results.get(
+            "eval_pair_config_sha256"
+        ),
         "pass_rate": (eval_results.get("metrics") or {}).get("pass_rate"),
     }
     if eval_results.get("_registry_invalid"):
@@ -1538,8 +1935,8 @@ def _score_item(item: dict, answer: str) -> dict:
     category = str(item.get("category") or "project_recall")
     expected = str(item.get("expected_answer") or "")
     passed = _passes(category, expected, answer)
-    hallucinated = _hallucinated(category, answer)
-    critical_failure = category == "outdated_claim_correction" and not passed
+    hallucinated = _hallucinated(category, expected, answer)
+    critical_failure = category == "stale_claim_correction" and not passed
     return {
         "category": category,
         "question": item.get("question"),
@@ -1560,29 +1957,24 @@ def _score_item(item: dict, answer: str) -> dict:
 def _passes(category: str, expected: str, answer: str) -> bool:
     folded_answer = answer.casefold()
     folded_expected = expected.casefold()
-    if category == "unsupported_claim_refusal":
-        return "cannot confirm" in folded_answer or "unsupported" in folded_answer
-    if category == "outdated_claim_correction":
-        return folded_answer.startswith("no") and "outdated" in folded_answer
+    command_decision = canonical_command_answer_passes(category, expected, answer)
+    if command_decision is not None:
+        return command_decision
+    critical_decision = critical_answer_passes(category, expected, answer)
+    if critical_decision is not None:
+        return critical_decision
     return bool(folded_expected) and folded_expected in folded_answer
 
 
-def _hallucinated(category: str, answer: str) -> bool:
-    folded = answer.casefold()
-    if "confirmed without source" in folded:
-        return True
-    if category == "unsupported_claim_refusal" and not (
-        "cannot confirm" in folded or "unsupported" in folded
-    ):
-        return True
-    return False
+def _hallucinated(category: str, expected: str, answer: str) -> bool:
+    return critical_answer_hallucinates(category, expected, answer)
 
 
 def _metrics(items: list[dict]) -> dict:
     total = len(items)
     passed = sum(1 for item in items if item["passed"])
     hallucinated = sum(1 for item in items if item["hallucinated"])
-    outdated = [item for item in items if item["category"] == "outdated_claim_correction"]
+    outdated = [item for item in items if item["category"] == "stale_claim_correction"]
     unsupported = [item for item in items if item["category"] == "unsupported_claim_refusal"]
     outdated_failures = sum(1 for item in outdated if not item["passed"])
     unsupported_passed = sum(1 for item in unsupported if item["passed"])
@@ -1725,7 +2117,61 @@ def _adapter_dataset_binding(
         "valid": not blockers,
         "blockers": blockers,
         "manifest_path": str(manifest_path),
+        "base_model": manifest.get("base_model"),
     }
+
+
+def _base_model_for_eval(
+    project_root: Path,
+    *,
+    adapter_id: str | None,
+    dataset_id: object,
+    dataset_binding_sha256: object,
+) -> str:
+    """Resolve the untreated model identity shared by both sides of an eval."""
+    if adapter_id is not None:
+        binding = _adapter_dataset_binding(
+            project_root,
+            adapter_id,
+            dataset_id=dataset_id,
+            dataset_binding_sha256=dataset_binding_sha256,
+        )
+        if not binding["valid"]:
+            raise ValueError(
+                "Adapter dataset binding mismatch: "
+                + ", ".join(binding["blockers"])
+            )
+        base_model = binding.get("base_model")
+        return (
+            base_model.strip()
+            if isinstance(base_model, str) and base_model.strip()
+            else DEFAULT_BASE_MODEL
+        )
+
+    adapters_root = project_root / ".morpheus" / "training" / "adapters"
+    if adapters_root.is_symlink():
+        raise ValueError(f"Adapter registry must not be a symlink: {adapters_root}")
+    reject_symlink_components(adapters_root, "Adapter registry")
+    if adapters_root.is_dir():
+        manifests = sorted(
+            adapters_root.glob("*/adapter_manifest.json"),
+            key=lambda path: path.parent.name,
+            reverse=True,
+        )
+        for manifest_path in manifests:
+            if manifest_path.is_symlink() or manifest_path.parent.is_symlink():
+                continue
+            manifest = _read_json(manifest_path, "Adapter manifest")
+            base_model = manifest.get("base_model")
+            if (
+                manifest.get("dataset_id") == dataset_id
+                and manifest.get("dataset_binding_sha256")
+                == dataset_binding_sha256
+                and isinstance(base_model, str)
+                and base_model.strip()
+            ):
+                return base_model.strip()
+    return DEFAULT_BASE_MODEL
 
 
 def _dataset_dir_for_eval(project_root: Path, dataset_id: str | None) -> Path | None:
@@ -1814,16 +2260,14 @@ def _latest_eval_for_adapter(
         config = inspection.get("config")
         if isinstance(config, dict) and config.get("adapter_id") == adapter_id:
             return entry
-        if inspection.get("valid") is True:
-            continue
-        if (
-            _config_has_complete_eval_identity(entry, config)
-            and isinstance(config, dict)
-            and config.get("adapter_id") != adapter_id
+        if _eval_entry_routing_identity_is_trusted(
+            project_root,
+            entry,
+            inspection,
         ):
             continue
-        # An invalid canonical entry cannot prove that it is unrelated. It is
-        # therefore authoritative over an older passing eval.
+        # Unsigned role/id fields cannot prove that this newer entry is
+        # unrelated; returning it blocks fallback to older activation state.
         return entry
     return None
 
@@ -1833,6 +2277,7 @@ def _latest_base_eval_for_dataset(
     dataset_id: str,
     *,
     dataset_binding_sha256: str,
+    eval_pair_config_sha256: str,
 ) -> Path | None:
     evals_root = _existing_evals_root(project_root)
     if evals_root is None:
@@ -1840,6 +2285,11 @@ def _latest_base_eval_for_dataset(
     for entry in reversed(_canonical_eval_entries(evals_root)):
         inspection = _inspect_eval_entry(entry)
         config = inspection.get("config")
+        routing_identity_is_trusted = _eval_entry_routing_identity_is_trusted(
+            project_root,
+            entry,
+            inspection,
+        )
         if isinstance(config, dict) and config.get("base_only") is True:
             config_dataset = config.get("dataset_id")
             config_binding = config.get("dataset_binding_sha256")
@@ -1847,15 +2297,175 @@ def _latest_base_eval_for_dataset(
                 config_dataset == dataset_id
                 or config_binding == dataset_binding_sha256
             ):
+                config_pair_sha256 = _config_eval_pair_sha256(config)
+                if config_pair_sha256 == eval_pair_config_sha256:
+                    return entry
+                if routing_identity_is_trusted:
+                    continue
                 return entry
-        if inspection.get("valid") is True:
+        if routing_identity_is_trusted:
             continue
-        if _config_has_complete_eval_identity(entry, config):
-            continue
-        # Missing/corrupt artifacts make relevance unknowable and block
-        # fallback to an older base eval.
+        # A role or dataset relabel without trusted provenance must not hide a
+        # newer base candidate from activation authority.
         return entry
     return None
+
+
+def _eval_entry_routing_identity_is_trusted(
+    project_root: Path,
+    eval_dir: Path,
+    inspection: dict,
+) -> bool:
+    """Trust routing fields only for exact diagnostics or signed evals."""
+    if inspection.get("valid") is not True:
+        return False
+    config = inspection.get("config")
+    results = inspection.get("results")
+    if not isinstance(config, dict) or not isinstance(results, dict):
+        return False
+    if _is_exact_builtin_diagnostic_eval(eval_dir, config, results):
+        return True
+    if not _eval_is_activation_eligible(config, results):
+        return False
+    return _activation_eval_routing_receipt_is_valid(
+        project_root,
+        eval_dir,
+        config,
+        results,
+    )
+
+
+def _activation_eval_routing_receipt_is_valid(
+    project_root: Path,
+    eval_dir: Path,
+    config: dict,
+    results: dict,
+) -> bool:
+    """Verify signed routing claims without requiring live dataset authority."""
+    try:
+        config_bytes = _read_stable_regular_bytes(
+            eval_dir / "eval_config.json",
+            "Eval config",
+        )
+        results_bytes = _read_stable_regular_bytes(
+            eval_dir / "eval_results.json",
+            "Eval results",
+        )
+        if (
+            _json_object_from_bytes(config_bytes, "Eval config") != config
+            or _json_object_from_bytes(results_bytes, "Eval results") != results
+        ):
+            return False
+        receipt_bytes = _read_stable_regular_bytes(
+            eval_dir / _ACTIVATION_EVAL_RECEIPT_NAME,
+            "Activation eval receipt",
+            private=True,
+        )
+        receipt = _json_object_from_bytes(
+            receipt_bytes,
+            "Activation eval receipt",
+        )
+        pair = _eval_pair_identity(config, results)
+        expected = {
+            "schema": _ACTIVATION_EVAL_RECEIPT_SCHEMA,
+            "eval_id": config.get("eval_id"),
+            "evaluator": dict(_ACTIVATION_EVALUATOR),
+            "evaluation_mode": config.get("evaluation_mode"),
+            "provider": config.get("provider"),
+            "adapter_id": config.get("adapter_id"),
+            "base_only": config.get("base_only"),
+            "dataset_id": config.get("dataset_id"),
+            "dataset_binding_sha256": config.get(
+                "dataset_binding_sha256"
+            ),
+            "benchmark_category_schema": BENCHMARK_CATEGORY_SCHEMA,
+            "eval_pair_config": pair.get("config"),
+            "eval_pair_config_sha256": pair.get("sha256"),
+            "eval_config_sha256": sha256(config_bytes).hexdigest(),
+            "eval_results_sha256": sha256(results_bytes).hexdigest(),
+        }
+        if (
+            pair.get("current") is not True
+            or any(receipt.get(key) != value for key, value in expected.items())
+            or not isinstance(receipt.get("issued_at"), str)
+            or not receipt.get("issued_at")
+        ):
+            return False
+        signature = receipt.get("signature")
+        if not isinstance(signature, dict):
+            return False
+        if signature.get("algo") != "ed25519" or signature.get("key_id") != "local":
+            return False
+        signature_b64 = signature.get("signature_b64")
+        if not isinstance(signature_b64, str):
+            return False
+        signature_bytes = base64.b64decode(signature_b64, validate=True)
+        _activation_eval_public_key(project_root).verify(
+            signature_bytes,
+            receipt_signature_payload(receipt),
+        )
+    except (OSError, ValueError, json.JSONDecodeError, InvalidSignature):
+        return False
+    return True
+
+
+def _is_exact_builtin_diagnostic_eval(
+    eval_dir: Path,
+    config: dict,
+    results: dict,
+) -> bool:
+    pair = _eval_pair_identity(config, results)
+    pair_config = pair.get("config")
+    model = (
+        pair_config.get("model")
+        if isinstance(pair_config, dict)
+        and isinstance(pair_config.get("model"), dict)
+        else {}
+    )
+    try:
+        artifact_names = {entry.name for entry in eval_dir.iterdir()}
+    except OSError:
+        return False
+    return bool(
+        artifact_names == _BASE_EVAL_ARTIFACT_NAMES
+        and config.get("provider") == {"name": "diagnostic-fake"}
+        and config.get("evaluation_mode") == "diagnostic_fake"
+        and results.get("evaluation_mode") == "diagnostic_fake"
+        and config.get("activation_eligible") is False
+        and results.get("activation_eligible") is False
+        and config.get("dry_run") is True
+        and config.get("diagnostic_quality") in {"passing", "failing"}
+        and config.get("evaluator") == _ACTIVATION_EVALUATOR
+        and pair.get("current") is True
+        and pair_config.get("provider") == {"name": "diagnostic-fake"}
+        and pair_config.get("evaluation_mode") == "diagnostic_fake"
+        and pair_config.get("evaluator") == _ACTIVATION_EVALUATOR
+        and isinstance(model.get("base_model"), str)
+        and model.get("base_model").strip()
+        and model.get("inference_config") == {}
+    )
+
+
+def _has_base_eval_for_dataset(
+    project_root: Path,
+    dataset_id: str,
+    *,
+    dataset_binding_sha256: str,
+) -> bool:
+    evals_root = _existing_evals_root(project_root)
+    if evals_root is None:
+        return False
+    for entry in reversed(_canonical_eval_entries(evals_root)):
+        inspection = _inspect_eval_entry(entry)
+        config = inspection.get("config")
+        if not isinstance(config, dict) or config.get("base_only") is not True:
+            continue
+        if (
+            config.get("dataset_id") == dataset_id
+            or config.get("dataset_binding_sha256") == dataset_binding_sha256
+        ):
+            return True
+    return False
 
 
 def _current_dataset_validation(
@@ -1868,9 +2478,35 @@ def _current_dataset_validation(
     if not _valid_sha256(dataset_binding_sha256):
         return {"valid": False, "blockers": ["dataset_binding_invalid"]}
     try:
+        effective = latest_effective_dataset(project_root)
+        if not isinstance(effective, dict):
+            return {
+                "valid": False,
+                "blockers": ["latest_effective_dataset_missing"],
+            }
         dataset_dir = _dataset_dir_for_eval(project_root, dataset_id)
         if dataset_dir is None:
             return {"valid": False, "blockers": ["dataset_missing"]}
+        effective_dir_value = effective.get("dataset_dir")
+        effective_validation = effective.get("validation")
+        effective_binding = (
+            effective_validation.get("dataset_binding_sha256")
+            if isinstance(effective_validation, dict)
+            else None
+        )
+        if (
+            effective.get("dataset_id") != dataset_id
+            or effective_binding != dataset_binding_sha256
+            or not isinstance(effective_dir_value, str)
+            or Path(effective_dir_value) != dataset_dir
+        ):
+            return {
+                "valid": False,
+                "blockers": ["dataset_not_latest_effective"],
+                "dataset_dir": str(dataset_dir),
+                "latest_effective_dataset_id": effective.get("dataset_id"),
+                "latest_effective_dataset_dir": effective_dir_value,
+            }
         manifest = _read_json(dataset_dir / "manifest.json", "Dataset manifest")
         validation = validate_dataset(project_root, dataset_dir, manifest)
     except (OSError, ValueError) as exc:
@@ -1887,8 +2523,13 @@ def _current_dataset_validation(
             "valid": False,
             "blockers": blockers,
             "dataset_dir": str(dataset_dir),
+            "manifest": manifest,
         }
-    return {**validation, "dataset_dir": str(dataset_dir)}
+    return {
+        **validation,
+        "dataset_dir": str(dataset_dir),
+        "manifest": manifest,
+    }
 
 
 def _review_authority_roots_for_dataset(
@@ -2067,22 +2708,24 @@ def _publish_staged_eval(
     lock_path = evals_root / ".registry.lock"
     reject_symlink_paths([lock_path], "Eval registry lock")
     reject_symlink_components(lock_path, "Eval registry lock")
-    with portable_file_lock(lock_path):
-        if _descriptor_publish_supported():
-            _publish_staged_eval_with_descriptors(
-                evals_root,
-                staging_dir,
-                eval_dir,
-                staging_identity=staging_identity,
-                expected_contents=expected_contents,
-            )
-        else:  # pragma: no cover - POSIX supplies descriptor-relative APIs.
-            _publish_staged_eval_with_paths(
-                staging_dir,
-                eval_dir,
-                staging_identity=staging_identity,
-                expected_contents=expected_contents,
-            )
+    authority_root = evals_root.parents[2]
+    with learning_authority_transaction(authority_root):
+        with portable_file_lock(lock_path):
+            if _descriptor_publish_supported():
+                _publish_staged_eval_with_descriptors(
+                    evals_root,
+                    staging_dir,
+                    eval_dir,
+                    staging_identity=staging_identity,
+                    expected_contents=expected_contents,
+                )
+            else:  # pragma: no cover - POSIX supplies descriptor-relative APIs.
+                _publish_staged_eval_with_paths(
+                    staging_dir,
+                    eval_dir,
+                    staging_identity=staging_identity,
+                    expected_contents=expected_contents,
+                )
 
 
 def _publish_staged_eval_with_descriptors(

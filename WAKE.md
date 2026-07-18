@@ -18,6 +18,11 @@ The latest live dogfood MLX stability gate on main reached repeat-2
 versus base pass rate 0.7973, zero critical failures, zero regressions, and no
 automatic adapter activation.
 
+The v0.5 adapter memory benchmark is complete in the current code. Its canonical
+schema is `morpheus-benchmark-categories/1`, and its human CLI, API, static UI,
+JSON, and Markdown surfaces expose paired eval identity, readiness/gate reason,
+category deltas, and all/critical regression counts or lists.
+
 ## Active Decisions
 
 - Public framing is now: "First verify. Then learn."
@@ -34,6 +39,18 @@ automatic adapter activation.
 - Local adapter learning is experimental until eval passes.
 - Adapter output is not the source of truth.
 - Private projects can keep generated state under `.morpheus/`.
+- Canonical benchmark coverage is exactly `product_identity`,
+  `commands_and_cli_behavior`, `architecture`, `safety_rules`,
+  `team_conventions`, `stale_claim_correction`, and
+  `unsupported_claim_refusal`; diagnostic `project_recall` does not satisfy it.
+- Security/safety and convention/team-convention coverage are independent
+  readiness requirements.
+- Activation and rollback-to-adapter use the same live adapter-bound gate;
+  `--force` cannot bypass it, while rollback-to-none remains the fail-safe.
+- Legacy or mismatched manifest/eval/category schema requires a dataset rebuild
+  and new base plus adapter evals.
+- Adapter weight authority binds the exact registered `.safetensors` relative
+  path, byte size, and SHA-256.
 
 ## Outdated Claims
 
@@ -68,21 +85,23 @@ automatic adapter activation.
 - `CHANGELOG.md` - current launch delta.
 - `docs/TESTING.md` - local quality gate and release checks.
 
+## Roadmap Launch Order
+
+1. v0.3 semantic classifier as product core.
+2. v0.4 dataset quality dashboard.
+3. v0.5 adapter memory benchmark — complete in the current code.
+4. v0.6 agent memory routing — implemented; lifecycle hardening remains.
+5. v0.7 team learning loop — local reviewed-feedback core complete; unified
+   input orchestration remains.
+
 ## Next Product Work
 
-1. v0.3 semantic classifier as product core: classify architecture,
-   implementation, product, security, command, integration, stale, convention,
-   task, and temporary facts.
-2. v0.4 dataset quality dashboard: show trainable, retrievable, stale, unsafe,
-   needs-review, negative, and eval-only claims.
-3. v0.5 adapter memory benchmark: report category-level base-vs-adapter deltas
-   and critical regressions.
-4. v0.6 agent memory routing: decide whether a fact belongs in prompt,
-   retrieval, adapter training, eval, negative examples, stale archive, or human
-   review.
-5. v0.7 team learning loop: turn PR comments, rejected agent claims, human
-   corrections, accepted candidates, and check results into reviewed continual
-   learning data.
+1. v0.6 agent memory routing: recompute and persist the route on every candidate
+   lifecycle transition, including lab acceptance and source invalidation, and
+   make signed active-state review authority explicit.
+2. v0.7 team learning loop: unify PR comments, rejected agent claims, human
+   corrections, accepted candidates, check results, and stale corrections behind
+   one idempotent reviewed-input orchestration path.
 
 ## Verification
 

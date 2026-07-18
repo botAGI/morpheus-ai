@@ -13,6 +13,7 @@ from morpheus.core.learning.adapter_artifacts import (
     validate_adapter_artifact_manifest,
     validate_registered_adapter_artifact,
 )
+from morpheus.core.learning.authority import learning_authority_transaction
 from morpheus.core.learning.dataset_validation import validate_dataset
 from morpheus.core.learning.eval import (
     check_activation_gate,
@@ -36,6 +37,14 @@ def active_adapter_path(project_root: Path) -> Path:
 
 def rollback_log_path(project_root: Path) -> Path:
     return project_root / ".morpheus" / "training" / "rollback_log.jsonl"
+
+
+def _activation_gate_failure(gate: dict) -> str:
+    reason = str(gate.get("reason") or "blocked")
+    blockers = gate.get("benchmark_blockers")
+    if not isinstance(blockers, list) or not blockers:
+        return reason
+    return f"{reason}: {', '.join(str(blocker) for blocker in blockers)}"
 
 
 def list_adapters(project_root: Path) -> list[dict]:
@@ -99,11 +108,12 @@ def activate_adapter(
     with _activation_state_transaction(project_root):
         with state_authority_transaction(project_root):
             with _review_authority_transaction(project_root):
-                return _activate_adapter_locked(
-                    project_root,
-                    adapter_id,
-                    force=force,
-                )
+                with learning_authority_transaction(project_root):
+                    return _activate_adapter_locked(
+                        project_root,
+                        adapter_id,
+                        force=force,
+                    )
 
 
 def _activate_adapter_locked(
@@ -115,12 +125,13 @@ def _activate_adapter_locked(
     adapter_dir = _adapter_dir_or_error(project_root, adapter_id)
     gate = check_activation_gate(project_root, adapter_id)
     if not gate["allowed"]:
+        gate_failure = _activation_gate_failure(gate)
         if force:
             raise ValueError(
                 f"Cannot activate adapter {adapter_id}: force cannot bypass the eval gate "
-                f"({gate['reason']})"
+                f"({gate_failure})"
             )
-        raise ValueError(f"Cannot activate adapter {adapter_id}: {gate['reason']}")
+        raise ValueError(f"Cannot activate adapter {adapter_id}: {gate_failure}")
 
     previous = _read_active_adapter(project_root)
     previous_id = previous.get("adapter_id") if previous else None
@@ -141,7 +152,7 @@ def _activate_adapter_locked(
     if not final_gate["allowed"] or final_gate.get("eval_id") != gate.get("eval_id"):
         raise ValueError(
             f"Cannot activate adapter {adapter_id}: activation authority changed "
-            f"({final_gate['reason']})"
+            f"({_activation_gate_failure(final_gate)})"
         )
     final_identity = _activation_authority_identity(
         project_root,
@@ -245,24 +256,44 @@ def _activate_adapter_locked(
                 / previous_id
                 / "adapter_manifest.json"
             ] = previous_manifest
-    _commit_activation_transaction(
-        project_root,
-        transaction_id=transaction_id,
-        writes=writes,
-        pointer_path=active_adapter_path(project_root),
-        precommit_check=lambda: _require_matching_adapter_artifact(
+    def require_precommit_authority() -> None:
+        _require_matching_adapter_artifact(
             adapter_dir,
             adapter_id,
             final_identity,
             action="activate",
-        ),
-        postwrite_check=lambda: _require_matching_adapter_artifact(
+        )
+        _require_matching_activation_gate(
+            project_root,
+            adapter_id,
+            final_identity,
+            action="activate",
+            authority="activation",
+        )
+
+    def require_postwrite_authority() -> None:
+        _require_matching_adapter_artifact(
             adapter_dir,
             adapter_id,
             final_identity,
             action="activate",
             require_manifest_identity=False,
-        ),
+        )
+        _require_matching_activation_gate(
+            project_root,
+            adapter_id,
+            final_identity,
+            action="activate",
+            authority="activation",
+        )
+
+    _commit_activation_transaction(
+        project_root,
+        transaction_id=transaction_id,
+        writes=writes,
+        pointer_path=active_adapter_path(project_root),
+        precommit_check=require_precommit_authority,
+        postwrite_check=require_postwrite_authority,
     )
     return {
         "activated": True,
@@ -279,7 +310,8 @@ def rollback_adapter(project_root: Path) -> dict:
     with _activation_state_transaction(project_root):
         with state_authority_transaction(project_root):
             with _review_authority_transaction(project_root):
-                return _rollback_adapter_locked(project_root)
+                with learning_authority_transaction(project_root):
+                    return _rollback_adapter_locked(project_root)
 
 
 def _rollback_adapter_locked(project_root: Path) -> dict:
@@ -298,7 +330,8 @@ def _rollback_adapter_locked(project_root: Path) -> dict:
         gate = check_activation_gate(project_root, previous_id)
         if not gate["allowed"]:
             raise ValueError(
-                f"Cannot rollback to adapter {previous_id}: {gate['reason']}"
+                f"Cannot rollback to adapter {previous_id}: "
+                f"{_activation_gate_failure(gate)}"
             )
         initial_identity = _activation_authority_identity(
             project_root,
@@ -315,7 +348,7 @@ def _rollback_adapter_locked(project_root: Path) -> dict:
         if not final_gate["allowed"] or final_gate.get("eval_id") != gate.get("eval_id"):
             raise ValueError(
                 f"Cannot rollback to adapter {previous_id}: rollback authority changed "
-                f"({final_gate['reason']})"
+                f"({_activation_gate_failure(final_gate)})"
             )
         final_identity = _activation_authority_identity(
             project_root,
@@ -408,6 +441,13 @@ def _rollback_adapter_locked(project_root: Path) -> dict:
                 final_identity,
                 action="rollback to",
             )
+            _require_matching_activation_gate(
+                project_root,
+                previous_id,
+                final_identity,
+                action="rollback to",
+                authority="rollback",
+            )
 
         def postwrite_check() -> None:
             _require_matching_adapter_artifact(
@@ -416,6 +456,13 @@ def _rollback_adapter_locked(project_root: Path) -> dict:
                 final_identity,
                 action="rollback to",
                 require_manifest_identity=False,
+            )
+            _require_matching_activation_gate(
+                project_root,
+                previous_id,
+                final_identity,
+                action="rollback to",
+                authority="rollback",
             )
     _commit_activation_transaction(
         project_root,
@@ -720,6 +767,22 @@ def _require_matching_adapter_artifact(
         raise ValueError(
             f"Cannot {action} adapter {adapter_id}: adapter artifact changed "
             "before commit (" + ", ".join(blockers) + ")"
+        )
+
+
+def _require_matching_activation_gate(
+    project_root: Path,
+    adapter_id: str,
+    identity: dict,
+    *,
+    action: str,
+    authority: str,
+) -> None:
+    gate = check_activation_gate(project_root, adapter_id)
+    if not _gate_matches_identity(gate, identity):
+        raise ValueError(
+            f"Cannot {action} adapter {adapter_id}: {authority} authority changed "
+            f"({_activation_gate_failure(gate)})"
         )
 
 

@@ -76,7 +76,7 @@ Acceptance criteria:
 - dashboard can explain why a claim is not trainable,
 - dataset manifests include category counts and top blockers.
 
-## v0.5: Adapter Memory Benchmark
+## v0.5: Adapter Memory Benchmark — Complete In Current Code
 
 Goal: prove adapter memory by category, not only with a single pass-rate number.
 
@@ -90,15 +90,35 @@ Benchmark categories:
 - stale claim correction
 - unsupported claim refusal
 
-Acceptance criteria:
+Verified acceptance criteria:
 
-- base vs adapter reports category-level deltas,
-- regressions are tracked per category,
-- no adapter can be activation-ready with critical stale/safety regressions,
-- activation authority binds a registered trained weight artifact by exact
+- [x] base vs adapter reports pass-rate and hallucination-rate deltas per
+  category,
+- [x] all regressions are tracked per category and critical regressions are a
+  separate subset,
+- [x] no adapter can be activation-ready with critical stale/safety/refusal
+  regressions,
+- [x] activation and rollback-to-adapter use the same live adapter-bound
+  readiness/eval gate; force cannot bypass it, while rollback-to-none remains
+  the fail-safe,
+- [x] activation authority binds a registered trained weight artifact by exact
   path, size, and SHA-256; preview-only manifests remain ineligible.
 
-## v0.6: Agent Memory Routing
+Canonical schema: `morpheus-benchmark-categories/1`.
+
+Canonical coverage IDs are exactly `product_identity`,
+`commands_and_cli_behavior`, `architecture`, `safety_rules`,
+`team_conventions`, `stale_claim_correction`, and
+`unsupported_claim_refusal`. Diagnostic `project_recall` does not satisfy
+coverage. Security/safety and convention/team-convention coverage are
+independent requirements.
+
+The dataset manifest and both eval sides must bind the current category schema
+and exact dataset authority. A legacy or mismatched manifest, eval, or category
+schema requires rebuilding the dataset and rerunning base and adapter evals.
+Editing old artifacts cannot create activation authority.
+
+## v0.6: Agent Memory Routing — Implemented, Hardening Remaining
 
 Goal: route each fact to the right memory channel.
 
@@ -112,13 +132,21 @@ Routes:
 - stale archive
 - human review
 
-Acceptance criteria:
+Verified foundation:
 
-- classifier chooses a route for every accepted or rejected claim,
-- routing decisions are auditable,
-- no raw Markdown or unreviewed candidate can enter adapter training.
+- [x] normal review acceptance and rejection recompute a route,
+- [x] routing decisions expose policy version, source span, route, and reason,
+- [x] dataset validation excludes raw Markdown, rejected, pending, inferred,
+  secret-like, and route-inconsistent candidates from adapter training.
 
-## v0.7: Team Learning Loop
+Remaining acceptance hardening:
+
+- [ ] every persisted lifecycle transition, including lab auto-accept and source
+  invalidation, recomputes and stores the canonical route,
+- [ ] signed compiled active-state input is either defined and enforced as
+  explicit review authority or excluded by the same no-unreviewed-input rule.
+
+## v0.7: Team Learning Loop — Local Core Complete, Orchestration Remaining
 
 Goal: turn team corrections into continual project memory.
 
@@ -131,12 +159,20 @@ Inputs:
 - check results
 - stale claim corrections
 
-Acceptance criteria:
+Verified local-core acceptance criteria:
 
-- corrections become pending candidates, not silent training data,
-- accepted corrections can become negative or correction examples,
-- rejected or unresolved corrections never enter training,
-- the loop can run repeatedly without activating adapters automatically.
+- [x] corrections become pending candidates, not silent training data,
+- [x] accepted corrections can become negative or correction examples,
+- [x] rejected or unresolved corrections never enter training,
+- [x] the loop can run repeatedly without activating adapters automatically.
+
+Remaining orchestration acceptance:
+
+- [ ] one idempotent input path covers all six documented sources. Direct team
+  feedback currently accepts PR comments, rejected agent claims, and human
+  corrections; accepted review candidates, check corrections, and stale
+  corrections currently arrive through or are counted from separate review and
+  check flows.
 
 ## Non-Goals
 

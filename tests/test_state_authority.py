@@ -20,6 +20,7 @@ from morpheus.core.learning.train import plan_training_run
 from morpheus.core.semantic.review import ReviewStore, apply_accepted_candidates
 from morpheus.core.state_authority import state_authority_transaction
 from tests.test_learning_adapters import (
+    make_benchmark_ready_review_fixture,
     mark_all_evals_activation_eligible,
     planned_adapter,
 )
@@ -198,6 +199,7 @@ def test_capture_active_state_authority_holds_state_lock(tmp_path, monkeypatch):
 
 def test_activation_reenters_state_lock_for_active_state_dataset(tmp_path):
     project_root = copy_learning_project(tmp_path)
+    make_benchmark_ready_review_fixture(project_root)
     MorpheusConfig(project_root=project_root).init_default()
     apply_accepted_candidates(project_root)
     build_learning_dataset(project_root, source="active-state")
@@ -241,7 +243,13 @@ def test_activation_and_rollback_hold_state_before_review_and_pointer_commit(
     project_root = copy_learning_project(tmp_path)
     first = planned_adapter(project_root, activation_eligible=True)
     activate_adapter(project_root, first["adapter_id"])
-    second = planned_adapter(project_root, activation_eligible=True)
+    second = plan_training_run(project_root, dry_run=True)
+    run_learning_eval(
+        project_root,
+        adapter_id=second["adapter_id"],
+        dry_run=True,
+    )
+    mark_all_evals_activation_eligible(project_root)
     state, transaction = _lock_probe()
     review_depth = 0
     original_identity = adapters_module._activation_authority_identity

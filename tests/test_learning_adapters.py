@@ -6,6 +6,8 @@ import pytest
 from typer.testing import CliRunner
 
 import morpheus.core.learning.adapters as adapters_module
+import morpheus.core.learning.eval as eval_module
+import morpheus.core.learning.readiness as readiness_module
 from morpheus.cli import app
 from morpheus.core.learning.adapters import (
     activate_adapter,
@@ -16,10 +18,15 @@ from morpheus.core.learning.adapters import (
 from morpheus.core.learning.adapter_artifacts import validate_registered_adapter_artifact
 from morpheus.core.learning.dataset import build_learning_dataset
 from morpheus.core.learning.eval import check_activation_gate, run_learning_eval
+from morpheus.core.learning.quality import build_quality_report
 from morpheus.core.learning.train import plan_training_run
 from morpheus.core.semantic.review import ReviewStore
+from tests.test_learning_dataset import candidate as learning_candidate
 from tests.test_learning_dataset import copy_learning_project
-from tests.test_learning_eval import mark_eval_activation_eligible
+from tests.test_learning_eval import (
+    _write_gate_eval,
+    mark_eval_activation_eligible,
+)
 
 
 def register_test_adapter_weights(project_root: Path, adapter_id: str) -> Path:
@@ -61,7 +68,10 @@ def planned_adapter(
     *,
     passing_eval: bool = True,
     activation_eligible: bool = False,
+    benchmark_ready: bool = True,
 ) -> dict:
+    if benchmark_ready:
+        make_benchmark_ready_review_fixture(project_root)
     build_learning_dataset(project_root)
     train = plan_training_run(project_root, dry_run=True)
     run_learning_eval(project_root, base_only=True, dry_run=True)
@@ -74,6 +84,79 @@ def planned_adapter(
     if activation_eligible:
         mark_all_evals_activation_eligible(project_root)
     return train
+
+
+def make_benchmark_ready_review_fixture(project_root: Path) -> None:
+    product_path = project_root / "docs" / "benchmark-product.md"
+    if product_path.is_file():
+        return
+
+    sources = {
+        "docs/benchmark-product.md": [
+            "Morpheus builds verified learning memory for coding projects.",
+            "Morpheus is a source-grounded project truth product.",
+            "The product keeps reviewed project knowledge available.",
+            "First verify, then learn is the Morpheus product promise.",
+            "The verified learning layer supports project-aware agents.",
+        ],
+        "docs/benchmark-commands.md": [
+            "morpheus check validates a proposed project claim.",
+            "morpheus wake compiles reviewed project state.",
+            "morpheus learn dataset builds reviewed training artifacts.",
+            "morpheus review accepts a source-backed candidate.",
+            "The CLI exposes local project learning commands.",
+        ],
+        "docs/architecture/benchmark.md": [
+            "The dataset pipeline binds reviewed evidence to adapter inputs.",
+            "The receipt architecture binds eval results to source state.",
+            "The semantic classifier routes reviewed project claims.",
+            "Adapter weights remain downstream of the truth layer.",
+            "Agents must never train on raw markdown.",
+            "Adapter activation requires an eval pass.",
+            "Private source spans remain local by default.",
+            "Cloud learning providers require explicit opt in.",
+            "Coding agents must read the current project state before edits.",
+            "Coding agents must preserve unrelated working tree changes.",
+            "Coding agents must run verification after meaningful changes.",
+            "Coding agents must keep reviewed evidence attached to claims.",
+        ],
+    }
+    for source_path, lines in sources.items():
+        path = project_root / source_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("\n".join(lines) + "\n")
+
+    kinds = {
+        "docs/benchmark-product.md": ["current_state"] * 5,
+        "docs/benchmark-commands.md": ["current_state"] * 5,
+        "docs/architecture/benchmark.md": (
+            ["active_decision"] * 4 + ["agent_rule"] * 8
+        ),
+    }
+    candidates_path = project_root / ".morpheus/review/semantic_candidates.jsonl"
+    candidates = [
+        json.loads(line)
+        for line in candidates_path.read_text().splitlines()
+        if line.strip()
+    ]
+    candidate_index = 0
+    for source_path, lines in sources.items():
+        for line_number, (claim, kind) in enumerate(
+            zip(lines, kinds[source_path], strict=True),
+            start=1,
+        ):
+            candidate_index += 1
+            candidates.append(learning_candidate(
+                project_root,
+                candidate_id=f"c_benchmark_{candidate_index:02d}",
+                kind=kind,
+                claim=claim,
+                source_path=source_path,
+                line_start=line_number,
+            ))
+    candidates_path.write_text(
+        "\n".join(json.dumps(item, sort_keys=True) for item in candidates) + "\n"
+    )
 
 
 def active_adapter_id(project_root: Path) -> str | None:
@@ -115,10 +198,302 @@ def activation_state_bytes(project_root: Path, *adapter_ids: str) -> dict[str, b
             / adapter_id
             / "adapter_manifest.json"
         )
+        paths[f"receipt:{adapter_id}"] = (
+            project_root
+            / ".morpheus/training/adapters"
+            / adapter_id
+            / "activate_receipt.json"
+        )
     return {
         label: path.read_bytes() if path.is_file() else None
         for label, path in paths.items()
     }
+
+
+def publish_new_activation_authority(
+    project_root: Path,
+    adapter_id: str,
+    mutation: str,
+) -> None:
+    if mutation == "lab":
+        (
+            project_root
+            / ".morpheus/lab/lab_99991231T235959999999Z"
+        ).mkdir(parents=True)
+    elif mutation == "dataset":
+        build_learning_dataset(project_root)
+    elif mutation == "adapter_eval":
+        run_learning_eval(
+            project_root,
+            adapter_id=adapter_id,
+            dry_run=True,
+        )
+    else:
+        assert mutation == "base_eval"
+        evaluation = run_learning_eval(project_root, base_only=True, dry_run=True)
+        mark_eval_activation_eligible(Path(evaluation["eval_dir"]))
+
+
+@pytest.mark.parametrize("tamper_kind", ["noneligible_pair", "role"])
+def test_tampered_base_routing_cannot_hide_critical_regression(
+    tmp_path,
+    tamper_kind,
+):
+    project_root = copy_learning_project(tmp_path)
+    make_benchmark_ready_review_fixture(project_root)
+    dataset = build_learning_dataset(project_root)
+    adapter_id = "adapter_pair_downgrade"
+    old_base_id = "eval_20260522T000000000001Z"
+    newer_base_id = "eval_20260522T000000000002Z"
+    adapter_eval_id = "eval_20260522T000000000003Z"
+    pair = {
+        "provider": {"name": "external-heldout", "model": "judge-1"},
+        "evaluation_mode": "heldout_external",
+        "base_model": "Qwen/Qwen2.5-7B-Instruct",
+    }
+    _write_gate_eval(
+        project_root,
+        eval_id=old_base_id,
+        dataset_id=dataset["dataset_id"],
+        adapter_id=None,
+        base_only=True,
+        regressed_category="safety_rules",
+        **pair,
+    )
+    _write_gate_eval(
+        project_root,
+        eval_id=adapter_eval_id,
+        dataset_id=dataset["dataset_id"],
+        adapter_id=adapter_id,
+        base_only=False,
+        regressed_category="safety_rules",
+        **pair,
+    )
+    _write_gate_eval(
+        project_root,
+        eval_id=newer_base_id,
+        dataset_id=dataset["dataset_id"],
+        adapter_id=None,
+        base_only=True,
+        regressed_category=None,
+        **pair,
+    )
+
+    blocked = check_activation_gate(project_root, adapter_id)
+    assert blocked["allowed"] is False
+    assert blocked["reason"] == "critical_category_regression"
+    assert blocked["base_eval_id"] == newer_base_id
+
+    newer_dir = project_root / ".morpheus/training/evals" / newer_base_id
+    config_path = newer_dir / "eval_config.json"
+    results_path = newer_dir / "eval_results.json"
+    config = json.loads(config_path.read_text())
+    results = json.loads(results_path.read_text())
+    if tamper_kind == "noneligible_pair":
+        config.update({
+            "provider": {"name": "tampered-shadow", "model": "judge-x"},
+            "evaluation_mode": "tampered_shadow",
+            "activation_eligible": False,
+            "dry_run": True,
+        })
+        results.update({
+            "evaluation_mode": "tampered_shadow",
+            "activation_eligible": False,
+        })
+        _bind_pair_for_test(
+            config,
+            results,
+            base_model="Qwen/Qwen2.5-7B-Instruct",
+        )
+    else:
+        config.update({
+            "adapter_id": "adapter_relabelled_unrelated",
+            "base_only": False,
+        })
+        results.update({
+            "adapter_id": "adapter_relabelled_unrelated",
+            "base_only": False,
+        })
+    config_path.write_text(json.dumps(config))
+    results_path.write_text(json.dumps(results))
+
+    gate = check_activation_gate(project_root, adapter_id)
+
+    assert gate["allowed"] is False
+    assert gate["base_eval_id"] == newer_base_id
+    assert gate["reason"] == (
+        "base_eval_pair_identity_mismatch"
+        if tamper_kind == "noneligible_pair"
+        else "base_eval_artifact_identity_mismatch"
+    )
+
+
+def test_tampered_adapter_id_cannot_hide_newer_critical_regression(tmp_path):
+    project_root = copy_learning_project(tmp_path)
+    make_benchmark_ready_review_fixture(project_root)
+    dataset = build_learning_dataset(project_root)
+    adapter_id = "adapter_role_downgrade"
+    pair = {
+        "provider": {"name": "external-heldout", "model": "judge-1"},
+        "evaluation_mode": "heldout_external",
+        "base_model": "Qwen/Qwen2.5-7B-Instruct",
+    }
+    _write_gate_eval(
+        project_root,
+        eval_id="eval_20260522T000000000001Z",
+        dataset_id=dataset["dataset_id"],
+        adapter_id=None,
+        base_only=True,
+        regressed_category=None,
+        **pair,
+    )
+    _write_gate_eval(
+        project_root,
+        eval_id="eval_20260522T000000000002Z",
+        dataset_id=dataset["dataset_id"],
+        adapter_id=adapter_id,
+        base_only=False,
+        regressed_category=None,
+        **pair,
+    )
+    newer_adapter_id = "eval_20260522T000000000003Z"
+    _write_gate_eval(
+        project_root,
+        eval_id=newer_adapter_id,
+        dataset_id=dataset["dataset_id"],
+        adapter_id=adapter_id,
+        base_only=False,
+        regressed_category="safety_rules",
+        **pair,
+    )
+
+    blocked = check_activation_gate(project_root, adapter_id)
+    assert blocked["allowed"] is False
+    assert blocked["reason"] == "critical_category_regression"
+    assert blocked["eval_id"] == newer_adapter_id
+
+    newer_dir = project_root / ".morpheus/training/evals" / newer_adapter_id
+    for name in ("eval_config.json", "eval_results.json"):
+        path = newer_dir / name
+        payload = json.loads(path.read_text())
+        payload["adapter_id"] = "adapter_relabelled_unrelated"
+        path.write_text(json.dumps(payload))
+
+    gate = check_activation_gate(project_root, adapter_id)
+
+    assert gate["allowed"] is False
+    assert gate["eval_id"] == newer_adapter_id
+    assert gate["reason"] == "eval_artifact_identity_mismatch"
+
+
+def test_signed_unrelated_adapter_eval_can_coexist_with_target_pair(tmp_path):
+    project_root = copy_learning_project(tmp_path)
+    make_benchmark_ready_review_fixture(project_root)
+    dataset = build_learning_dataset(project_root)
+    adapter_id = "adapter_target_signed_routing"
+    pair = {
+        "provider": {"name": "external-heldout", "model": "judge-1"},
+        "evaluation_mode": "heldout_external",
+        "base_model": "Qwen/Qwen2.5-7B-Instruct",
+    }
+    _write_gate_eval(
+        project_root,
+        eval_id="eval_20260522T000000000001Z",
+        dataset_id=dataset["dataset_id"],
+        adapter_id=None,
+        base_only=True,
+        regressed_category=None,
+        **pair,
+    )
+    target_eval_id = "eval_20260522T000000000002Z"
+    _write_gate_eval(
+        project_root,
+        eval_id=target_eval_id,
+        dataset_id=dataset["dataset_id"],
+        adapter_id=adapter_id,
+        base_only=False,
+        regressed_category=None,
+        **pair,
+    )
+    _write_gate_eval(
+        project_root,
+        eval_id="eval_20260522T000000000003Z",
+        dataset_id=dataset["dataset_id"],
+        adapter_id="adapter_other_signed_routing",
+        base_only=False,
+        regressed_category=None,
+        **pair,
+    )
+
+    gate = check_activation_gate(project_root, adapter_id)
+
+    assert gate["allowed"] is True
+    assert gate["eval_id"] == target_eval_id
+
+
+def test_genuine_diagnostic_base_can_coexist_with_activation_pair(tmp_path):
+    project_root = copy_learning_project(tmp_path)
+    make_benchmark_ready_review_fixture(project_root)
+    dataset = build_learning_dataset(project_root)
+    adapter_id = "adapter_pair_with_diagnostic"
+    base_eval_id = "eval_20260522T000000000001Z"
+    pair = {
+        "provider": {"name": "external-heldout", "model": "judge-1"},
+        "evaluation_mode": "heldout_external",
+        "base_model": "Qwen/Qwen2.5-7B-Instruct",
+    }
+    _write_gate_eval(
+        project_root,
+        eval_id=base_eval_id,
+        dataset_id=dataset["dataset_id"],
+        adapter_id=None,
+        base_only=True,
+        regressed_category=None,
+        **pair,
+    )
+    _write_gate_eval(
+        project_root,
+        eval_id="eval_20260522T000000000002Z",
+        dataset_id=dataset["dataset_id"],
+        adapter_id=adapter_id,
+        base_only=False,
+        regressed_category=None,
+        **pair,
+    )
+    diagnostic = run_learning_eval(
+        project_root,
+        base_only=True,
+        adapter_id=adapter_id,
+        dry_run=True,
+    )
+
+    gate = check_activation_gate(project_root, adapter_id)
+
+    assert Path(diagnostic["eval_dir"]).name != base_eval_id
+    assert gate["allowed"] is True
+    assert gate["base_eval_id"] == base_eval_id
+
+
+def _bind_pair_for_test(
+    config: dict,
+    results: dict,
+    *,
+    base_model: str,
+) -> None:
+    pair_config = {
+        "schema": "morpheus-eval-pair/1",
+        "provider": config["provider"],
+        "evaluation_mode": config["evaluation_mode"],
+        "evaluator": dict(eval_module._ACTIVATION_EVALUATOR),
+        "model": {
+            "base_model": base_model,
+            "inference_config": {},
+        },
+    }
+    pair_sha256 = adapters_module._canonical_json_sha256(pair_config)
+    for payload in (config, results):
+        payload["eval_pair_config"] = pair_config
+        payload["eval_pair_config_sha256"] = pair_sha256
 
 
 def test_list_adapters_includes_planned_adapter_and_eval_score(tmp_path):
@@ -208,6 +583,69 @@ def test_activate_refuses_passing_diagnostic_adapter_without_writes(tmp_path):
     assert active_adapter_id(project_root) is None
     assert not (adapter_dir / "activate_receipt.json").exists()
     assert not (project_root / ".morpheus/training/rollback_log.jsonl").exists()
+
+
+def test_trusted_eval_cannot_bypass_benchmark_readiness_or_force(tmp_path):
+    project_root = copy_learning_project(tmp_path)
+    train = planned_adapter(
+        project_root,
+        activation_eligible=True,
+        benchmark_ready=False,
+    )
+    adapter_id = train["adapter_id"]
+    quality = build_quality_report(project_root)
+
+    assert quality["benchmark_allowed"] is False
+    gate = check_activation_gate(project_root, adapter_id)
+    assert gate["allowed"] is False
+    assert gate["reason"] == "benchmark_blocked"
+    assert gate["benchmark_blockers"] == quality["benchmark_blockers"]
+
+    before = activation_state_bytes(project_root, adapter_id)
+    assert before[f"receipt:{adapter_id}"] is None
+    with pytest.raises(ValueError, match="benchmark_blocked"):
+        activate_adapter(project_root, adapter_id)
+    assert activation_state_bytes(project_root, adapter_id) == before
+
+    with pytest.raises(ValueError, match="benchmark_blocked"):
+        activate_adapter(project_root, adapter_id, force=True, confirm_force=True)
+    assert activation_state_bytes(project_root, adapter_id) == before
+
+
+def test_planned_adapter_fixture_meets_production_benchmark_gate(tmp_path):
+    project_root = copy_learning_project(tmp_path)
+    train = planned_adapter(project_root, activation_eligible=True)
+
+    quality = build_quality_report(project_root)
+    gate = check_activation_gate(project_root, train["adapter_id"])
+
+    assert quality["benchmark_allowed"] is True
+    assert quality["benchmark_blockers"] == []
+    assert gate["allowed"] is True
+    assert gate["benchmark_gate"] == quality["benchmark_gate"]
+
+
+def test_activation_refuses_adapter_bound_to_superseded_dataset_without_writes(
+    tmp_path,
+):
+    project_root = copy_learning_project(tmp_path)
+    train = planned_adapter(project_root, activation_eligible=True)
+    adapter_id = train["adapter_id"]
+    old_gate = check_activation_gate(project_root, adapter_id)
+    assert old_gate["allowed"] is True
+
+    newer_dataset = build_learning_dataset(project_root)
+    assert newer_dataset["dataset_id"] != old_gate["dataset_id"]
+    before = activation_state_bytes(project_root, adapter_id)
+
+    gate = check_activation_gate(project_root, adapter_id)
+    assert gate["allowed"] is False
+    assert gate["reason"] == "dataset_not_current"
+    assert "dataset_not_latest_effective" in gate["dataset_blockers"]
+    with pytest.raises(ValueError, match="dataset_not_current"):
+        activate_adapter(project_root, adapter_id)
+
+    assert activation_state_bytes(project_root, adapter_id) == before
 
 
 @pytest.mark.parametrize(
@@ -367,6 +805,53 @@ def test_rollback_restores_previous_active_adapter(tmp_path):
     assert "rollback" in rollback_log.read_text()
 
 
+def test_rollback_rechecks_live_benchmark_policy_but_allows_rollback_to_none(
+    tmp_path,
+    monkeypatch,
+):
+    previous_root = copy_learning_project(tmp_path / "previous-target")
+    first = planned_adapter(previous_root, activation_eligible=True)
+    activate_adapter(previous_root, first["adapter_id"])
+    second = plan_training_run(previous_root, dry_run=True)
+    run_learning_eval(
+        previous_root,
+        adapter_id=second["adapter_id"],
+        dry_run=True,
+    )
+    mark_all_evals_activation_eligible(previous_root)
+    activate_adapter(previous_root, second["adapter_id"])
+    before = activation_state_bytes(
+        previous_root,
+        first["adapter_id"],
+        second["adapter_id"],
+    )
+
+    with monkeypatch.context() as policy:
+        policy.setattr(readiness_module, "BENCHMARK_MIN_EXAMPLES", 10_000)
+        with pytest.raises(
+            ValueError,
+            match=r"benchmark_blocked: examples < 10000",
+        ):
+            rollback_adapter(previous_root)
+
+    assert activation_state_bytes(
+        previous_root,
+        first["adapter_id"],
+        second["adapter_id"],
+    ) == before
+
+    none_root = copy_learning_project(tmp_path / "no-previous-target")
+    only = planned_adapter(none_root, activation_eligible=True)
+    activate_adapter(none_root, only["adapter_id"])
+    with monkeypatch.context() as policy:
+        policy.setattr(readiness_module, "BENCHMARK_MIN_EXAMPLES", 10_000)
+        result = rollback_adapter(none_root)
+
+    assert result["rolled_back"] is True
+    assert result["active_adapter_id"] is None
+    assert active_adapter_id(none_root) is None
+
+
 def test_rollback_refuses_ineligible_previous_adapter_without_state_changes(tmp_path):
     project_root = copy_learning_project(tmp_path)
     first = planned_adapter(project_root, activation_eligible=True)
@@ -426,6 +911,38 @@ def test_rollback_refuses_previous_adapter_after_dataset_authority_loss(
             )
         )
         dataset_artifact.write_bytes(dataset_artifact.read_bytes() + b"{}\n")
+    state_before = activation_state_bytes(
+        project_root,
+        first["adapter_id"],
+        second["adapter_id"],
+    )
+
+    with pytest.raises(ValueError, match="dataset_not_current"):
+        rollback_adapter(project_root)
+
+    assert active_adapter_id(project_root) == second["adapter_id"]
+    assert activation_state_bytes(
+        project_root,
+        first["adapter_id"],
+        second["adapter_id"],
+    ) == state_before
+
+
+def test_rollback_refuses_superseded_previous_dataset_without_state_changes(
+    tmp_path,
+):
+    project_root = copy_learning_project(tmp_path)
+    first = planned_adapter(project_root, activation_eligible=True)
+    activate_adapter(project_root, first["adapter_id"])
+    second = plan_training_run(project_root, dry_run=True)
+    run_learning_eval(project_root, adapter_id=second["adapter_id"], dry_run=True)
+    mark_all_evals_activation_eligible(project_root)
+    activate_adapter(project_root, second["adapter_id"])
+
+    old_gate = check_activation_gate(project_root, first["adapter_id"])
+    assert old_gate["allowed"] is True
+    newer_dataset = build_learning_dataset(project_root)
+    assert newer_dataset["dataset_id"] != old_gate["dataset_id"]
     state_before = activation_state_bytes(
         project_root,
         first["adapter_id"],
@@ -514,6 +1031,174 @@ def test_rollback_rechecks_previous_adapter_gate_immediately_before_writes(
         rollback_adapter(project_root)
 
     assert calls == 2
+    assert activation_state_bytes(
+        project_root,
+        first["adapter_id"],
+        second["adapter_id"],
+    ) == state_before
+
+
+@pytest.mark.parametrize(
+    "authority_mutation",
+    ["lab", "dataset", "adapter_eval", "base_eval"],
+)
+def test_rollback_aborts_if_new_learning_authority_appears_before_commit(
+    tmp_path,
+    monkeypatch,
+    authority_mutation,
+):
+    project_root = copy_learning_project(tmp_path)
+    first = planned_adapter(project_root, activation_eligible=True)
+    activate_adapter(project_root, first["adapter_id"])
+    second = plan_training_run(project_root, dry_run=True)
+    run_learning_eval(project_root, adapter_id=second["adapter_id"], dry_run=True)
+    mark_all_evals_activation_eligible(project_root)
+    activate_adapter(project_root, second["adapter_id"])
+    state_before = activation_state_bytes(
+        project_root,
+        first["adapter_id"],
+        second["adapter_id"],
+    )
+    real_gate = adapters_module.check_activation_gate
+    calls = 0
+
+    def create_new_lab_after_final_gate(project, adapter_id, **kwargs):
+        nonlocal calls
+        calls += 1
+        result = real_gate(project, adapter_id, **kwargs)
+        if calls == 2:
+            publish_new_activation_authority(
+                project_root,
+                adapter_id,
+                authority_mutation,
+            )
+        return result
+
+    monkeypatch.setattr(
+        adapters_module,
+        "check_activation_gate",
+        create_new_lab_after_final_gate,
+    )
+
+    with pytest.raises(ValueError, match="rollback authority changed"):
+        rollback_adapter(project_root)
+
+    assert calls == 3
+    assert activation_state_bytes(
+        project_root,
+        first["adapter_id"],
+        second["adapter_id"],
+    ) == state_before
+
+
+@pytest.mark.parametrize(
+    "authority_mutation",
+    ["lab", "dataset", "adapter_eval", "base_eval"],
+)
+def test_activation_aborts_if_new_learning_authority_appears_before_commit(
+    tmp_path,
+    monkeypatch,
+    authority_mutation,
+):
+    project_root = copy_learning_project(tmp_path)
+    train = planned_adapter(project_root, activation_eligible=True)
+    state_before = activation_state_bytes(project_root, train["adapter_id"])
+    real_gate = adapters_module.check_activation_gate
+    calls = 0
+
+    def create_new_lab_after_final_gate(project, adapter_id, **kwargs):
+        nonlocal calls
+        calls += 1
+        result = real_gate(project, adapter_id, **kwargs)
+        if calls == 2:
+            publish_new_activation_authority(
+                project_root,
+                adapter_id,
+                authority_mutation,
+            )
+        return result
+
+    monkeypatch.setattr(
+        adapters_module,
+        "check_activation_gate",
+        create_new_lab_after_final_gate,
+    )
+
+    with pytest.raises(ValueError, match="activation authority changed"):
+        activate_adapter(project_root, train["adapter_id"])
+
+    assert calls == 3
+    assert activation_state_bytes(project_root, train["adapter_id"]) == state_before
+
+
+def test_activation_rolls_back_if_new_lab_dataset_appears_during_pointer_commit(
+    tmp_path,
+    monkeypatch,
+):
+    project_root = copy_learning_project(tmp_path)
+    train = planned_adapter(project_root, activation_eligible=True)
+    pointer_path = adapters_module.active_adapter_path(project_root)
+    state_before = activation_state_bytes(project_root, train["adapter_id"])
+    real_write = adapters_module._write_json
+
+    def create_new_lab_after_pointer_write(path, data):
+        result = real_write(path, data)
+        if path == pointer_path:
+            (
+                project_root
+                / ".morpheus/lab/lab_99991231T235959999999Z"
+            ).mkdir(parents=True, exist_ok=True)
+        return result
+
+    monkeypatch.setattr(
+        adapters_module,
+        "_write_json",
+        create_new_lab_after_pointer_write,
+    )
+
+    with pytest.raises(ValueError, match="activation authority changed.*dataset_not_current"):
+        activate_adapter(project_root, train["adapter_id"])
+
+    assert activation_state_bytes(project_root, train["adapter_id"]) == state_before
+
+
+def test_rollback_restores_state_if_new_lab_dataset_appears_during_pointer_commit(
+    tmp_path,
+    monkeypatch,
+):
+    project_root = copy_learning_project(tmp_path)
+    first = planned_adapter(project_root, activation_eligible=True)
+    activate_adapter(project_root, first["adapter_id"])
+    second = plan_training_run(project_root, dry_run=True)
+    run_learning_eval(project_root, adapter_id=second["adapter_id"], dry_run=True)
+    mark_all_evals_activation_eligible(project_root)
+    activate_adapter(project_root, second["adapter_id"])
+    pointer_path = adapters_module.active_adapter_path(project_root)
+    state_before = activation_state_bytes(
+        project_root,
+        first["adapter_id"],
+        second["adapter_id"],
+    )
+    real_write = adapters_module._write_json
+
+    def create_new_lab_after_pointer_write(path, data):
+        result = real_write(path, data)
+        if path == pointer_path:
+            (
+                project_root
+                / ".morpheus/lab/lab_99991231T235959999999Z"
+            ).mkdir(parents=True, exist_ok=True)
+        return result
+
+    monkeypatch.setattr(
+        adapters_module,
+        "_write_json",
+        create_new_lab_after_pointer_write,
+    )
+
+    with pytest.raises(ValueError, match="rollback authority changed.*dataset_not_current"):
+        rollback_adapter(project_root)
+
     assert activation_state_bytes(
         project_root,
         first["adapter_id"],

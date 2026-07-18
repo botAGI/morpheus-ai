@@ -6,6 +6,10 @@ from typer.testing import CliRunner
 
 from morpheus.cli import app
 from morpheus.core.learning.benchmark import write_benchmark_report
+from morpheus.core.learning.categories import (
+    BENCHMARK_CATEGORY_SCHEMA,
+    CANONICAL_BENCHMARK_CATEGORIES,
+)
 from morpheus.core.learning.dataset import build_learning_dataset
 from morpheus.core.learning.eval import run_learning_eval
 from morpheus.core.learning.lab import run_autonomous_lab
@@ -13,6 +17,7 @@ from morpheus.core.learning.train import plan_training_run
 from morpheus.core.semantic.review import ReviewStore
 from tests.test_learning_dataset import copy_learning_project
 from tests.test_learning_eval import (
+    _write_gate_eval,
     mark_eval_activation_eligible,
     register_test_adapter_weights,
 )
@@ -54,6 +59,9 @@ def test_benchmark_report_allows_balanced_manifest(tmp_path):
     assert result["benchmark_allowed"] is True
     assert result["benchmark_blockers"] == []
     assert result["latest_base_eval"]["dataset_id"] == result["dataset_id"]
+    assert set(result["benchmark_gate"]["eval_category_counts"]) == (
+        CANONICAL_BENCHMARK_CATEGORIES
+    )
     assert result["next_command"] == "morpheus learn lab . --backend mlx --max-iters 50"
 
 
@@ -74,10 +82,58 @@ def test_benchmark_report_creates_matching_base_eval_for_adapter_comparison(tmp_
     )
 
 
+def test_benchmark_creates_base_eval_for_the_compared_adapter_model(tmp_path):
+    project_root = create_balanced_benchmark_project(tmp_path)
+    compared_adapter = "adapter_a_compared"
+    _write_adapter_manifest(
+        project_root,
+        compared_adapter,
+        base_model="Qwen/Compared@revision-1",
+    )
+    run_learning_eval(
+        project_root,
+        adapter_id=compared_adapter,
+        dry_run=True,
+    )
+    _write_adapter_manifest(
+        project_root,
+        "adapter_z_unrelated_newer",
+        base_model="Qwen/Unrelated@revision-2",
+    )
+
+    result = write_benchmark_report(project_root, dry_run=True)
+
+    assert result["latest_adapter_eval"]["adapter_id"] == compared_adapter
+    assert (
+        result["latest_base_eval"]["eval_pair_config_sha256"]
+        == result["latest_adapter_eval"]["eval_pair_config_sha256"]
+    )
+    assert result["category_deltas"]
+
+
 def test_benchmark_report_uses_the_same_paired_eval_as_activation_gate(tmp_path):
     project_root = create_balanced_benchmark_project(tmp_path)
     adapter_id = "adapter_paired"
-    _write_adapter_manifest(project_root, adapter_id)
+    original_manifest_path = next(
+        project_root.glob(".morpheus/training/datasets/*/manifest.json")
+    )
+    original_dataset_id = json.loads(
+        original_manifest_path.read_text()
+    )["dataset_id"]
+    _write_gate_eval(
+        project_root,
+        eval_id="eval_zzzz_unrelated_adapter",
+        dataset_id=original_dataset_id,
+        adapter_id=adapter_id,
+        base_only=False,
+        regressed_category=None,
+    )
+    current_dataset = build_learning_dataset(project_root)
+    _write_adapter_manifest(
+        project_root,
+        adapter_id,
+        dataset_id=current_dataset["dataset_id"],
+    )
     base_eval = run_learning_eval(project_root, base_only=True, dry_run=True)
     adapter_eval = run_learning_eval(
         project_root,
@@ -86,16 +142,10 @@ def test_benchmark_report_uses_the_same_paired_eval_as_activation_gate(tmp_path)
     )
     _mark_eval_activation_eligible(Path(base_eval["eval_dir"]))
     _mark_eval_activation_eligible(Path(adapter_eval["eval_dir"]))
-    _write_eval_result(
-        project_root,
-        eval_id="eval_zzzz_unpaired_adapter",
-        dataset_id="20260522T000000Z",
-        adapter_id=adapter_id,
-        base_only=False,
-    )
 
     result = write_benchmark_report(project_root, dry_run=True)
 
+    assert result["latest_base_eval"]["eval_id"] == base_eval["eval_id"]
     assert result["latest_adapter_eval"]["eval_id"] == adapter_eval["eval_id"]
     assert result["activation_gate"]["eval_id"] == adapter_eval["eval_id"]
     assert result["activation_ready"] is True
@@ -125,31 +175,56 @@ def test_benchmark_report_keeps_legacy_paired_category_deltas(tmp_path):
     assert result["activation_ready"] is False
 
 
-def test_benchmark_report_ignores_newer_evals_from_another_dataset(tmp_path):
+def test_benchmark_report_ignores_signed_newer_evals_from_another_dataset(
+    tmp_path,
+):
     project_root = create_balanced_benchmark_project(tmp_path)
-    adapter_id = "adapter_balanced"
-    _write_adapter_manifest(project_root, adapter_id)
-    run_learning_eval(project_root, base_only=True, dry_run=True)
-    run_learning_eval(project_root, adapter_id=adapter_id, dry_run=True)
-    _write_eval_result(
+    original_manifest_path = next(
+        project_root.glob(".morpheus/training/datasets/*/manifest.json")
+    )
+    original_dataset_id = json.loads(
+        original_manifest_path.read_text()
+    )["dataset_id"]
+    _write_gate_eval(
         project_root,
         eval_id="eval_zzzz_unrelated_base",
-        dataset_id="other-dataset",
+        dataset_id=original_dataset_id,
         adapter_id=None,
         base_only=True,
+        regressed_category=None,
     )
-    _write_eval_result(
+    _write_gate_eval(
         project_root,
         eval_id="eval_zzzz_unrelated_adapter",
-        dataset_id="other-dataset",
+        dataset_id=original_dataset_id,
         adapter_id="adapter_other",
         base_only=False,
+        regressed_category=None,
     )
+    current_dataset = build_learning_dataset(project_root)
+    adapter_id = "adapter_balanced"
+    _write_adapter_manifest(
+        project_root,
+        adapter_id,
+        dataset_id=current_dataset["dataset_id"],
+    )
+    base_eval = run_learning_eval(project_root, base_only=True, dry_run=True)
+    adapter_eval = run_learning_eval(
+        project_root,
+        adapter_id=adapter_id,
+        dry_run=True,
+    )
+    _mark_eval_activation_eligible(Path(base_eval["eval_dir"]))
+    _mark_eval_activation_eligible(Path(adapter_eval["eval_dir"]))
 
     result = write_benchmark_report(project_root, dry_run=True)
 
+    assert result["latest_base_eval"]["eval_id"] == base_eval["eval_id"]
     assert result["latest_base_eval"]["dataset_id"] == result["dataset_id"]
+    assert result["latest_adapter_eval"]["eval_id"] == adapter_eval["eval_id"]
     assert result["latest_adapter_eval"]["dataset_id"] == result["dataset_id"]
+    assert result["category_deltas"]
+    assert result["activation_ready"] is True
 
 
 @pytest.mark.parametrize("invalid_role", ["adapter", "base"])
@@ -229,7 +304,58 @@ def test_benchmark_report_includes_category_level_base_adapter_deltas(tmp_path):
     assert deltas["unsupported_claim_refusal"]["base_pass_rate"] == 0.0
     assert deltas["unsupported_claim_refusal"]["adapter_pass_rate"] == 1.0
     assert deltas["unsupported_claim_refusal"]["pass_rate_delta"] == 1.0
-    assert "Category Deltas" in Path(result["benchmark_report_md_path"]).read_text()
+    assert "base_hallucination_rate" in deltas["unsupported_claim_refusal"]
+    assert "adapter_hallucination_rate" in deltas["unsupported_claim_refusal"]
+    assert "hallucination_rate_delta" in deltas["unsupported_claim_refusal"]
+    assert result["benchmark_category_schema"] == BENCHMARK_CATEGORY_SCHEMA
+    assert result["category_regression_count"] == len(
+        result["category_regressions"]
+    )
+    assert result["critical_regression_count"] == len(
+        result["critical_regressions"]
+    )
+    assert result["activation_reason"] == result["activation_gate"]["reason"]
+    markdown = Path(result["benchmark_report_md_path"]).read_text()
+    assert "Category schema: `morpheus-benchmark-categories/1`" in markdown
+    assert "Category regression count:" in markdown
+    assert "Critical regression count:" in markdown
+    assert "Activation reason:" in markdown
+    assert "hallucination delta" in markdown
+
+
+def test_benchmark_markdown_renders_all_and_critical_regression_sections(
+    tmp_path,
+):
+    project_root = create_balanced_benchmark_project(tmp_path)
+    manifest_path = next(
+        project_root.glob(".morpheus/training/datasets/*/manifest.json")
+    )
+    dataset_id = json.loads(manifest_path.read_text())["dataset_id"]
+    adapter_id = "adapter_critical_markdown"
+    _write_gate_eval(
+        project_root,
+        eval_id="eval_20260522T000000000001Z",
+        dataset_id=dataset_id,
+        adapter_id=None,
+        base_only=True,
+        regressed_category=None,
+    )
+    _write_gate_eval(
+        project_root,
+        eval_id="eval_20260522T000000000002Z",
+        dataset_id=dataset_id,
+        adapter_id=adapter_id,
+        base_only=False,
+        regressed_category="safety_rules",
+    )
+
+    result = write_benchmark_report(project_root, dry_run=True)
+    markdown = Path(result["benchmark_report_md_path"]).read_text()
+
+    assert result["critical_regressions"][0]["category"] == "safety_rules"
+    assert "## Category Regressions" in markdown
+    assert "## Critical Regressions" in markdown
+    assert markdown.count("`safety_rules`") >= 2
 
 
 def test_cli_learn_benchmark_outputs_json(tmp_path):
@@ -290,7 +416,7 @@ def _write_eval_result(
             "passed_items": 1,
             "hallucinated_items": 0,
             "by_category": {
-                "agent_rule_adherence": {
+                "safety_rules": {
                     "total_items": 1,
                     "passed_items": 1,
                     "pass_rate": 1.0,
@@ -300,24 +426,37 @@ def _write_eval_result(
                 }
             },
         },
-        "items": [{"category": "agent_rule_adherence"}],
+        "items": [{"category": "safety_rules"}],
     }
     (eval_dir / "eval_config.json").write_text(json.dumps(config))
     (eval_dir / "eval_results.json").write_text(json.dumps(result))
 
 
-def _write_adapter_manifest(project_root: Path, adapter_id: str) -> None:
+def _write_adapter_manifest(
+    project_root: Path,
+    adapter_id: str,
+    *,
+    base_model: str = "Qwen/Qwen2.5-7B-Instruct",
+    dataset_id: str | None = None,
+) -> None:
     manifest_paths = list(
         project_root.glob(".morpheus/training/datasets/*/manifest.json")
     )
+    if dataset_id is not None:
+        manifest_paths = [
+            path
+            for path in manifest_paths
+            if json.loads(path.read_text()).get("dataset_id") == dataset_id
+        ]
     assert len(manifest_paths) == 1
     dataset_manifest = json.loads(manifest_paths[0].read_text())
     adapter_dir = project_root / ".morpheus/training/adapters" / adapter_id
-    adapter_dir.mkdir(parents=True)
+    adapter_dir.mkdir(parents=True, exist_ok=True)
     (adapter_dir / "adapter_manifest.json").write_text(json.dumps({
         "adapter_id": adapter_id,
         "dataset_id": dataset_manifest["dataset_id"],
         "dataset_binding_sha256": dataset_manifest["dataset_binding_sha256"],
+        "base_model": base_model,
         "status": "planned",
     }))
     register_test_adapter_weights(project_root, adapter_id)

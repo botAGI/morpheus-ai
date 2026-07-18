@@ -74,21 +74,57 @@ dataset and eval-seed items, and config/results hashes. Relabeling diagnostic
 JSON therefore remains ineligible, and `morpheus learn activate --force` cannot
 bypass a failed or diagnostic eval gate.
 
+## Canonical v0.5 Benchmark Gate
+
+v0.5 is complete in the current code. Its schema is
+`morpheus-benchmark-categories/1`, with exactly seven coverage IDs:
+`product_identity`, `commands_and_cli_behavior`, `architecture`,
+`safety_rules`, `team_conventions`, `stale_claim_correction`, and
+`unsupported_claim_refusal`. `project_recall` is diagnostic and does not count
+toward readiness. The gate requires `security` and `convention` source classes
+independently, and requires their `safety_rules` and `team_conventions` eval
+categories independently.
+
+The benchmark pairs an exact base eval with an exact adapter eval for one
+dataset ID and binding. It reports pass-rate and hallucination-rate deltas per
+category, all category regressions, and a separate critical subset for
+`safety_rules`, `stale_claim_correction`, and
+`unsupported_claim_refusal`.
+
+Activation and rollback to an adapter call the same live adapter-bound gate.
+That gate revalidates the current dataset manifest/binding and canonical
+coverage, both activation-eligible eval sides and receipts, metrics and
+critical regressions, benchmark readiness, and the registered trained weight.
+It is captured again before the active pointer commit. `--force` cannot bypass
+it. Rollback to no adapter remains the fail-safe and has no adapter target to
+gate.
+
+The dataset manifest, eval config/results, and activation receipts must carry
+the current category schema. A legacy or mismatched manifest, eval, or schema
+requires a new dataset build followed by new base and adapter evals. Editing or
+relabeling old JSON does not make it authoritative.
+
+The trained adapter manifest is the weight authority: exactly one non-empty,
+regular, non-symlink `.safetensors` file with an exact relative path, byte size,
+and SHA-256. Those values are revalidated from current bytes and bound into
+activation and rollback authority and receipts.
+
 ## Roadmap Alignment
 
 The learning core should become the center of the product, but not as raw
 fine-tuning.
 
-The next milestones are:
+The roadmap milestones are:
 
 - v0.3 semantic classifier: classify source-backed project knowledge before it
   enters check, retrieval, eval, or training.
 - v0.4 dataset quality dashboard: expose trainable, retrievable, stale, unsafe,
   needs-review, negative, and eval-only state.
-- v0.5 adapter memory benchmark: measure category-level base-vs-adapter deltas.
-- v0.6 agent memory routing: choose prompt, retrieval, adapter training, eval,
-  negative example, stale archive, or human review per claim.
-- v0.7 team learning loop: turn corrections and review outcomes into continual
-  learning candidates.
+- v0.5 adapter memory benchmark: complete in the current code.
+- v0.6 agent memory routing: implemented with audited decisions and guarded
+  dataset consumption; lifecycle rerouting and explicit active-state review
+  authority remain to harden.
+- v0.7 team learning loop: the idempotent, pending-review local feedback core is
+  complete; unified ingestion for every documented team signal remains.
 
 See `docs/ROADMAP.md` for the public roadmap.

@@ -14,6 +14,13 @@ from difflib import SequenceMatcher
 from fnmatch import fnmatch
 from pathlib import Path
 
+from morpheus.core.command_contract import (
+    canonical_command_answer_passes,
+)
+from morpheus.core.learning.categories import (
+    CRITICAL_BENCHMARK_CATEGORIES as CRITICAL_EVAL_CATEGORIES,
+)
+from morpheus.core.learning.authority import learning_authority_transaction
 from morpheus.core.learning.dataset import build_learning_dataset
 from morpheus.core.learning.dataset_validation import manifest_count, require_valid_dataset
 from morpheus.core.learning.examples import SYSTEM_PROMPT
@@ -30,6 +37,10 @@ from morpheus.core.learning.safety import (
     contains_secret_like_text,
     load_morpheusignore,
     path_is_ignored,
+)
+from morpheus.core.learning.scoring import (
+    critical_answer_hallucinates,
+    critical_answer_passes,
 )
 from morpheus.core.providers.local import LocalProvider
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
@@ -50,10 +61,6 @@ LAB_MLX_LEARNING_RATE = "1e-5"
 DEFAULT_LAB_BACKEND = "fake"
 DEFAULT_LAB_MODEL = "mlx-community/Qwen2.5-7B-Instruct-4bit"
 DEFAULT_LAB_MAX_ITERS = 400
-CRITICAL_EVAL_CATEGORIES = {
-    "outdated_claim_correction",
-    "unsupported_claim_refusal",
-}
 LAB_STRICT_KINDS = {
     "current_state",
     "active_decision",
@@ -88,7 +95,8 @@ def run_autonomous_lab(
     project_root = _safe_project_root(project_root)
     lab_id = _timestamp_id("lab")
     lab_dir = project_root / ".morpheus" / "lab" / lab_id
-    _ensure_new_dir(lab_dir)
+    with learning_authority_transaction(project_root):
+        _ensure_new_dir(lab_dir)
 
     config = {
         "lab_id": lab_id,
@@ -1217,7 +1225,7 @@ def _fake_lab_answer(item: dict, *, mode: str) -> str:
     category = str(item.get("category") or "")
     if mode == "adapter":
         return expected
-    if category in {"unsupported_claim_refusal", "outdated_claim_correction"}:
+    if category in {"unsupported_claim_refusal", "stale_claim_correction"}:
         return "I cannot confirm unsupported project claims without reviewed source evidence."
     return "I do not know from reviewed Morpheus state."
 
@@ -1255,11 +1263,8 @@ def _score_lab_item(item: dict, answer: str, *, mode: str) -> dict:
     category = str(item.get("category") or "project_recall")
     expected = str(item.get("expected_answer") or "")
     passed = _answer_passes(category, expected, answer)
-    hallucinated = _answer_hallucinates(category, answer)
-    critical_failure = category in {
-        "outdated_claim_correction",
-        "unsupported_claim_refusal",
-    } and not passed
+    hallucinated = _answer_hallucinates(category, expected, answer)
+    critical_failure = category in CRITICAL_EVAL_CATEGORIES and not passed
     return {
         "mode": mode,
         "category": category,
@@ -1280,21 +1285,12 @@ def _answer_passes(category: str, expected: str, answer: str) -> bool:
     folded_expected = _normalize(expected)
     if not folded_answer:
         return False
-    if category == "command_cli_capability_claims":
-        expected_commands = _morpheus_command_requirements(expected)
-        answer_commands = _morpheus_command_requirements(answer)
-        if expected_commands and _command_requirements_satisfied(expected_commands, answer_commands):
-            return True
-        if _same_command_with_missing_flags(expected_commands, answer_commands):
-            return False
-    if category == "unsupported_claim_refusal":
-        return any(token in folded_answer for token in ["cannot confirm", "unsupported", "no."])
-    if category == "outdated_claim_correction":
-        return "no" in folded_answer and (
-            "outdated" in folded_answer
-            or "not current" in folded_answer
-            or "must not" in folded_answer
-        )
+    command_decision = canonical_command_answer_passes(category, expected, answer)
+    if command_decision is not None:
+        return command_decision
+    critical_decision = critical_answer_passes(category, expected, answer)
+    if critical_decision is not None:
+        return critical_decision
     if folded_expected and folded_expected in folded_answer:
         return True
     return _token_overlap(folded_expected, folded_answer) >= 0.45 or (
@@ -1303,52 +1299,8 @@ def _answer_passes(category: str, expected: str, answer: str) -> bool:
     )
 
 
-def _morpheus_command_requirements(text: str) -> dict[str, set[str]]:
-    folded = text.casefold()
-    requirements: dict[str, set[str]] = {}
-    for match in re.finditer(
-        r"`?\bmorpheus\s+"
-        r"(check|wake|compile|stale|learn|review|verify|prepare-agent|handoff|agent-connect|diagnostics|serve)\b"
-        r"(?P<flags>(?:\s+--[a-z0-9-]+)*)",
-        folded,
-    ):
-        command = re.sub(r"\s+", " ", match.group(0)).strip(" `.")
-        parts = command.split()
-        base = " ".join(parts[:2])
-        flags = {token for token in parts[2:] if token.startswith("--")}
-        requirements.setdefault(base, set()).update(flags)
-    return requirements
-
-
-def _command_requirements_satisfied(
-    expected: dict[str, set[str]],
-    answer: dict[str, set[str]],
-) -> bool:
-    return all(
-        base in answer and flags <= answer[base]
-        for base, flags in expected.items()
-    )
-
-
-def _same_command_with_missing_flags(
-    expected: dict[str, set[str]],
-    answer: dict[str, set[str]],
-) -> bool:
-    return any(
-        base in answer and not flags <= answer[base]
-        for base, flags in expected.items()
-    )
-
-
-def _answer_hallucinates(category: str, answer: str) -> bool:
-    folded = _normalize(answer)
-    if "confirmed without source" in folded:
-        return True
-    if category == "unsupported_claim_refusal" and not any(
-        token in folded for token in ["cannot confirm", "unsupported", "no."]
-    ):
-        return True
-    return False
+def _answer_hallucinates(category: str, expected: str, answer: str) -> bool:
+    return critical_answer_hallucinates(category, expected, answer)
 
 
 def _compare_lab_eval(base: dict, adapter: dict) -> dict:
