@@ -10,7 +10,9 @@ import pytest
 from morpheus.core.config import MorpheusConfig
 from morpheus.core.learning.dataset import build_learning_dataset
 from morpheus.core.provenance import build_receipt, compute_sha256_file, receipt_file_name
+from morpheus.core.semantic.review import ReviewStore
 from tests.test_learning_dataset import copy_learning_project
+from tests.test_team_learning import accepted_review_candidate, six_source_items
 
 fastapi_testclient = pytest.importorskip(
     "fastapi.testclient",
@@ -485,6 +487,15 @@ def test_agent_connect_guides_uninitialized_project(tmp_path):
     assert payload["cli"]["learn_quality"] == "morpheus learn quality ."
     assert payload["cli"]["learn_benchmark"] == "morpheus learn benchmark . --dry-run"
     assert payload["cli"]["learn_team_loop"] == "morpheus learn team-loop . --json"
+    assert payload["learning_inputs"]["policy_version"] == "morpheus-team-learning/2"
+    assert payload["learning_inputs"]["source_types"] == [
+        "pr_comment",
+        "rejected_agent_claim",
+        "human_correction",
+        "accepted_review_candidate",
+        "check_result",
+        "stale_claim_correction",
+    ]
     assert (
         payload["cli"]["serve_ui"]
         == "morpheus serve --ui --host 127.0.0.1 --port 8000 --ui-port 5173"
@@ -553,6 +564,67 @@ def test_learning_team_loop_endpoint_creates_pending_candidate(tmp_path):
         "adapter_activation_attempted": False,
     }
     assert payload["paths"]["json_path"].endswith("team_loop_report.json")
+
+
+def test_learning_team_loop_endpoint_accepts_all_six_sources(tmp_path):
+    accepted = accepted_review_candidate(tmp_path)
+    ReviewStore(tmp_path).save_candidates([accepted])
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post(
+        "/learning/team-loop",
+        json={
+            "project_root": str(tmp_path),
+            "items": six_source_items(accepted.id),
+        },
+    )
+
+    assert response.status_code == 200
+    report = response.json()["report"]
+    assert report["input_count"] == 6
+    assert report["created_input_receipt_count"] == 6
+    assert report["created_count"] == 5
+    assert report["reconciled_candidate_ids"] == [accepted.id]
+
+
+def test_learning_team_loop_endpoint_uses_400_for_new_source_semantics(tmp_path):
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post(
+        "/learning/team-loop",
+        json={
+            "project_root": str(tmp_path),
+            "items": [{
+                "source_type": "stale_claim_correction",
+                "external_id": "missing-correction",
+                "claim": "A stale claim requires a correction.",
+            }],
+        },
+    )
+
+    assert response.status_code == 400
+    assert not (tmp_path / ".morpheus" / "review" / "team_inputs").exists()
+
+
+def test_learning_team_loop_endpoint_rejects_coerced_check_line_as_400(tmp_path):
+    client = api_client(raise_server_exceptions=False)
+
+    response = client.post(
+        "/learning/team-loop",
+        json={
+            "project_root": str(tmp_path),
+            "items": [{
+                "source_type": "check_result",
+                "claim": "Morpheus keeps reviewed state.",
+                "status": "verified",
+                "reason": "claim is supported by active evidence",
+                "evidence": {"path": "README.md", "line_start": True},
+            }],
+        },
+    )
+
+    assert response.status_code == 400
+    assert not (tmp_path / ".morpheus").exists()
 
 
 def test_learning_team_loop_endpoint_rejects_secret_without_writes(tmp_path):

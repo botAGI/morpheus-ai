@@ -21,7 +21,9 @@ from morpheus.core.command_contract import (
     MORPHEUS_TOP_LEVEL_COMMANDS,
 )
 from morpheus.core.provenance import build_receipt, compute_sha256_file, receipt_file_name
+from morpheus.core.semantic.review import ReviewStore
 from tests.test_learning_dataset import copy_learning_project
+from tests.test_team_learning import accepted_review_candidate, six_source_items
 
 
 def test_learning_command_contract_matches_registered_cli_commands():
@@ -532,6 +534,21 @@ def test_agent_connect_json_reports_manifest_without_server(tmp_path):
         assert payload["cli"]["learn_quality"] == "morpheus learn quality ."
         assert payload["cli"]["learn_benchmark"] == "morpheus learn benchmark . --dry-run"
         assert payload["cli"]["learn_team_loop"] == "morpheus learn team-loop . --json"
+        assert payload["learning_inputs"] == {
+            "policy_version": "morpheus-team-learning/2",
+            "source_types": [
+                "pr_comment",
+                "rejected_agent_claim",
+                "human_correction",
+                "accepted_review_candidate",
+                "check_result",
+                "stale_claim_correction",
+            ],
+            "cli_file": "morpheus learn team-loop . --input feedback.jsonl --json",
+            "cli_stdin": "morpheus learn team-loop . --input - --json",
+            "api_path": "/learning/team-loop",
+            "automatic_actions": False,
+        }
         assert "/learning/team-loop" in payload["curl"]["learning_team_loop"]
         assert (
             payload["cli"]["serve_ui"]
@@ -581,6 +598,40 @@ def test_learn_team_loop_reads_stdin(tmp_path):
     assert json.loads(result.output)["report"]["created_count"] == 1
 
 
+@pytest.mark.parametrize("transport", ["file", "stdin"])
+def test_learn_team_loop_accepts_all_six_sources_from_jsonl(tmp_path, transport):
+    accepted = accepted_review_candidate(tmp_path)
+    ReviewStore(tmp_path).save_candidates([accepted])
+    input_text = "\n".join(
+        json.dumps(item) for item in six_source_items(accepted.id)
+    ) + "\n"
+    arguments = ["learn", "team-loop", str(tmp_path)]
+    invoke_input = None
+    if transport == "file":
+        input_path = tmp_path / "six-sources.jsonl"
+        input_path.write_text(input_text)
+        arguments.extend(["--input", str(input_path), "--json"])
+    else:
+        arguments.extend(["--input", "-", "--json"])
+        invoke_input = input_text
+
+    result = CliRunner().invoke(app, arguments, input=invoke_input)
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["report"]["input_count"] == 6
+    assert set(payload["report"]["input_source_counts"]) == {
+        "pr_comment",
+        "rejected_agent_claim",
+        "human_correction",
+        "accepted_review_candidate",
+        "check_result",
+        "stale_claim_correction",
+    }
+    assert payload["report"]["created_count"] == 5
+    assert payload["report"]["reconciled_candidate_ids"] == [accepted.id]
+
+
 def test_learn_team_loop_rejects_malformed_json_without_writes(tmp_path):
     input_path = tmp_path / "feedback.jsonl"
     input_path.write_text("{not-json}\n")
@@ -607,6 +658,25 @@ def test_learn_team_loop_rejects_non_object_jsonl_without_writes(tmp_path):
     assert result.exit_code == 2
     assert "line 1 must be a JSON object" in result.output
     assert not (tmp_path / ".morpheus" / "review" / "team_feedback").exists()
+
+
+def test_learn_team_loop_rejects_coerced_check_line_without_writes(tmp_path):
+    input_path = tmp_path / "feedback.jsonl"
+    input_path.write_text(json.dumps({
+        "source_type": "check_result",
+        "claim": "Morpheus keeps reviewed state.",
+        "status": "verified",
+        "reason": "claim is supported by active evidence",
+        "evidence": {"path": "README.md", "line_start": True},
+    }) + "\n")
+
+    result = CliRunner().invoke(
+        app,
+        ["learn", "team-loop", str(tmp_path), "--input", str(input_path), "--json"],
+    )
+
+    assert result.exit_code == 2
+    assert not (tmp_path / ".morpheus").exists()
 
 
 def test_learn_team_loop_rejects_symlink_input_without_writes(tmp_path):

@@ -15,7 +15,7 @@ from morpheus.core.learning.safety import (
     load_morpheusignore,
     path_is_ignored,
 )
-from morpheus.core.learning.team import team_feedback_projection_error
+from morpheus.core.learning.team import reviewed_input_projection_error
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
 from morpheus.core.semantic.review import ReviewStore
 from morpheus.core.semantic.routing import ROUTING_POLICY_VERSION, route_candidate
@@ -235,7 +235,7 @@ def _quality_candidate(project_root: Path, candidate, ignore_patterns: set[str])
     route = routed.memory_route
     label = routed.label
     rel_path = Path(routed.source_path)
-    projection_error = team_feedback_projection_error(routed)
+    projection_error = reviewed_input_projection_error(routed)
     if contains_secret_like_text(routed.correction_text or ""):
         status = "unsafe"
         route = "excluded"

@@ -12,6 +12,10 @@ import re
 
 import toml
 
+from morpheus.core.learning.team import (
+    CHECK_CORRECTION_PROMPT_SHA256 as _CHECK_CORRECTION_PROMPT_SHA256,
+    run_team_learning_loop,
+)
 from morpheus.core.provenance import compute_sha256_file, latest_receipt_file
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
 from morpheus.core.semantic.classifier import classify_claim
@@ -19,7 +23,6 @@ from morpheus.core.semantic.models import SemanticCandidate
 from morpheus.core.semantic.review import ReviewStore
 from morpheus.core.semantic.routing import (
     ROUTING_POLICY_VERSION,
-    route_candidate,
     route_check_result,
 )
 
@@ -28,11 +31,7 @@ CLAIM_SPLIT_RE = re.compile(r"(?:\n+|(?<=[.!?])\s+)")
 MARKER_RE = re.compile(r"^(TODO|DECISION|FIXME|NOTE|HACK|XXX):\s*", re.IGNORECASE)
 WORD_RE = re.compile(r"[a-z0-9][a-z0-9_.-]*")
 CI_ENV_VARS = ("MORPHEUS_CI", "CI", "GITHUB_ACTIONS", "GITLAB_CI", "BUILDKITE", "CIRCLECI")
-CHECK_CORRECTION_PROMPT_SHA256 = hashlib.sha256(
-    b"morpheus-check-training-correction-v1"
-).hexdigest()
-
-
+CHECK_CORRECTION_PROMPT_SHA256 = _CHECK_CORRECTION_PROMPT_SHA256
 def discover_project_root(start: Path) -> Path:
     """Walk upward until a Morpheus, package, or git root is found."""
     current = start.expanduser().resolve()
@@ -162,97 +161,68 @@ def render_check_annotated(result: dict) -> str:
 
 
 def create_training_corrections(project_root: Path, check_result: dict) -> list[SemanticCandidate]:
-    """Create pending reviewed correction candidates from stale/incorrect check results."""
+    """Route local check results through the unified reviewed-input orchestrator."""
     project_root = discover_project_root(project_root)
-    correction_results = [
-        item
-        for item in check_result.get("results", [])
-        if item.get("status") in {"stale", "incorrect"}
-    ]
-    if not correction_results:
-        return []
+    items = []
+    for item in check_result.get("results", []):
+        if not isinstance(item, dict):
+            raise ValueError("Check results must contain JSON objects")
+        claim = str(item.get("claim") or "").strip()
+        event = {
+            "source_type": "check_result",
+            "claim": claim,
+            "status": item.get("status"),
+            "reason": _legacy_check_reason(item),
+            "active_state_receipt": check_result.get("active_state_receipt"),
+            "input_hash": check_result.get("input_hash"),
+        }
+        evidence = _legacy_check_evidence(item)
+        if evidence is not None:
+            event["evidence"] = evidence
+        items.append(event)
 
+    result = run_team_learning_loop(project_root, items)
+    created_ids = result["report"]["created_candidate_ids"]
+    if not created_ids:
+        return []
     store = ReviewStore(project_root)
     with store.transaction():
-        return _create_training_corrections_locked(
-            project_root,
-            check_result,
-            correction_results,
-            store,
+        candidates = store.load_candidates()
+    by_id = {candidate.id: candidate for candidate in candidates}
+    missing_ids = [candidate_id for candidate_id in created_ids if candidate_id not in by_id]
+    if missing_ids:
+        raise ValueError(
+            "Unified check candidates disappeared after commit: " + ", ".join(missing_ids)
         )
+    return [
+        by_id[candidate_id]
+        for candidate_id in created_ids
+        if by_id[candidate_id].provider.get("name") == "morpheus-check"
+    ]
 
 
-def _create_training_corrections_locked(
-    project_root: Path,
-    check_result: dict,
-    correction_results: list[dict],
-    store: ReviewStore,
-) -> list[SemanticCandidate]:
-    """Create check corrections while holding the shared review-store lock."""
-    existing = store.load_candidates()
-    existing_keys = {
-        _correction_key(candidate.claim, _candidate_correction_source_label(candidate))
-        for candidate in existing
-        if candidate.provider.get("name") == "morpheus-check"
-    }
-    run_id = f"check_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
-    corrections_dir = project_root / ".morpheus" / "review" / "check_corrections"
-    _ensure_corrections_dir(corrections_dir)
-    created = []
-    for item in correction_results:
-        claim = str(item.get("claim") or "").strip()
-        evidence = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
-        source_label = _source_label(evidence)
-        key = _correction_key(claim, source_label)
-        if key in existing_keys:
-            continue
-        correction_id = _correction_id(key)
-        line = (
-            f"Correction candidate: {item['status']} claim {json.dumps(claim)} "
-            f"was flagged by morpheus check because {item.get('reason')}. "
-            f"Source: {source_label}."
-        )
-        artifact = corrections_dir / f"{correction_id}.md"
-        reject_symlink_paths([artifact], "Check correction artifact")
-        reject_symlink_components(artifact, "Check correction artifact")
-        if artifact.exists():
-            if not artifact.is_file() or artifact.read_text() != line + "\n":
-                raise ValueError(
-                    f"Check correction artifact already exists with different content: {artifact}"
-                )
-        else:
-            artifact.write_text(line + "\n")
-        source_sha = compute_sha256_file(artifact)
-        timestamp = datetime.now(timezone.utc)
-        candidate = route_candidate(SemanticCandidate(
-            id=correction_id,
-            run_id=run_id,
-            kind="outdated_claim",
-            claim=claim,
-            source_path=artifact.relative_to(project_root).as_posix(),
-            source_sha256=source_sha,
-            source_mtime=timestamp,
-            source_revision=f"check:{check_result.get('active_state_receipt') or 'unknown'}",
-            line_start=1,
-            line_end=1,
-            evidence_excerpt=line,
-            evidence_sha256=hashlib.sha256(line.encode()).hexdigest(),
-            confidence=1.0,
-            label="source_backed",
-            status="pending",
-            created_at=timestamp,
-            provider={
-                "name": "morpheus-check",
-                "model": "local",
-                "source_label": source_label,
-            },
-            prompt_sha256=CHECK_CORRECTION_PROMPT_SHA256,
-        ))
-        created.append(candidate)
-        existing_keys.add(key)
-    if created:
-        store.save_candidates(existing + created)
-    return created
+def _legacy_check_reason(item: dict) -> str:
+    """Preserve legacy reason rendering while rejecting noncanonical artifact text."""
+    reason = str(item.get("reason"))
+    if not reason.strip() or reason != reason.strip() or "\n" in reason or "\r" in reason:
+        raise ValueError("Check correction reason must be a nonblank single line")
+    return reason
+
+
+def _legacy_check_evidence(item: dict) -> dict | None:
+    """Preserve the old source-label fallback for canonical legacy payloads."""
+    raw_evidence = item.get("evidence")
+    if not isinstance(raw_evidence, dict) or not raw_evidence:
+        return None
+    path = str(raw_evidence.get("path") or "unknown")
+    if not path.strip() or path != path.strip() or "\n" in path or "\r" in path:
+        raise ValueError("Check correction evidence path must be a nonblank single line")
+    raw_line = raw_evidence.get("line_start")
+    if raw_line is None:
+        raw_line = 1
+    if isinstance(raw_line, bool) or not isinstance(raw_line, int) or raw_line < 1:
+        raise ValueError("Check correction evidence line_start must be a positive integer")
+    return {"path": path, "line_start": raw_line}
 
 
 def _load_check_context(project_root: Path) -> dict:
@@ -300,40 +270,6 @@ def _load_check_context(project_root: Path) -> dict:
         "package_metadata": package_metadata,
         "latest_receipt_id": latest_receipt_id,
     }
-
-
-def _ensure_corrections_dir(path: Path) -> None:
-    if path.is_symlink():
-        raise ValueError(f"Check corrections path must not be a symlink: {path}")
-    reject_symlink_components(path.parent, "Check corrections path")
-    path.mkdir(parents=True, exist_ok=True)
-    reject_symlink_components(path, "Check corrections path")
-
-
-def _source_label(evidence: dict) -> str:
-    if not evidence:
-        return "no source span"
-    path = str(evidence.get("path") or "unknown")
-    line = evidence.get("line_start") or 1
-    return f"{path}:{line}"
-
-
-def _correction_key(claim: str, source_label: str) -> str:
-    return hashlib.sha256(f"{_normalize(claim)}\n{source_label}".encode()).hexdigest()
-
-
-def _candidate_correction_source_label(candidate: SemanticCandidate) -> str:
-    source_label = candidate.provider.get("source_label")
-    if isinstance(source_label, str) and source_label.strip():
-        return source_label.strip()
-    match = re.search(r" Source: (.+)\.$", candidate.evidence_excerpt)
-    if match:
-        return match.group(1).strip()
-    return candidate.source_path
-
-
-def _correction_id(correction_key: str) -> str:
-    return f"corr_{correction_key[:24]}"
 
 
 def _classify_claim(claim: str, context: dict) -> dict:

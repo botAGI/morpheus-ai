@@ -1586,10 +1586,10 @@ def _read_team_feedback_input(input_value: str | None) -> list[dict]:
         content = typer.get_text_stream("stdin").read()
     else:
         input_path = Path(input_value).expanduser()
-        reject_symlink_paths([input_path], "Team feedback input")
-        reject_symlink_components(input_path, "Team feedback input")
+        reject_symlink_paths([input_path], "Team learning input")
+        reject_symlink_components(input_path, "Team learning input")
         if not input_path.is_file():
-            raise ValueError(f"Team feedback input is not a file: {input_path}")
+            raise ValueError(f"Team learning input is not a file: {input_path}")
         content = input_path.read_text()
     items = []
     for line_number, line in enumerate(content.splitlines(), 1):
@@ -1600,7 +1600,7 @@ def _read_team_feedback_input(input_value: str | None) -> list[dict]:
         except json.JSONDecodeError as exc:
             raise ValueError(f"invalid JSON on line {line_number}: {exc.msg}") from exc
         if not isinstance(item, dict):
-            raise ValueError(f"team feedback line {line_number} must be a JSON object")
+            raise ValueError(f"team learning line {line_number} must be a JSON object")
         items.append(item)
     return items
 
@@ -1611,11 +1611,11 @@ def learn_team_loop(
     input_value: str | None = typer.Option(
         None,
         "--input",
-        help="JSONL feedback path, or - for stdin",
+        help="JSONL reviewed-input path, or - for stdin",
     ),
     json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON"),
 ):
-    """Ingest team corrections as pending review candidates without training."""
+    """Reconcile six local reviewed-input sources without automatic actions."""
     try:
         result = run_team_learning_loop(project, _read_team_feedback_input(input_value))
     except (OSError, ValueError, json.JSONDecodeError) as exc:
@@ -1627,10 +1627,12 @@ def learn_team_loop(
     report = result["report"]
     console.print(f"team loop report: {result['markdown_path']}")
     console.print(
-        "feedback: "
+        "inputs: "
         f"input={report['input_count']} "
+        f"receipts_created={report['created_input_receipt_count']} "
         f"created={report['created_count']} "
-        f"existing={report['existing_count']}"
+        f"existing={report['existing_count']} "
+        f"reconciled={report['reconciled_count']}"
     )
     console.print(
         "review: "

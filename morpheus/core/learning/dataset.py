@@ -43,7 +43,7 @@ from morpheus.core.learning.safety import (
     load_morpheusignore,
     path_is_ignored,
 )
-from morpheus.core.learning.team import team_feedback_projection_error
+from morpheus.core.learning.team import reviewed_input_projection_error
 from morpheus.core.provenance import compute_sha256_file, latest_receipt_file
 from morpheus.core.portable_lock import portable_file_lock
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
@@ -376,7 +376,7 @@ def _eligible_candidate(
         or contains_secret_like_text(candidate.correction_text or "")
     ):
         return None, "secret_like", current_sha
-    projection_error = team_feedback_projection_error(verified)
+    projection_error = reviewed_input_projection_error(verified)
     if projection_error:
         return None, projection_error, current_sha
 

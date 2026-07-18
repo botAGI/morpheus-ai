@@ -63,7 +63,11 @@ from morpheus.core.check import check_text
 from morpheus.core.compiler import compile_project
 from morpheus.core.learning.benchmark import write_benchmark_report
 from morpheus.core.learning.quality import build_quality_report, write_quality_report
-from morpheus.core.learning.team import run_team_learning_loop
+from morpheus.core.learning.team import (
+    TEAM_LEARNING_SOURCE_TYPES,
+    TEAM_LOOP_POLICY_VERSION,
+    run_team_learning_loop,
+)
 from morpheus.core.wake import generate_wake_md
 from morpheus.core.provenance import (
     compute_sha256_file,
@@ -778,6 +782,14 @@ def agent_connect_payload(request: Request, project_root: Path) -> dict:
         ],
         "endpoints": endpoints,
         "integrations": integration_manifest(),
+        "learning_inputs": {
+            "policy_version": TEAM_LOOP_POLICY_VERSION,
+            "source_types": list(TEAM_LEARNING_SOURCE_TYPES),
+            "cli_file": "morpheus learn team-loop . --input feedback.jsonl --json",
+            "cli_stdin": "morpheus learn team-loop . --input - --json",
+            "api_path": "/learning/team-loop",
+            "automatic_actions": False,
+        },
         "cli": {
             "agent_connect": "morpheus agent-connect --json",
             "diagnostics": "morpheus diagnostics --json",
@@ -1793,7 +1805,7 @@ def learning_benchmark(request: LearningBenchmarkRequest):
 
 @app.post("/learning/team-loop")
 def learning_team_loop(request: LearningTeamLoopRequest):
-    """Ingest local team corrections as pending review candidates only."""
+    """Reconcile six local reviewed-input sources without automatic actions."""
     root = Path(request.project_root) if request.project_root else Path.cwd()
     try:
         result = run_team_learning_loop(root, request.items)

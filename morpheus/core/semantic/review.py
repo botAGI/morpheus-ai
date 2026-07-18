@@ -148,6 +148,12 @@ class ReviewStore:
         reject_symlink_paths([lock_path], "Semantic review lock")
         reject_symlink_components(lock_path, "Semantic review lock")
         with portable_file_lock(lock_path):
+            # Imported lazily because the team module builds on ReviewStore. Every
+            # shared-store operation must settle an interrupted team transition
+            # before it can observe or mutate semantic_candidates.jsonl.
+            from morpheus.core.learning.team import recover_team_learning_transaction
+
+            recover_team_learning_transaction(self.project_root)
             yield
 
     def write_report(self, report: dict) -> None:
