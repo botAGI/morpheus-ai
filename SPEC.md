@@ -300,28 +300,68 @@ appear only in seed or held-out eval artifacts, never in training artifacts.
 Outdated claims can become correction/negative examples. They must not become
 positive project facts.
 
-### Team Feedback Event
+### Reviewed Team Learning Input
 
-The local team-learning input is newline-delimited JSON:
+The CLI accepts a strict discriminated item union as JSONL;
+`POST /learning/team-loop` accepts the same objects in its `items` array. The
+union has exactly six `source_type` values:
 
 ```python
 class TeamFeedbackEvent(BaseModel):
-    source_type: Literal["pr_comment", "rejected_agent_claim", "human_correction"]
+    source_type: Literal[
+        "pr_comment", "rejected_agent_claim", "human_correction"
+    ]
     external_id: str
     claim: str
     correction: str | None = None
     author: str | None = None
     url: str | None = None
+
+class StaleClaimCorrectionEvent(BaseModel):
+    source_type: Literal["stale_claim_correction"]
+    external_id: str
+    claim: str
+    correction: str
+    author: str | None = None
+    url: str | None = None
+
+class AcceptedReviewCandidateEvent(BaseModel):
+    source_type: Literal["accepted_review_candidate"]
+    candidate_id: str
+    candidate_sha256: str | None = None
+
+class CheckEvidence(BaseModel):
+    path: str
+    line_start: StrictInt
+
+class CheckResultEvent(BaseModel):
+    source_type: Literal["check_result"]
+    claim: str
+    status: Literal["verified", "stale", "incorrect", "unknown"]
+    reason: str
+    evidence: CheckEvidence | None = None
+    active_state_receipt: str | None = None
+    input_hash: str | None = None
 ```
 
-Each validated event is stored as an immutable one-line local evidence artifact
-and projected into a `pending` `outdated_claim` candidate. The content hash is
-the stable candidate identity, so exact replay is idempotent and changed input
-creates a new auditable version. Acceptance may route the original claim to a
-negative/correction example; rejection or unresolved review state excludes it.
-The team loop never builds a dataset, trains, evaluates, or activates an adapter.
-The API returns `422` for malformed JSON or an invalid outer request shape and
-`400` for a parsed feedback event rejected by the local ingestion policy.
+Every input accepted by local ingestion policy is stored as an immutable,
+content-addressed `teamin_*` receipt. Direct feedback and explicit stale-claim
+corrections project into `pending` `outdated_claim` candidates. A `check_result`
+accepted by policy always receives a receipt, but only `stale` and `incorrect`
+statuses project a pending correction; `verified` and `unknown` are audit-only.
+Accepted-candidate references reconcile existing authority only after accepted
+status, reviewer, source-backed label, live source span, projection integrity,
+and optional digest pin are revalidated. Reconciliation never accepts or applies
+a candidate.
+
+Receipts, candidate evidence artifacts, the candidate store, and JSON/Markdown
+reports form one recoverable journaled transition under the shared review lock.
+Exact replay is idempotent, changed content creates a new auditable identity, and
+every shared review transaction recovers or fails closed before reading or
+mutating the candidate store. The team loop never builds a dataset, trains,
+evaluates, or activates an adapter. The API returns `422` for malformed JSON or
+an invalid outer request shape and `400` for a parsed input rejected by local
+ingestion policy.
 
 Dataset manifests use a versioned provenance binding over the complete canonical
 review snapshot, current routing policy, source/context hashes, and every
@@ -437,10 +477,12 @@ a verified classification-to-training pipeline:
   review. Every persisted candidate-state transition recomputes its canonical
   route. Semantic review apply signs exact candidate-to-claim/evidence
   authority, and unbound compiled claims cannot enter active-state learning.
-- **v0.7 Team learning loop (local reviewed-feedback core complete)**: PR
-  comments, rejected agent claims, and human corrections enter an idempotent
-  pending-review flow that never activates adapters. One orchestration path for
-  accepted review candidates, check results, and stale corrections remains.
+- **v0.7 Team learning loop (complete in current code)**: one idempotent,
+  receipt-backed path covers PR comments, rejected agent claims, human
+  corrections, accepted review candidates, check results, and stale-claim
+  corrections. It reconciles existing review authority or creates pending
+  correction candidates without automatic training, acceptance, apply, or
+  adapter activation.
 
 The public claim is not "fine-tune an AI model on your codebase." The claim is:
 Morpheus builds a verified learning layer for agents, classifies project

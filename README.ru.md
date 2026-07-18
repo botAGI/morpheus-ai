@@ -78,9 +78,12 @@ verified classification-to-training pipeline:
   привязывают reviewed candidates к точным state claims и evidence; обычные
   compile/wake receipts остаются проверяемыми записями целостности, но не дают
   authority для active-state learning.
-- **v0.7 (local core завершён; дальше orchestration)**: review-gated team
-  feedback идемпотентен и никогда не активирует adapter автоматически; осталось
-  объединить все документированные team signals в один ingestion path.
+- **v0.7 (завершён в текущем коде)**: один идемпотентный reviewed-input path
+  принимает PR comments, rejected agent claims, human corrections, accepted
+  review candidates, check results и stale-claim corrections. Каждый input,
+  принятый local ingestion policy, получает content-addressed local receipt;
+  новые correction candidates создаются со статусом pending, а loop никогда
+  автоматически не обучает и не активирует adapter.
 
 См. [docs/ROADMAP.md](docs/ROADMAP.md). Инвариант строгий: нет accepted source
 span - нет training example, нет успешного eval - нет adapter activation, а
@@ -194,7 +197,7 @@ Morpheus проверяет текущие project claims перед любым 
 | Capability | Проверенный результат |
 | --- | --- |
 | `ruff check .` | проходит |
-| `pytest tests/ -q` | 1308 passed, 1 skipped |
+| `pytest tests/ -q` | 1385 passed, 1 skipped |
 | `morpheus wake . --private` | компилирует текущее состояние проекта и подписывает receipt |
 | `morpheus verify --all` | проверяет receipt chain |
 | `morpheus check --input tests/fixtures/check_stale_input.txt --local` | exit 1 и stale claim |
@@ -366,12 +369,22 @@ Start screen позволяет выбрать project root, настроить 
 diagnostics, подготовить агента, проверить integrations, протестировать MCP tools
 и скопировать полный handoff bundle.
 
-## Reviewed Team Corrections
+## Reviewed Team Learning Inputs
 
-Командная обратная связь попадает в learning только через локальный review gate.
-Запишите по одному JSON object на строку: `source_type` (`pr_comment`,
-`rejected_agent_claim` или `human_correction`), стабильный `external_id`,
-отклонённый `claim` и optional явный `correction`:
+CLI принимает единый локальный discriminated item union как JSONL, а
+`POST /learning/team-loop` принимает те же objects в массиве `items`. Допустимы
+шесть значений `source_type`:
+
+- `pr_comment`, `rejected_agent_claim` и `human_correction`: стабильный
+  `external_id`, отклонённый `claim` и optional явный `correction`;
+- `stale_claim_correction`: стабильный `external_id`, `claim` и обязательный
+  `correction`;
+- `accepted_review_candidate`: `candidate_id` уже accepted, reviewed и
+  source-backed candidate с optional закреплённым `candidate_sha256`;
+- `check_result`: `claim`, `status` и `reason` с optional source evidence,
+  active-state receipt и input hash. Только результаты `stale` и `incorrect`
+  создают pending correction candidates; `verified` и `unknown` остаются
+  receipt-only audit inputs.
 
 ```json
 {"source_type":"pr_comment","external_id":"review-42","claim":"Morpheus trains raw Markdown directly.","correction":"Morpheus trains only accepted source-backed candidates."}
@@ -383,10 +396,15 @@ morpheus review accept <candidate-id>
 morpheus learn dataset . --from accepted --format instruction
 ```
 
-Import создаёт pending source-backed correction candidates с immutable local
-evidence artifacts. Точный повтор идемпотентен. Pending и rejected feedback не
-попадает в dataset; accepted correction может стать negative/correction example
-только после обычной проверки актуального source span. `team-loop` не собирает
+Каждый input, принятый local ingestion policy, получает immutable
+content-addressed receipt в local review store. Candidate artifacts, общий
+candidate store, receipts и оба report фиксируются одной recoverable
+transaction: точный повтор идемпотентен, а прерванная запись восстанавливается до
+следующей review mutation. Accepted references только reconciled после проверки
+review authority и актуального source span; автоматических accept или apply нет.
+После явного acceptance и проверки live source span outdated correction может
+попасть только в negative/correction example, но не в positive active state.
+Pending и rejected corrections не попадают в dataset. `team-loop` не собирает
 dataset, не запускает train/eval/activation и не делает исходящих сетевых
 запросов.
 
@@ -432,7 +450,7 @@ morpheus compile
 | `morpheus learn dataset .` | Собрать dataset из accepted source-backed candidates |
 | `morpheus learn quality .` | Записать отчёты по trainability, routing, blockers и dataset quality |
 | `morpheus learn benchmark . --dry-run` | Записать benchmark-readiness artifacts без обучения и activation |
-| `morpheus learn team-loop . --input FILE --json` | Импортировать локальные team corrections как pending review candidates |
+| `morpheus learn team-loop . --input FILE --json` | Согласовать все шесть local reviewed-input types; новые correction candidates создаются со статусом pending |
 | `morpheus learn status` | Показать learning dataset и adapter status |
 | `morpheus learn train . --dry-run` | Сгенерировать training artifacts без обучения |
 | `morpheus learn eval .` | Запустить eval harness для latest dataset или planned adapter |

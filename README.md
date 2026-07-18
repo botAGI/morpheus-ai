@@ -76,9 +76,12 @@ verified classification-to-training pipeline:
   canonical rerouting boundary. Review-apply receipts bind exact reviewed
   candidates to their state claims and evidence; ordinary compile/wake receipts
   remain verifiable integrity records but cannot authorize active-state learning.
-- **v0.7 (local core complete; orchestration next)**: review-gated team feedback
-  is idempotent and never auto-activates; the remaining work is one ingestion
-  path for every documented team signal.
+- **v0.7 (complete in the current code)**: one idempotent reviewed-input path
+  covers PR comments, rejected agent claims, human corrections, accepted review
+  candidates, check results, and stale-claim corrections. Every input accepted
+  by the local ingestion policy receives a content-addressed local receipt;
+  new correction candidates are created pending and the loop never auto-trains or
+  activates an adapter.
 
 See [docs/ROADMAP.md](docs/ROADMAP.md). The invariant stays strict: no accepted
 source span means no training example, no eval pass means no adapter activation,
@@ -192,7 +195,7 @@ The current local gate has been run against this repository, not only fixtures:
 | Capability | Tested result |
 | --- | --- |
 | `ruff check .` | passes |
-| `pytest tests/ -q` | 1308 passed, 1 skipped |
+| `pytest tests/ -q` | 1385 passed, 1 skipped |
 | `morpheus wake . --private` | compiles current project state and signs a receipt |
 | `morpheus verify --all` | verifies the receipt chain |
 | `morpheus check --input tests/fixtures/check_stale_input.txt --local` | exits 1 and reports the stale claim |
@@ -388,12 +391,22 @@ The Start screen lets you set a project root, configure watched paths, run
 diagnostics, prepare an agent, inspect integrations, probe MCP tools, and copy a
 complete handoff bundle.
 
-## Reviewed Team Corrections
+## Reviewed Team Learning Inputs
 
-Team feedback enters learning through a local review gate. Write one JSON object
-per line with `source_type` (`pr_comment`, `rejected_agent_claim`, or
-`human_correction`), a stable `external_id`, the rejected `claim`, and an
-optional explicit `correction`:
+The CLI accepts one local, discriminated item union as JSONL;
+`POST /learning/team-loop` accepts the same objects in its `items` array. The six
+accepted `source_type` values are:
+
+- `pr_comment`, `rejected_agent_claim`, and `human_correction`: a stable
+  `external_id`, the rejected `claim`, and an optional explicit `correction`;
+- `stale_claim_correction`: a stable `external_id`, `claim`, and required
+  `correction`;
+- `accepted_review_candidate`: the `candidate_id` of an already accepted,
+  reviewed, source-backed candidate, with an optional pinned `candidate_sha256`;
+- `check_result`: `claim`, `status`, and `reason`, with optional source evidence,
+  active-state receipt, and input hash. Only `stale` and `incorrect` results
+  create pending correction candidates; `verified` and `unknown` remain
+  receipt-only audit inputs.
 
 ```json
 {"source_type":"pr_comment","external_id":"review-42","claim":"Morpheus trains raw Markdown directly.","correction":"Morpheus trains only accepted source-backed candidates."}
@@ -405,12 +418,17 @@ morpheus review accept <candidate-id>
 morpheus learn dataset . --from accepted --format instruction
 ```
 
-Import creates pending, source-backed correction candidates with immutable local
-evidence artifacts. Exact replay is idempotent. Pending and rejected feedback
-never enters a dataset; an accepted correction can become a negative/correction
-example after the normal live source-span checks. `team-loop` does not build a
-dataset, train, evaluate, or activate an adapter, and it makes no outbound
-network calls.
+Each input accepted by local ingestion policy receives an immutable,
+content-addressed receipt under the local review store. Candidate artifacts, the
+shared candidate store, receipts, and both reports commit as one recoverable
+transition, so exact replay is idempotent and interrupted writes recover before
+another review mutation. Accepted references are reconciled only when their
+review authority and live source span still match; they are never accepted or
+applied automatically. After explicit acceptance and live source-span
+validation, an outdated correction may enter only as a negative/correction
+example, never as positive active state. Pending and rejected corrections never
+enter a dataset. `team-loop` does not build a dataset, train, evaluate, or
+activate an adapter, and it makes no outbound network calls.
 
 ## Architecture
 
@@ -454,7 +472,7 @@ morpheus compile
 | `morpheus learn dataset .` | Build a dataset from accepted source-backed candidates |
 | `morpheus learn quality .` | Write trainability, route, blocker, and dataset quality reports |
 | `morpheus learn benchmark . --dry-run` | Write benchmark-readiness artifacts without training or activation |
-| `morpheus learn team-loop . --input FILE --json` | Import local team corrections as pending review candidates |
+| `morpheus learn team-loop . --input FILE --json` | Reconcile all six local reviewed-input types; new correction candidates are created pending |
 | `morpheus learn status` | Show learning dataset and adapter status |
 | `morpheus learn train . --dry-run` | Generate preview-only local training artifacts without execution |
 | `morpheus learn eval .` | Evaluate the latest dataset or planned adapter with the eval harness |

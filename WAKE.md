@@ -93,14 +93,14 @@ category deltas, and all/critical regression counts or lists.
 4. v0.6 agent memory routing — complete in the current code; signed review-apply
    receipts bind exact candidate-to-claim/evidence authority, while ordinary
    compile/wake receipts remain integrity-only.
-5. v0.7 team learning loop — local reviewed-feedback core complete; unified
-   input orchestration remains.
+5. v0.7 team learning loop — complete in the current code with one idempotent,
+   receipt-backed path for all six reviewed team input types.
 
 ## Next Product Work
 
-1. v0.7 team learning loop: unify PR comments, rejected agent claims, human
-   corrections, accepted candidates, check results, and stale corrections behind
-   one idempotent reviewed-input orchestration path.
+1. No milestone after v0.7 is currently defined. Preserve the completed review,
+   dataset, eval, activation, rollback, routing, and team-input gates until the
+   next product milestone is chosen explicitly.
 
 ## Verification
 

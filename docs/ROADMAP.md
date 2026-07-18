@@ -146,7 +146,7 @@ Verified acceptance hardening:
 - [x] signed compiled active-state input is either defined and enforced as
   explicit review authority or excluded by the same no-unreviewed-input rule.
 
-## v0.7: Team Learning Loop — Local Core Complete, Orchestration Remaining
+## v0.7: Team Learning Loop — Complete In Current Code
 
 Goal: turn team corrections into continual project memory.
 
@@ -159,20 +159,19 @@ Inputs:
 - check results
 - stale claim corrections
 
-Verified local-core acceptance criteria:
+Verified acceptance criteria:
 
 - [x] corrections become pending candidates, not silent training data,
 - [x] accepted corrections can become negative or correction examples,
 - [x] rejected or unresolved corrections never enter training,
 - [x] the loop can run repeatedly without activating adapters automatically.
-
-Remaining orchestration acceptance:
-
-- [ ] one idempotent input path covers all six documented sources. Direct team
-  feedback currently accepts PR comments, rejected agent claims, and human
-  corrections; accepted review candidates, check corrections, and stale
-  corrections currently arrive through or are counted from separate review and
-  check flows.
+- [x] one strict, idempotent input path covers all six documented sources,
+- [x] every accepted input receives an immutable content-addressed receipt;
+  verified and unknown check results remain audit-only,
+- [x] accepted-candidate references revalidate review authority, live source
+  span, projection integrity, and an optional digest without automatic apply,
+- [x] receipts, candidate artifacts, the shared candidate store, and reports
+  commit as one recoverable transition before any other shared review mutation.
 
 ## Non-Goals
 

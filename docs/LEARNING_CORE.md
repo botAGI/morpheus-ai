@@ -112,6 +112,25 @@ regular, non-symlink `.safetensors` file with an exact relative path, byte size,
 and SHA-256. Those values are revalidated from current bytes and bound into
 activation and rollback authority and receipts.
 
+## Reviewed Team Learning Loop
+
+v0.7 is complete in the current code. `morpheus learn team-loop` and
+`POST /learning/team-loop` share one strict input union for PR comments,
+rejected agent claims, human corrections, accepted review candidates, check
+results, and stale-claim corrections. Every input accepted by local ingestion
+policy receives a local, content-addressed receipt. Direct feedback, explicit
+stale-claim corrections, and stale/incorrect check results create pending
+source-backed correction candidates; accepted references and verified/unknown
+check results are receipt-only. Existing accepted candidates are reconciled only
+after their review authority, live source span, projection, and optional digest
+are revalidated.
+
+The batch is failure-atomic across receipts, candidate evidence, the shared
+candidate store, and both reports. An interrupted prepared transition rolls
+back; a committed transition finishes forward. Recovery runs under the shared
+review-store lock before another review mutation. The loop does not accept or
+apply candidates, compile a dataset, run train/eval, or activate an adapter.
+
 ## Roadmap Alignment
 
 The learning core should become the center of the product, but not as raw
@@ -127,7 +146,7 @@ The roadmap milestones are:
 - v0.6 agent memory routing: complete in the current code with audited
   decisions, canonical persisted lifecycle rerouting, guarded dataset
   consumption, and signed candidate-to-state review authority.
-- v0.7 team learning loop: the idempotent, pending-review local feedback core is
-  complete; unified ingestion for every documented team signal remains.
+- v0.7 team learning loop: complete in the current code with one receipt-backed,
+  failure-atomic reviewed-input path for all six documented team signals.
 
 See `docs/ROADMAP.md` for the public roadmap.

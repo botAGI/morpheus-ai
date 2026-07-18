@@ -23,16 +23,27 @@ All notable changes to Morpheus will be documented in this file.
   contract.
 - Benchmark comparisons expose per-category pass-rate and hallucination-rate
   deltas, all regressions, and the critical subset.
-- Added an idempotent local `morpheus learn team-loop` and
-  `POST /learning/team-loop` flow that stores PR comments, rejected agent claims,
-  and human corrections as pending review candidates without training or adapter
-  activation.
+- Completed the v0.7 `morpheus-team-learning/2` contract for
+  `morpheus learn team-loop` and `POST /learning/team-loop`: one strict,
+  idempotent path now covers PR comments, rejected agent claims, human
+  corrections, accepted review candidates, check results, and stale-claim
+  corrections. Every input accepted by local ingestion policy receives an
+  immutable content-addressed receipt. Direct feedback, explicit stale-claim
+  corrections, and stale/incorrect check results create pending candidates;
+  accepted references and verified/unknown checks are receipt-only.
 - Accepted corrections can now carry explicit replacement text into
   negative/correction training and eval examples while remaining excluded from
   positive active project state.
 
 ### Fixed
 
+- Made each team-input batch failure-atomic across receipts, evidence artifacts,
+  the shared candidate store, and reports with prepared/committed recovery under
+  the shared review lock. Cross-source ID squatting, projection drift, symlink
+  races, and unsupported descriptor-relative filesystems now fail closed.
+- Preserved the legacy `check --create-training-corrections` candidate IDs,
+  evidence bytes, provider metadata, and source labels while delegating check
+  results through the unified reviewed-input path.
 - Made active-state learning fail closed instead of synthesizing accepted,
   source-backed candidates from every compiled claim. Plain compile/wake and
   legacy receipts remain chain-verifiable integrity records but cannot authorize
