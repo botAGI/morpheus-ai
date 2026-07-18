@@ -90,17 +90,15 @@ category deltas, and all/critical regression counts or lists.
 1. v0.3 semantic classifier as product core.
 2. v0.4 dataset quality dashboard.
 3. v0.5 adapter memory benchmark — complete in the current code.
-4. v0.6 agent memory routing — implemented; signed active-state review
-   authority remains to harden.
+4. v0.6 agent memory routing — complete in the current code; signed review-apply
+   receipts bind exact candidate-to-claim/evidence authority, while ordinary
+   compile/wake receipts remain integrity-only.
 5. v0.7 team learning loop — local reviewed-feedback core complete; unified
    input orchestration remains.
 
 ## Next Product Work
 
-1. v0.6 agent memory routing: define and enforce signed active-state review
-   authority; canonical route recomputation now covers persisted candidate
-   lifecycle transitions, including lab acceptance and source invalidation.
-2. v0.7 team learning loop: unify PR comments, rejected agent claims, human
+1. v0.7 team learning loop: unify PR comments, rejected agent claims, human
    corrections, accepted candidates, check results, and stale corrections behind
    one idempotent reviewed-input orchestration path.
 

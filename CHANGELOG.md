@@ -6,6 +6,10 @@ All notable changes to Morpheus will be documented in this file.
 
 ### Added
 
+- Added signed active-state review authority schema
+  `morpheus-active-state-review-authority/1`. Semantic review-apply receipts now
+  bind complete reviewed candidates to the exact state claims, evidence records,
+  and canonical memory-routing policy used by active-state datasets.
 - Completed the canonical v0.5 adapter benchmark contract with schema
   `morpheus-benchmark-categories/1` and the exact coverage IDs
   `product_identity`, `commands_and_cli_behavior`, `architecture`,
@@ -29,6 +33,13 @@ All notable changes to Morpheus will be documented in this file.
 
 ### Fixed
 
+- Made active-state learning fail closed instead of synthesizing accepted,
+  source-backed candidates from every compiled claim. Plain compile/wake and
+  legacy receipts remain chain-verifiable integrity records but cannot authorize
+  learning; unbound compiler claims are excluded even from a review-apply state.
+- Held state and review authority through semantic apply, binding construction,
+  signing, and receipt publication so the signed review decision cannot change
+  mid-transaction.
 - Bound the live activation and rollback-to-adapter path to the same exact
   dataset/eval/readiness/category gate. Force cannot bypass it; rollback-to-none
   remains the fail-safe. Legacy or mismatched manifest/eval/category schema

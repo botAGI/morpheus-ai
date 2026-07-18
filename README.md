@@ -70,11 +70,12 @@ verified classification-to-training pipeline:
   unsafe, needs-review, negative, and eval-only claims.
 - **v0.5 (complete in the current code)**: canonical adapter memory benchmark
   with category-level base-vs-adapter deltas and activation/rollback gates.
-- **v0.6 (implemented; signed authority hardening next)**: audited routing
+- **v0.6 (complete in the current code)**: audited routing
   across prompt, retrieval, adapter training, eval, negative examples, stale
   archive, and human review; persisted lifecycle transitions now share one
-  canonical rerouting boundary. Signed compiled active-state review authority
-  remains to be enforced.
+  canonical rerouting boundary. Review-apply receipts bind exact reviewed
+  candidates to their state claims and evidence; ordinary compile/wake receipts
+  remain verifiable integrity records but cannot authorize active-state learning.
 - **v0.7 (local core complete; orchestration next)**: review-gated team feedback
   is idempotent and never auto-activates; the remaining work is one ingestion
   path for every documented team signal.
@@ -258,8 +259,11 @@ directories; interrupted staging is never treated as current. If a contributing
 candidate is rejected, returned to pending, removed, or changed after dataset
 compilation, quality, training, eval, and activation fail closed until the
 dataset is rebuilt. Lab snapshots and active-state receipts use explicit,
-separately validated source scopes; active-state authority must match the signed
-receipt chain. Adapter evals must use the exact dataset binding recorded at
+separately validated source scopes. Active-state datasets require a versioned
+review authority inside the signed receipt and project only its exact
+candidate-to-claim/evidence bindings; unbound compiler claims are excluded.
+Ordinary compile/wake receipts remain chain-verifiable but are integrity-only.
+Adapter evals must use the exact dataset binding recorded at
 training time, and legacy unbound manifests are status-only. Training commands
 from `morpheus learn train` are preview-only. The executable local MLX lab guard
 copies a sealed snapshot into anonymous file descriptors, holds state/review

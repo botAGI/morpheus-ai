@@ -118,7 +118,7 @@ and exact dataset authority. A legacy or mismatched manifest, eval, or category
 schema requires rebuilding the dataset and rerunning base and adapter evals.
 Editing old artifacts cannot create activation authority.
 
-## v0.6: Agent Memory Routing — Implemented, Hardening Remaining
+## v0.6: Agent Memory Routing — Complete in Current Code
 
 Goal: route each fact to the right memory channel.
 
@@ -139,11 +139,11 @@ Verified foundation:
 - [x] dataset validation excludes raw Markdown, rejected, pending, inferred,
   secret-like, and route-inconsistent candidates from adapter training.
 
-Remaining acceptance hardening:
+Verified acceptance hardening:
 
 - [x] every persisted lifecycle transition, including lab auto-accept and source
   invalidation, recomputes and stores the canonical route,
-- [ ] signed compiled active-state input is either defined and enforced as
+- [x] signed compiled active-state input is either defined and enforced as
   explicit review authority or excluded by the same no-unreviewed-input rule.
 
 ## v0.7: Team Learning Loop — Local Core Complete, Orchestration Remaining

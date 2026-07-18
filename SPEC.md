@@ -332,8 +332,12 @@ revalidate that binding. A post-build review transition or artifact mutation
 invalidates the dataset; a legacy unbound manifest remains inspectable but is
 not executable. Lab review snapshots and active-state receipts are explicit
 source authorities rather than implicit compatibility exceptions. Active-state
-datasets require the signed receipt-chain tail, and adapter eval/activation must
-match the exact dataset binding stored in the adapter manifest.
+datasets require a versioned review authority inside the signed receipt-chain
+tail. That authority binds each reviewed candidate to the exact state claim and
+evidence record produced by semantic apply; unbound deterministic compiler
+claims are excluded. Plain compile/wake receipts remain valid integrity records
+but cannot authorize active-state learning. Adapter eval/activation must match
+the exact dataset binding stored in the adapter manifest.
 `morpheus learn train` is a preview-only planner and must reject direct
 execution. The local MLX lab must use a sealed artifact snapshot; its execution
 guard must pin validated artifact bytes and the output parent in file-descriptor
@@ -427,12 +431,12 @@ a verified classification-to-training pipeline:
 - **v0.5 Adapter memory benchmark (complete in current code)**: evaluate product
   identity, commands, architecture, safety rules, team conventions, stale
   correction, and unsupported-claim refusal separately.
-- **v0.6 Agent memory routing (implemented; signed authority hardening
-  remains)**: audited route selection exists for prompt context, retrieval,
+- **v0.6 Agent memory routing (complete in current code)**: audited route
+  selection exists for prompt context, retrieval,
   adapter training, eval-only, negative examples, stale archive, and human
   review. Every persisted candidate-state transition recomputes its canonical
-  route; the remaining milestone work is to make signed compiled active-state
-  review authority explicit.
+  route. Semantic review apply signs exact candidate-to-claim/evidence
+  authority, and unbound compiled claims cannot enter active-state learning.
 - **v0.7 Team learning loop (local reviewed-feedback core complete)**: PR
   comments, rejected agent claims, and human corrections enter an idempotent
   pending-review flow that never activates adapters. One orchestration path for

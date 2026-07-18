@@ -36,8 +36,11 @@ Consumers revalidate the binding before training, evaluation, benchmark
 comparison, or activation. Review revocation and artifact changes therefore
 close the gate before new output is written. Lab snapshots and active-state
 receipts declare separate source scopes; v1 unbound manifests are non-executable.
-Active-state scope verifies the signed receipt-chain tail. Adapter evaluation
-and activation must match the dataset ID and binding recorded by training.
+Active-state scope verifies the signed receipt-chain tail and requires its
+versioned review authority. Only exact candidate-to-claim/evidence bindings from
+semantic review apply are projected; unbound compiler claims are excluded and
+plain compile/wake receipts remain integrity-only. Adapter evaluation and
+activation must match the dataset ID and binding recorded by training.
 Dataset and eval registries publish complete entries atomically from hidden,
 private staging directories. `morpheus learn train` produces a preview only and
 rejects execution. The executable local MLX lab uses sealed snapshots and an
@@ -121,9 +124,9 @@ The roadmap milestones are:
 - v0.4 dataset quality dashboard: expose trainable, retrievable, stale, unsafe,
   needs-review, negative, and eval-only state.
 - v0.5 adapter memory benchmark: complete in the current code.
-- v0.6 agent memory routing: implemented with audited decisions and guarded
-  dataset consumption; persisted lifecycle rerouting is canonical, while
-  explicit signed active-state review authority remains to harden.
+- v0.6 agent memory routing: complete in the current code with audited
+  decisions, canonical persisted lifecycle rerouting, guarded dataset
+  consumption, and signed candidate-to-state review authority.
 - v0.7 team learning loop: the idempotent, pending-review local feedback core is
   complete; unified ingestion for every documented team signal remains.
 
