@@ -201,6 +201,11 @@ def build_learning_dataset(
         source_receipt_id=source_receipt_id,
         source_receipt_sha256=source_receipt_sha256,
         context_paths=context_hashes,
+        active_review_authority=(
+            active_authority["review_authority_summary"]
+            if active_authority is not None
+            else None
+        ),
     )
     artifacts = artifact_manifest(staging_dir, [
         instruction_path,
@@ -386,60 +391,8 @@ def _active_state_candidates(
     project_root: Path,
     authority: dict,
 ) -> list[SemanticCandidate]:
-    state = authority["state"]
-    evidence_rows = authority["evidence_rows"]
-    evidence_by_claim = {
-        str(item.get("claim_id")): item
-        for item in evidence_rows
-        if isinstance(item, dict)
-    }
-    candidates = []
-    timestamp = datetime.now(timezone.utc)
-    for claim in state.get("claims", []):
-        if not isinstance(claim, dict) or claim.get("status", "active") != "active":
-            continue
-        evidence = evidence_by_claim.get(str(claim.get("id")))
-        if not evidence:
-            continue
-        excerpt = str(evidence.get("excerpt") or claim.get("excerpt") or "").strip()
-        source_path = str(evidence.get("path") or "")
-        source_sha = str(evidence.get("source_sha256") or "")
-        if not excerpt or not source_path or not source_sha:
-            continue
-        evidence_sha = str(evidence.get("excerpt_sha256") or "")
-        if len(evidence_sha) != 64:
-            evidence_sha = hashlib.sha256(excerpt.encode()).hexdigest()
-        candidates.append(route_candidate(SemanticCandidate(
-            id=f"active_{claim.get('id')}",
-            run_id=str(state.get("receipt_id") or "active_state"),
-            kind=_kind_from_claim_category(str(claim.get("category") or "")),
-            claim=str(claim.get("excerpt") or excerpt),
-            source_path=source_path,
-            source_sha256=source_sha,
-            source_mtime=timestamp,
-            source_revision=f"state:{state.get('receipt_id') or 'unknown'}",
-            line_start=int(evidence.get("line_start") or claim.get("line_start") or 1),
-            line_end=int(evidence.get("line_end") or claim.get("line_end") or evidence.get("line_start") or 1),
-            evidence_excerpt=excerpt,
-            evidence_sha256=evidence_sha,
-            confidence=1.0,
-            label="source_backed",
-            status="accepted",
-            created_at=timestamp,
-            provider={"name": "active-state", "model": "local"},
-            prompt_sha256="0" * 64,
-        )))
-    return candidates
-
-
-def _kind_from_claim_category(category: str) -> str:
-    return {
-        "decision": "active_decision",
-        "task": "open_task",
-        "agent_rule": "agent_rule",
-        "source_reference": "source_reference",
-        "outdated": "outdated_claim",
-    }.get(category, "current_state")
+    del project_root
+    return list(authority["candidates"])
 
 
 def _skip_record(candidate: SemanticCandidate, reason: str) -> dict:
@@ -929,6 +882,8 @@ def _ensure_active_authority_current(
         current_authority["context_hashes"] != expected_authority["context_hashes"]
         or current_authority["receipt_id"] != expected_authority["receipt_id"]
         or current_authority["receipt_sha256"] != expected_authority["receipt_sha256"]
+        or current_authority["review_authority_summary"]
+        != expected_authority["review_authority_summary"]
     ):
         raise ValueError(
             "Active state changed while compiling the learning dataset; rebuild required."

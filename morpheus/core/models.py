@@ -53,6 +53,7 @@ class Receipt(BaseModel):
     tool: dict = Field(default_factory=dict)
     issued_at: str = ""
     previous_receipt_sha256: Optional[str] = None
+    active_state_review_authority: Optional[dict] = None
     signature: dict = Field(default_factory=dict)
 
 

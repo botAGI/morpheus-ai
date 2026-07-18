@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+import morpheus.api.server as api_module
 import morpheus.core.learning.dataset as dataset_module
 import morpheus.core.learning.quality as quality_module
 from morpheus.core.config import MorpheusConfig
@@ -25,8 +26,10 @@ from morpheus.core.learning.quality import build_quality_report
 from morpheus.core.learning.registry import latest_effective_dataset
 from morpheus.core.learning.team import run_team_learning_loop
 from morpheus.core.learning.train import plan_training_run
+from morpheus.core.provenance import build_receipt, evidence_jsonl_bytes
 from morpheus.core.semantic.review import ReviewStore, apply_accepted_candidates
 from morpheus.core.semantic.routing import route_candidate
+from morpheus.core.verify import verify_receipt_chain
 from tests.test_learning_dataset import copy_learning_project
 from tests.test_learning_eval import mark_eval_activation_eligible
 from tests.test_learning_lab import copy_autonomous_repo
@@ -256,6 +259,99 @@ def test_active_state_dataset_cannot_inject_arbitrary_generated_row(tmp_path):
     assert "dataset_generated_artifacts_mismatch" in validation["blockers"]
     with pytest.raises(ValueError, match="dataset_generated_artifacts_mismatch"):
         plan_training_run(project_root, dry_run=True)
+
+
+def test_active_state_dataset_rejects_plain_signed_compile(tmp_path):
+    MorpheusConfig(project_root=tmp_path).init_default()
+    (tmp_path / "README.md").write_text(
+        "DECISION: a signed compiler marker is not reviewed authority.\n"
+    )
+    api_module.compile(api_module.CompileRequest(project_root=str(tmp_path)))
+    valid, errors = verify_receipt_chain(tmp_path / ".morpheus")
+
+    assert valid is True, errors
+    with pytest.raises(ValueError, match="active_state_review_authority_missing"):
+        build_learning_dataset(tmp_path, source="active-state")
+
+    datasets_dir = tmp_path / ".morpheus/training/datasets"
+    assert not datasets_dir.exists() or not [
+        path for path in datasets_dir.iterdir() if not path.name.startswith(".")
+    ]
+
+
+def test_active_state_dataset_projects_only_signed_review_bindings(tmp_path):
+    project_root = copy_learning_project(tmp_path)
+    readme_path = project_root / "README.md"
+    unreviewed_marker = "DECISION: raw compiler marker must stay unreviewed."
+    readme_path.write_text(readme_path.read_text() + unreviewed_marker + "\n")
+    current_sha = sha256(readme_path.read_bytes()).hexdigest()
+    store = ReviewStore(project_root)
+    store.save_candidates([
+        candidate.model_copy(update={"source_sha256": current_sha})
+        if candidate.source_path == "README.md"
+        else candidate
+        for candidate in store.load_candidates()
+    ])
+    MorpheusConfig(project_root=project_root).init_default()
+
+    apply_accepted_candidates(project_root)
+    result = build_learning_dataset(project_root, source="active-state")
+
+    dataset_dir = Path(result["dataset_dir"])
+    manifest = json.loads((dataset_dir / "manifest.json").read_text())
+    artifact_text = "\n".join(
+        path.read_text()
+        for path in dataset_dir.glob("*.jsonl")
+    )
+    assert manifest["candidate_count"] == 7
+    assert manifest["source_candidate_ids"] == [
+        "c_current",
+        "c_decision",
+        "c_reference",
+        "c_rule",
+        "c_task",
+    ]
+    assert unreviewed_marker not in artifact_text
+    assert all(
+        not candidate_id.startswith("active_")
+        for candidate_id in manifest["source_candidate_ids"]
+    )
+
+
+def test_empty_review_apply_authorizes_no_compiler_claims(tmp_path):
+    MorpheusConfig(project_root=tmp_path).init_default()
+    marker = "DECISION: raw state context is not reviewed training authority."
+    (tmp_path / "README.md").write_text(marker + "\n")
+
+    applied = apply_accepted_candidates(tmp_path)
+    result = build_learning_dataset(tmp_path, source="active-state")
+
+    dataset_dir = Path(result["dataset_dir"])
+    manifest = json.loads((dataset_dir / "manifest.json").read_text())
+    artifact_text = "\n".join(
+        path.read_text()
+        for path in dataset_dir.glob("*.jsonl")
+    )
+    assert applied["accepted_applied"] == 0
+    assert manifest["candidate_count"] == 0
+    assert manifest["source_candidate_ids"] == []
+    assert manifest["provenance"]["review_authority"]["binding_count"] == 0
+    assert marker not in artifact_text
+
+
+def test_receipt_signature_covers_active_state_review_authority(tmp_path):
+    project_root = copy_learning_project(tmp_path)
+    MorpheusConfig(project_root=project_root).init_default()
+    apply_accepted_candidates(project_root)
+    receipt_path = next((project_root / ".morpheus/receipts").glob("receipt_*.json"))
+    receipt = json.loads(receipt_path.read_text())
+    receipt["active_state_review_authority"]["binding_count"] += 1
+    receipt_path.write_text(json.dumps(receipt))
+
+    valid, errors = verify_receipt_chain(project_root / ".morpheus")
+
+    assert valid is False
+    assert any("invalid ed25519 signature" in error for error in errors)
 
 
 def test_active_state_dataset_cannot_forge_candidate_partition(tmp_path):
@@ -494,47 +590,24 @@ def test_semantic_manifest_lie_blocks_all_dataset_consumers(tmp_path):
         run_learning_eval(project_root, base_only=True, dry_run=True)
 
 
-def test_active_state_projection_hashes_excerpt_without_reading_unsafe_path(
+def test_active_state_projection_uses_validated_candidates_without_reading_paths(
     tmp_path,
     monkeypatch,
 ):
-    authority = {
-        "state": {
-            "receipt_id": "rcpt_projection",
-            "claims": [
-                {
-                    "id": "clm_unsafe",
-                    "category": "decision",
-                    "excerpt": "DECISION: keep active-state paths scoped",
-                    "status": "active",
-                }
-            ],
-        },
-        "evidence_rows": [
-            {
-                "claim_id": "clm_unsafe",
-                "path": "../../outside-project.md",
-                "source_sha256": "a" * 64,
-                "excerpt": "DECISION: keep active-state paths scoped",
-                "excerpt_sha256": "missing",
-                "line_start": 1,
-                "line_end": 1,
-            }
-        ],
-    }
+    project_root = copy_learning_project(tmp_path)
+    candidate = ReviewStore(project_root).load_candidates()[0].model_copy(
+        update={"source_path": "../../outside-project.md"}
+    )
+    authority = {"candidates": [candidate]}
 
     def unexpected_file_hash(_path):
         raise AssertionError("active-state projection must not read an unscoped path")
 
     monkeypatch.setattr(dataset_module, "compute_sha256_file", unexpected_file_hash)
 
-    candidates = dataset_module._active_state_candidates(tmp_path, authority)
+    candidates = dataset_module._active_state_candidates(project_root, authority)
 
-    assert len(candidates) == 1
-    assert candidates[0].source_path == "../../outside-project.md"
-    assert candidates[0].evidence_sha256 == sha256(
-        b"DECISION: keep active-state paths scoped"
-    ).hexdigest()
+    assert candidates == [candidate]
 
 
 def test_dataset_manifest_binds_review_state_and_generated_artifacts(tmp_path):
@@ -908,6 +981,13 @@ def test_active_state_dataset_binds_state_and_evidence_artifacts(tmp_path):
         ".morpheus/evidence.jsonl",
         ".morpheus/state.json",
     ]
+    assert manifest["provenance"]["review_authority"] == {
+        "schema": "morpheus-active-state-review-authority/1",
+        "routing_policy_version": "morpheus-memory-routing/1",
+        "binding_count": 7,
+        "sha256": manifest["provenance"]["review_authority"]["sha256"],
+    }
+    assert len(manifest["provenance"]["review_authority"]["sha256"]) == 64
     assert validate_dataset(project_root, dataset_dir)["valid"] is True
 
     state_path = project_root / ".morpheus/state.json"
@@ -917,6 +997,53 @@ def test_active_state_dataset_binds_state_and_evidence_artifacts(tmp_path):
     validation = validate_dataset(project_root, dataset_dir)
     assert validation["valid"] is False
     assert "dataset_sources_changed" in validation["blockers"]
+    assert "active_state_receipt_invalid" in validation["blockers"]
+
+
+def test_active_state_validation_blocks_malformed_signed_source_identity(tmp_path):
+    project_root = copy_learning_project(tmp_path)
+    MorpheusConfig(project_root=project_root).init_default()
+    apply_accepted_candidates(project_root)
+    result = build_learning_dataset(project_root, source="active-state")
+    dataset_dir = Path(result["dataset_dir"])
+    morpheus_dir = project_root / ".morpheus"
+    receipt_path = next((morpheus_dir / "receipts").glob("receipt_*.json"))
+    receipt = json.loads(receipt_path.read_text())
+    state_path = morpheus_dir / "state.json"
+    evidence_path = morpheus_dir / "evidence.jsonl"
+    state = json.loads(state_path.read_text())
+    evidence_rows = _read_jsonl(evidence_path)
+    binding = receipt["active_state_review_authority"]["bindings"][0]
+    bound_claim = next(
+        claim for claim in state["claims"] if claim["id"] == binding["claim_id"]
+    )
+    bound_evidence = next(
+        row for row in evidence_rows if row["id"] == binding["evidence_id"]
+    )
+    bound_claim["source_id"] = []
+    bound_evidence["source_id"] = []
+    state_text = json.dumps(state, indent=2, default=str)
+    evidence_bytes = evidence_jsonl_bytes(evidence_rows)
+    state_path.write_text(state_text)
+    evidence_path.write_bytes(evidence_bytes)
+    resigned = build_receipt(
+        state,
+        receipt["wake_md_sha256"],
+        receipt["sources"],
+        morpheus_dir / "keys/local.key",
+        receipt["previous_receipt_sha256"],
+        receipt_id=receipt["receipt_id"],
+        state_json_sha=sha256(state_text.encode()).hexdigest(),
+        evidence_jsonl_sha=sha256(evidence_bytes).hexdigest(),
+        active_state_review_authority=receipt["active_state_review_authority"],
+    )
+    receipt_path.write_text(json.dumps(resigned, indent=2, default=str))
+    valid, errors = verify_receipt_chain(morpheus_dir)
+
+    validation = validate_dataset(project_root, dataset_dir)
+
+    assert valid is True, errors
+    assert validation["valid"] is False
     assert "active_state_receipt_invalid" in validation["blockers"]
 
 

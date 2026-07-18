@@ -130,6 +130,7 @@ def build_receipt(
     receipt_id: str | None = None,
     state_json_sha: str | None = None,
     evidence_jsonl_sha: str | None = None,
+    active_state_review_authority: dict | None = None,
 ) -> dict:
     """Build and sign a receipt."""
     state_json_bytes = json.dumps(state_dict, default=str).encode()
@@ -174,6 +175,10 @@ def build_receipt(
         "issued_at": ts,
         "previous_receipt_sha256": prev_hash,
     }
+    if active_state_review_authority is not None:
+        if not isinstance(active_state_review_authority, dict):
+            raise ValueError("active_state_review_authority must be an object")
+        receipt["active_state_review_authority"] = active_state_review_authority
 
     private_bytes = private_key_path.read_bytes()
     private_key = ed25519.Ed25519PrivateKey.from_private_bytes(private_bytes)

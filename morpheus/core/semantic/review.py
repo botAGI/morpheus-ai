@@ -28,6 +28,10 @@ from morpheus.core.providers.base import SemanticProvider
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
 from morpheus.core.state_authority import state_authority_transaction
 from morpheus.core.semantic.classifier import classify_candidate, classify_candidates
+from morpheus.core.semantic.active_authority import (
+    build_active_state_review_authority,
+    claim_category_for_candidate_kind,
+)
 from morpheus.core.semantic.models import SemanticCandidate
 from morpheus.core.semantic.routing import route_candidate, route_candidates
 from morpheus.core.semantic.scanner import SECRET_PATTERNS, scan_semantic_sources
@@ -1190,6 +1194,7 @@ def _apply_accepted_candidates_locked(project_root: Path) -> dict:
                     accepted_corrections += 1
                     candidates[index] = verified
                     continue
+                verified = route_candidate(verified)
                 accepted.append(verified)
                 candidates[index] = verified
                 continue
@@ -1202,32 +1207,30 @@ def _apply_accepted_candidates_locked(project_root: Path) -> dict:
             changed = True
         if changed:
             store.save_candidates(candidates)
-    state = compile_project(project_root)
-    source_by_path = {source.path: source for source in state.sources}
-    next_claim = len(state.claims)
-    next_evidence = len(state.evidence)
-    for candidate in accepted:
-        source = source_by_path.get(candidate.source_path)
-        if source is None:
-            continue
-        next_claim += 1
-        next_evidence += 1
-        claim_id = f"clm_sem_{next_claim:04d}"
-        state.claims.append(
-            Claim(
+        state = compile_project(project_root)
+        source_by_path = {source.path: source for source in state.sources}
+        next_claim = len(state.claims)
+        next_evidence = len(state.evidence)
+        authority_bindings = []
+        for candidate in accepted:
+            source = source_by_path.get(candidate.source_path)
+            if source is None:
+                continue
+            next_claim += 1
+            next_evidence += 1
+            claim_id = f"clm_sem_{next_claim:04d}"
+            claim = Claim(
                 id=claim_id,
                 source_id=source.id,
                 line_start=candidate.line_start,
                 line_end=candidate.line_end,
                 excerpt=candidate.claim,
-                category=_claim_category(candidate.kind),
+                category=claim_category_for_candidate_kind(candidate.kind),
                 status="active",
                 inference=False,
                 created_at=datetime.now(timezone.utc),
             )
-        )
-        state.evidence.append(
-            Evidence(
+            evidence = Evidence(
                 id=f"ev_sem_{next_evidence:04d}",
                 claim_id=claim_id,
                 source_id=source.id,
@@ -1239,16 +1242,30 @@ def _apply_accepted_candidates_locked(project_root: Path) -> dict:
                 excerpt_sha256=candidate.evidence_sha256,
                 timestamp=datetime.now(timezone.utc),
             )
+            state.claims.append(claim)
+            state.evidence.append(evidence)
+            authority_bindings.append((claim, evidence, candidate))
+        review_authority = build_active_state_review_authority(authority_bindings)
+        receipt = _write_state_receipt(
+            project_root,
+            morpheus_dir,
+            state,
+            active_state_review_authority=review_authority,
         )
-    receipt = _write_state_receipt(project_root, morpheus_dir, state)
-    return {
-        "accepted_applied": len(accepted),
-        "accepted_corrections_skipped": accepted_corrections,
-        "receipt_id": receipt["receipt_id"],
-    }
+        return {
+            "accepted_applied": len(authority_bindings),
+            "accepted_corrections_skipped": accepted_corrections,
+            "receipt_id": receipt["receipt_id"],
+        }
 
 
-def _write_state_receipt(project_root: Path, morpheus_dir: Path, state) -> dict:
+def _write_state_receipt(
+    project_root: Path,
+    morpheus_dir: Path,
+    state,
+    *,
+    active_state_review_authority: dict | None = None,
+) -> dict:
     receipts_dir = morpheus_dir / "receipts"
     _ensure_safe_directory(morpheus_dir, ".morpheus path")
     _ensure_safe_directory(receipts_dir, "receipts path")
@@ -1285,6 +1302,7 @@ def _write_state_receipt(project_root: Path, morpheus_dir: Path, state) -> dict:
         receipt_id=receipt_id,
         state_json_sha=state_json_sha,
         evidence_jsonl_sha=evidence_jsonl_sha,
+        active_state_review_authority=active_state_review_authority,
     )
     wake_path = morpheus_dir / "WAKE.md"
     state_path = morpheus_dir / "state.json"
@@ -1343,13 +1361,7 @@ def _reject_semantic_output_paths(paths: list[Path]) -> None:
 
 
 def _claim_category(kind: str) -> str:
-    return {
-        "active_decision": "decision",
-        "open_task": "task",
-        "outdated_claim": "outdated",
-        "agent_rule": "agent_rule",
-        "source_reference": "source_reference",
-    }.get(kind, "note")
+    return claim_category_for_candidate_kind(kind)
 
 
 def _source_revision(project_root: Path) -> str:

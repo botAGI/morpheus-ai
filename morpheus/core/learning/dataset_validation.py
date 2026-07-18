@@ -37,6 +37,10 @@ from morpheus.core.safe_io import reject_symlink_components, reject_symlink_path
 from morpheus.core.semantic.models import SemanticCandidate
 from morpheus.core.semantic.review import ReviewStore
 from morpheus.core.semantic.routing import ROUTING_POLICY_VERSION, route_candidate
+from morpheus.core.semantic.active_authority import (
+    active_state_review_authority_summary,
+    project_active_state_review_candidates,
+)
 from morpheus.core.semantic.verifier import verify_candidate_span
 from morpheus.core.state_authority import state_authority_transaction
 from morpheus.core.verify import verify_receipt_chain
@@ -170,6 +174,7 @@ def build_dataset_provenance(
     source_receipt_id: str | None,
     context_paths: Iterable[str],
     source_receipt_sha256: str | None = None,
+    active_review_authority: dict | None = None,
 ) -> dict:
     """Build the source authority recorded by a v2 dataset manifest."""
     project_root = project_root.expanduser().resolve()
@@ -183,6 +188,7 @@ def build_dataset_provenance(
             "routing_policy_version": ROUTING_POLICY_VERSION,
             "context_paths": sorted(set(context_paths)),
             "review_snapshot": None,
+            "review_authority": active_review_authority,
         }
 
     source_scope = ACCEPTED_REVIEW_SCOPE
@@ -267,9 +273,25 @@ def _capture_active_state_authority_locked(project_root: Path) -> dict:
         raise ValueError("Active-state receipt does not bind evidence.jsonl")
     if receipt.get("wake_md_sha256") != before["hashes"][".morpheus/WAKE.md"]:
         raise ValueError("Active-state receipt does not bind WAKE.md")
+    review_authority = receipt.get("active_state_review_authority")
+    if review_authority is None:
+        raise ValueError(
+            "active_state_review_authority_missing: latest receipt is integrity-only"
+        )
+    candidates = project_active_state_review_candidates(
+        review_authority,
+        state,
+        evidence_rows,
+    )
+    review_authority_summary = active_state_review_authority_summary(
+        review_authority
+    )
     return {
         "state": state,
         "evidence_rows": evidence_rows,
+        "candidates": candidates,
+        "review_authority": review_authority,
+        "review_authority_summary": review_authority_summary,
         "context_hashes": before["hashes"],
         "receipt_id": receipt_id,
         "receipt_sha256": hashlib.sha256(receipt_bytes).hexdigest(),
@@ -661,6 +683,8 @@ def _validate_scope_identity(
         if (
             authority["receipt_id"] != provenance.get("source_receipt_id")
             or authority["receipt_sha256"] != provenance.get("source_receipt_sha256")
+            or authority["review_authority_summary"]
+            != provenance.get("review_authority")
             or not isinstance(manifest.get("source_hashes"), dict)
             or any(
                 manifest["source_hashes"].get(path) != sha256
@@ -859,6 +883,8 @@ def _validate_source_authority(
                 == active_authority["receipt_id"]
                 and provenance.get("source_receipt_sha256")
                 == active_authority["receipt_sha256"]
+                and provenance.get("review_authority")
+                == active_authority["review_authority_summary"]
                 and manifest.get("source_receipt_id")
                 == active_authority["receipt_id"]
             )
@@ -952,69 +978,7 @@ def _validate_source_authority(
 
 
 def _active_authority_candidates(authority: dict) -> list[SemanticCandidate]:
-    state = authority["state"]
-    evidence_by_claim = {
-        str(item.get("claim_id")): item
-        for item in authority["evidence_rows"]
-        if isinstance(item, dict)
-    }
-    candidates = []
-    timestamp = datetime.now(timezone.utc)
-    claims = state.get("claims", []) if isinstance(state, dict) else []
-    for claim in claims:
-        if not isinstance(claim, dict) or claim.get("status", "active") != "active":
-            continue
-        evidence = evidence_by_claim.get(str(claim.get("id")))
-        if not evidence:
-            continue
-        excerpt = str(
-            evidence.get("excerpt") or claim.get("excerpt") or ""
-        ).strip()
-        source_path = str(evidence.get("path") or "")
-        source_sha256 = str(evidence.get("source_sha256") or "")
-        if not excerpt or not source_path or not source_sha256:
-            continue
-        evidence_sha256 = str(evidence.get("excerpt_sha256") or "")
-        if len(evidence_sha256) != 64:
-            evidence_sha256 = hashlib.sha256(excerpt.encode()).hexdigest()
-        candidates.append(route_candidate(SemanticCandidate(
-            id=f"active_{claim.get('id')}",
-            run_id=str(state.get("receipt_id") or "active_state"),
-            kind=_active_claim_kind(str(claim.get("category") or "")),
-            claim=str(claim.get("excerpt") or excerpt),
-            source_path=source_path,
-            source_sha256=source_sha256,
-            source_mtime=timestamp,
-            source_revision=f"state:{state.get('receipt_id') or 'unknown'}",
-            line_start=int(
-                evidence.get("line_start") or claim.get("line_start") or 1
-            ),
-            line_end=int(
-                evidence.get("line_end")
-                or claim.get("line_end")
-                or evidence.get("line_start")
-                or 1
-            ),
-            evidence_excerpt=excerpt,
-            evidence_sha256=evidence_sha256,
-            confidence=1.0,
-            label="source_backed",
-            status="accepted",
-            created_at=timestamp,
-            provider={"name": "active-state", "model": "local"},
-            prompt_sha256="0" * 64,
-        )))
-    return candidates
-
-
-def _active_claim_kind(category: str) -> str:
-    return {
-        "decision": "active_decision",
-        "task": "open_task",
-        "agent_rule": "agent_rule",
-        "source_reference": "source_reference",
-        "outdated": "outdated_claim",
-    }.get(category, "current_state")
+    return list(authority["candidates"])
 
 
 def _expected_authority_dataset(

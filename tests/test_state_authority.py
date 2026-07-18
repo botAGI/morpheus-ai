@@ -93,17 +93,24 @@ def test_semantic_apply_holds_state_lock_before_review_and_through_receipt(
     MorpheusConfig(project_root=tmp_path).init_default()
 
     state, transaction = _lock_probe()
+    review_depth = 0
     original_review_transaction = ReviewStore.transaction
     original_write_receipt = review_module._write_state_receipt
 
     @contextmanager
     def checked_review_transaction(self):
+        nonlocal review_depth
         assert state["depth"] == 1
         with original_review_transaction(self):
-            yield
+            review_depth += 1
+            try:
+                yield
+            finally:
+                review_depth -= 1
 
     def checked_write_receipt(*args, **kwargs):
         assert state["depth"] == 1
+        assert review_depth == 1
         return original_write_receipt(*args, **kwargs)
 
     monkeypatch.setattr(review_module, "state_authority_transaction", transaction)
@@ -114,6 +121,7 @@ def test_semantic_apply_holds_state_lock_before_review_and_through_receipt(
 
     assert result["receipt_id"].startswith("rcpt_")
     assert state["depth"] == 0
+    assert review_depth == 0
 
 
 def test_cli_compile_holds_state_lock_through_signing(tmp_path, monkeypatch):
@@ -170,9 +178,9 @@ def test_api_compile_holds_state_lock_through_signing(tmp_path, monkeypatch):
 
 
 def test_capture_active_state_authority_holds_state_lock(tmp_path, monkeypatch):
-    MorpheusConfig(project_root=tmp_path).init_default()
-    (tmp_path / "README.md").write_text("TODO: capture stable authority\n")
-    api_module.compile(api_module.CompileRequest(project_root=str(tmp_path)))
+    project_root = copy_learning_project(tmp_path)
+    MorpheusConfig(project_root=project_root).init_default()
+    apply_accepted_candidates(project_root)
     state, transaction = _lock_probe()
     original_read_context = dataset_validation_module._read_active_state_context
 
@@ -191,7 +199,7 @@ def test_capture_active_state_authority_holds_state_lock(tmp_path, monkeypatch):
         checked_read_context,
     )
 
-    authority = capture_active_state_authority(tmp_path)
+    authority = capture_active_state_authority(project_root)
 
     assert authority["receipt_id"].startswith("rcpt_")
     assert state["depth"] == 0
