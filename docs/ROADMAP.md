@@ -73,9 +73,12 @@ Dashboard surfaces:
 
 Verified acceptance criteria:
 
-- [x] CLI and UI expose the same quality categories,
-- [x] dashboard can explain why a claim is not trainable,
-- [x] dataset manifests include category counts and top blockers.
+- [x] dataset manifests record class, trainability, and route counts for
+  eligible reviewed candidates,
+- [x] the shared quality report computes per-candidate routing and trainability reasons
+  plus aggregate `top_blockers`,
+- [x] CLI and API expose the shared report; the browser dashboard renders aggregate quality counts, gates, and blockers
+  from `/learning/quality`, not per-claim reasons.
 
 ## v0.5: Adapter Memory Benchmark — Complete In Current Code
 

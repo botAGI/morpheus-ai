@@ -230,6 +230,19 @@ def test_public_roadmap_surfaces_mark_v03_through_v07_complete():
             for line in criteria.splitlines()
             if line.startswith("- ")
         )
+    assert_contains_all(
+        v04,
+        [
+            "dataset manifests record class, trainability, and route counts",
+            "shared quality report computes per-candidate routing and trainability reasons",
+            "aggregate `top_blockers`",
+            "CLI and API expose the shared report",
+            "browser dashboard renders aggregate quality counts, gates, and blockers",
+            "not per-claim reasons",
+        ],
+    )
+    assert "dataset manifests include category counts and top blockers" not in v04
+    assert "dashboard can explain why a claim is not trainable" not in v04
 
     english_surfaces = [
         read_project_file(path)
