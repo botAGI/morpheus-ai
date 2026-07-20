@@ -16,10 +16,10 @@ install-dev:
 	fi
 
 lint:
-	ruff check .
+	$(PYTHON) -m ruff check .
 
 test:
-	pytest tests/ -q
+	$(PYTHON) -m pytest tests/ -q
 
 verify: lint test
 

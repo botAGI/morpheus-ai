@@ -39,6 +39,8 @@ All notable changes to Morpheus will be documented in this file.
 
 ### Fixed
 
+- Made `make verify` run Ruff and Pytest through the project Python so it no
+  longer depends on globally installed tools.
 - Made each team-input batch failure-atomic across receipts, evidence artifacts,
   the shared candidate store, and reports with prepared/committed recovery under
   the shared review lock. Cross-source ID squatting, projection drift, symlink

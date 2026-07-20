@@ -245,6 +245,18 @@ def test_project_has_release_security_and_contributor_docs():
     )
 
 
+def test_make_verify_runs_lint_and_tests_through_project_python():
+    makefile = read_project_file("Makefile")
+
+    assert_contains_all(
+        makefile,
+        [
+            "$(PYTHON) -m ruff check .",
+            "$(PYTHON) -m pytest tests/ -q",
+        ],
+    )
+
+
 def test_changelog_has_current_b2_and_historical_release_sections():
     changelog = read_project_file("CHANGELOG.md")
 
