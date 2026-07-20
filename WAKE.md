@@ -5,7 +5,7 @@ Private projects can keep generated `WAKE.md` inside `.morpheus/`.
 
 ## Current State
 
-Morpheus is a published `v0.2.0b1` beta and is moving toward a verified
+Morpheus is a `v0.2.0b2` beta and is moving toward a verified
 classification-to-training pipeline.
 
 It compiles `WAKE.md`, checks coding-agent claims against local source-backed

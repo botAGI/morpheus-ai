@@ -4,6 +4,8 @@ All notable changes to Morpheus will be documented in this file.
 
 ## [Unreleased]
 
+## [0.2.0b2] - 2026-07-20
+
 ### Added
 
 - Added signed active-state review authority schema

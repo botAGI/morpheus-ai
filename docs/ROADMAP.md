@@ -19,7 +19,7 @@ product.
 
 ## Current Release
 
-`v0.2.0b1` proves the first loop:
+`v0.2.0b2` documents the current beta loop:
 
 ```text
 project sources -> source-backed state -> morpheus check

@@ -14,12 +14,12 @@ distilled into local model weights.
 
 [Русская версия](https://github.com/botAGI/morpheus-ai/blob/main/README.ru.md)
 
-> Status: beta release. Latest GitHub release and beta package: v0.2.0b1. The
+> Status: beta release. Current beta package: v0.2.0b2. The
 > deterministic compiler, local claim checker, receipts, CLI, API, UI
 > launchpad, MCP truth tools, A2A-style discovery, cache-backed integrations,
 > and autonomous learning lab are usable. Local adapter learning is
 > experimental until eval passes; source spans remain the source of truth.
-> Pin `morpheus-wake==0.2.0b1` for v0.2 features; unpinned PyPI tools may still
+> Pin `morpheus-wake==0.2.0b2` for v0.2 features; unpinned PyPI tools may still
 > choose the latest stable v0.1.1 instead of this beta.
 >
 > Latest live dogfood stability gate on main: repeat-2 `ML_CORE_PASS` with 69
@@ -92,19 +92,19 @@ and adapter output is not source of truth.
 Install the v0.2 beta:
 
 ```bash
-uvx --from 'morpheus-wake==0.2.0b1' morpheus wake .
+uvx --from 'morpheus-wake==0.2.0b2' morpheus wake .
 ```
 
 With pipx:
 
 ```bash
-pipx run --spec 'morpheus-wake==0.2.0b1' morpheus wake .
+pipx run --spec 'morpheus-wake==0.2.0b2' morpheus wake .
 ```
 
 For private workspaces:
 
 ```bash
-uvx --from 'morpheus-wake==0.2.0b1' morpheus wake . --private
+uvx --from 'morpheus-wake==0.2.0b2' morpheus wake . --private
 ```
 
 That keeps the compiled state at `.morpheus/WAKE.md`.
@@ -112,9 +112,9 @@ That keeps the compiled state at `.morpheus/WAKE.md`.
 Three-command alpha loop:
 
 ```bash
-uvx --from 'morpheus-wake==0.2.0b1' morpheus wake .
-gh pr view 42 --json body -q .body | uvx --from 'morpheus-wake==0.2.0b1' morpheus check
-uvx --from 'morpheus-wake==0.2.0b1' morpheus learn lab . --no-train
+uvx --from 'morpheus-wake==0.2.0b2' morpheus wake .
+gh pr view 42 --json body -q .body | uvx --from 'morpheus-wake==0.2.0b2' morpheus check
+uvx --from 'morpheus-wake==0.2.0b2' morpheus learn lab . --no-train
 ```
 
 `morpheus learn lab` is experimental. It can use a strict autonomous benchmark

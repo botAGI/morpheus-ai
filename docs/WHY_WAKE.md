@@ -55,7 +55,7 @@ The same primitive works in both cases.
 
 ## What Comes Next
 
-`v0.2.0b1` proves the first source-grounded loop: compile state, check agent
+`v0.2.0b2` documents the current source-grounded loop: compile state, check agent
 claims, build a strict learning dataset, and run a local adapter lab without
 automatic activation.
 

@@ -120,9 +120,9 @@ morpheus-ai/
 ```markdown
 # WAKE.md - Project State
 
-**Compiled:** 2026-05-20T18:14:59Z
-**Receipt:** rcpt_20260520T181459Z_c6e9028d
-**Morpheus:** v0.2.0b1
+**Compiled:** `<timestamp>`
+**Receipt:** `<receipt-id>`
+**Morpheus:** v0.2.0b2
 
 ---
 

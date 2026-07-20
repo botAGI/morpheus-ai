@@ -130,8 +130,8 @@ def test_quickstart_uses_distribution_name_and_morpheus_command():
     assert "](WAKE.md)" not in readme
     assert "](demo/morpheus-demo.gif)" not in readme
     for content in [readme, readme_ru]:
-        assert "uvx --from 'morpheus-wake==0.2.0b1' morpheus wake ." in content
-        assert "pipx run --spec 'morpheus-wake==0.2.0b1' morpheus wake ." in content
+        assert f"uvx --from 'morpheus-wake=={RELEASE_VERSION}' morpheus wake ." in content
+        assert f"pipx run --spec 'morpheus-wake=={RELEASE_VERSION}' morpheus wake ." in content
         assert "python -m pip install -e \".[dev]\"" in content
 
 
@@ -231,10 +231,15 @@ def test_project_has_release_security_and_contributor_docs():
     )
 
 
-def test_changelog_has_v020b1_v011_and_v010_release_sections():
+def test_changelog_has_current_b2_and_historical_release_sections():
     changelog = read_project_file("CHANGELOG.md")
 
     assert "## [Unreleased]" in changelog
+    assert "## [0.2.0b2] - 2026-07-20" in changelog
+    assert changelog.index("## [Unreleased]") < changelog.index("## [0.2.0b2] - 2026-07-20")
+    assert changelog.index("## [0.2.0b2] - 2026-07-20") < changelog.index("## [0.2.0b1] - 2026-05-20")
+    assert "morpheus-active-state-review-authority/1" in changelog
+    assert "morpheus-team-learning/2" in changelog
     assert "## [0.2.0b1] - 2026-05-20" in changelog
     assert "Review-gated semantic compile alpha" in changelog
     assert "Repeat-2 dogfood MLX stability report" in changelog
@@ -245,6 +250,29 @@ def test_changelog_has_v020b1_v011_and_v010_release_sections():
     assert "Removed local testbot path from public AGENTS.md." in changelog
     assert "WAKE.md" in changelog
     assert "morpheus-wake" in changelog
+
+
+def test_v020b2_release_notes_state_beta_boundaries_and_local_gates():
+    notes = read_project_file("docs/release-notes/v0.2.0b2.md")
+
+    assert notes.startswith("# v0.2.0b2 — First verify. Then learn.\n")
+    assert_contains_all(
+        notes,
+        [
+            "`morpheus-active-state-review-authority/1`",
+            "`morpheus-benchmark-categories/1`",
+            "`morpheus-team-learning/2`",
+            "No accepted source span means no training example.",
+            "No eval pass means no adapter activation.",
+            "No rollback means no production use.",
+            "Cloud integrations remain opt-in.",
+            "uvx --from 'morpheus-wake==0.2.0b2' morpheus wake . --private",
+            "ruff check .",
+            "pytest tests/ -q",
+            "morpheus wake . --private",
+            "morpheus verify --all",
+        ],
+    )
 
 
 def test_v010_release_notes_cover_launch_highlights():

@@ -35,8 +35,8 @@ memory helped or hurt without automatic activation.
 
 ## Current Status
 
-- Truth-layer CLI: beta release in `v0.2.0b1`.
-- WAKE compile and receipts: beta release in `v0.2.0b1`.
+- Truth-layer CLI: current beta package `v0.2.0b2`.
+- WAKE compile and receipts: current beta package `v0.2.0b2`.
 - MCP truth tools: beta release after the local live smoke on 2026-05-20.
 - Semantic review: alpha, review-gated.
 - Learning dataset/status/train dry-run: beta release after effective dataset
@@ -47,13 +47,20 @@ memory helped or hurt without automatic activation.
 - Adapter activation/rollback: implemented, but beta release should keep
   activation conservative and explicitly gated.
 
-## Published Beta
+## Current Beta Package
 
-- `v0.2.0b1` is tagged and published.
-- GitHub Release points to `v0.2.0b1`.
-- PyPI contains `morpheus-wake==0.2.0b1`.
+- Pin `morpheus-wake==0.2.0b2` for the current beta package.
+- Current release documentation is `docs/release-notes/v0.2.0b2.md`.
+- Publication evidence belongs in the release record after tag and package
+  verification; this plan does not treat prepared documentation as publication.
+
+## Historical Published Beta
+
+- `v0.2.0b1` was tagged and published on 2026-05-20.
+- The GitHub Release points to historical `v0.2.0b1`.
+- PyPI contains historical `morpheus-wake==0.2.0b1`.
 - `uvx --from 'morpheus-wake==0.2.0b1' morpheus wake . --private` has passed
-  post-publish smoke.
+  historical post-publish smoke.
 
 ## Remaining Beta Work
 

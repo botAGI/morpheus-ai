@@ -30,6 +30,14 @@ The release change updates:
 Historical v0.1 and v0.2.0b1 release notes and dated readiness evidence remain
 unchanged. Open Dependabot pull requests are not part of this release.
 
+## Documentation Status
+
+The public release documentation is prepared for `v0.2.0b2`: the README
+quickstarts, changelog section, release notes, and current-version references
+use the exact package version. This preparation is not publication evidence.
+Final command results, artifact names, and the release SHA are recorded only by
+the release execution task.
+
 ## Version Contract
 
 `morpheus/__init__.py` is the runtime source for `__version__`. Package metadata
