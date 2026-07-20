@@ -9,6 +9,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
+from morpheus import __version__ as MORPHEUS_VERSION
 from morpheus.core.safe_io import reject_symlink_components, reject_symlink_paths
 
 
@@ -152,7 +153,7 @@ def build_receipt(
     if not private_key_path.exists():
         raise FileNotFoundError(f"private signing key not found: {private_key_path}")
 
-    tool_info = {"name": "morpheus", "version": "0.2.0b1"}
+    tool_info = {"name": "morpheus", "version": MORPHEUS_VERSION}
 
     claim_counts = {"active": 0, "superseded": 0, "unverified": 0}
     for c in _list_or_empty(state_dict.get("claims")):

@@ -1,6 +1,6 @@
 [project]
 name = "morpheus-wake"
-version = "0.2.0b1"
+version = "0.2.0b2"
 description = "Source-grounded truth layer for coding agents: verify project claims, compile WAKE.md, and run local learning experiments"
 readme = "README.md"
 requires-python = ">=3.10"

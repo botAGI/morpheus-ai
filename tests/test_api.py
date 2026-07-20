@@ -12,6 +12,7 @@ from morpheus.core.learning.dataset import build_learning_dataset
 from morpheus.core.provenance import build_receipt, compute_sha256_file, receipt_file_name
 from morpheus.core.semantic.review import ReviewStore
 from tests.test_learning_dataset import copy_learning_project
+from tests.test_release_scaffolding import RELEASE_VERSION
 from tests.test_team_learning import accepted_review_candidate, six_source_items
 
 fastapi_testclient = pytest.importorskip(
@@ -61,7 +62,7 @@ def test_health_returns_version():
     response = client.get("/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.2.0b1"}
+    assert response.json() == {"status": "ok", "version": RELEASE_VERSION}
 
 
 def test_cors_preflight_does_not_allow_credentials_for_wildcard_origins():
@@ -88,7 +89,7 @@ def test_well_known_morpheus_manifest_exposes_agent_connect_url():
     assert response.status_code == 200
     payload = response.json()
     assert payload["service"] == "morpheus"
-    assert payload["version"] == "0.2.0b1"
+    assert payload["version"] == RELEASE_VERSION
     assert payload["connect_url"] == "http://testserver/agent/connect"
     assert payload["handoff_url"] == "http://testserver/agent/handoff"
     assert payload["handoff_markdown_url"] == "http://testserver/agent/handoff.md"
@@ -109,10 +110,10 @@ def test_quickstart_endpoint_returns_human_and_agent_launch_plan(tmp_path):
     assert payload["project_root"] == str(tmp_path)
     assert payload["human_path"][0]["id"] == "install"
     assert payload["commands"]["install"][0] == (
-        "uvx --from 'morpheus-wake==0.2.0b1' morpheus wake ."
+        f"uvx --from 'morpheus-wake=={RELEASE_VERSION}' morpheus wake ."
     )
     assert payload["commands"]["install"][1] == (
-        "pipx run --spec 'morpheus-wake==0.2.0b1' morpheus wake ."
+        f"pipx run --spec 'morpheus-wake=={RELEASE_VERSION}' morpheus wake ."
     )
     assert "pip install -e" in payload["commands"]["development_install"][2]
     assert payload["commands"]["run_local"] == (
@@ -155,7 +156,7 @@ def test_a2a_agent_card_endpoint_describes_morpheus_interfaces():
     assert "max-age" in response.headers["cache-control"]
     payload = response.json()
     assert payload["name"] == "Morpheus AI"
-    assert payload["version"] == "0.2.0b1"
+    assert payload["version"] == RELEASE_VERSION
     assert payload["capabilities"]["streaming"] is False
     assert payload["defaultInputModes"] == ["application/json", "text/plain"]
     assert payload["defaultOutputModes"] == ["application/json", "text/markdown", "text/plain"]

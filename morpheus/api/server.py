@@ -14,6 +14,8 @@ from urllib.parse import urlencode, urlsplit, urlunsplit
 from pydantic import BaseModel, Field
 import toml
 
+from morpheus import __version__ as MORPHEUS_VERSION
+
 try:
     from fastapi import Body, FastAPI, HTTPException, Request
     from fastapi.middleware.cors import CORSMiddleware
@@ -87,7 +89,7 @@ WILDCARD_HOSTS = {"0.0.0.0", "::", ""}
 app = FastAPI(
     title="Morpheus API",
     description="Agent State Compiler API",
-    version="0.2.0b1"
+    version=MORPHEUS_VERSION,
 )
 
 app.add_middleware(
@@ -381,7 +383,7 @@ def project_config_payload(project_root: Path) -> dict:
 
     return {
         "service": "morpheus",
-        "version": "0.2.0b1",
+        "version": MORPHEUS_VERSION,
         "project_root": str(project_root),
         "initialized": initialized,
         "config_path": str(morpheus_dir / "morpheus.toml"),
@@ -458,14 +460,14 @@ def quickstart_payload(request: Request, project_root: Path) -> dict:
     mcp_url = f"{api_base}/mcp"
     return {
         "service": "morpheus",
-        "version": "0.2.0b1",
+        "version": MORPHEUS_VERSION,
         "project_root": str(project_root),
         "ui_url": ui_url,
         "commands": {
             "clone": "git clone https://github.com/botAGI/morpheus-ai && cd morpheus-ai",
             "install": [
-                "uvx --from 'morpheus-wake==0.2.0b1' morpheus wake .",
-                "pipx run --spec 'morpheus-wake==0.2.0b1' morpheus wake .",
+                f"uvx --from 'morpheus-wake=={MORPHEUS_VERSION}' morpheus wake .",
+                f"pipx run --spec 'morpheus-wake=={MORPHEUS_VERSION}' morpheus wake .",
             ],
             "development_install": [
                 "python3 -m venv .venv",
@@ -542,7 +544,7 @@ def a2a_agent_card_payload(request: Request) -> dict:
             {
                 "url": f"{api_base}/agent/connect",
                 "protocolBinding": "https://morpheus.ai/protocols/agent-connect/v1",
-                "protocolVersion": "0.2.0b1",
+                "protocolVersion": MORPHEUS_VERSION,
             },
             {
                 "url": f"{api_base}/mcp",
@@ -554,7 +556,7 @@ def a2a_agent_card_payload(request: Request) -> dict:
             "organization": "Morpheus AI",
             "url": api_base,
         },
-        "version": "0.2.0b1",
+        "version": MORPHEUS_VERSION,
         "documentationUrl": f"{api_base}/.well-known/morpheus.json",
         "capabilities": {
             "streaming": False,
@@ -748,7 +750,7 @@ def agent_connect_payload(request: Request, project_root: Path) -> dict:
         next_action = prepare_agent_action(api_base, project_root)
     return {
         "service": "morpheus",
-        "version": "0.2.0b1",
+        "version": MORPHEUS_VERSION,
         "api_base": api_base,
         "project_root": project_root_text,
         "state": state,
@@ -1200,7 +1202,7 @@ def mcp_payload(request: Request, payload: dict) -> dict | None:
                 "serverInfo": {
                     "name": "morpheus",
                     "title": "Morpheus AI",
-                    "version": "0.2.0b1",
+                    "version": MORPHEUS_VERSION,
                     "description": "Agent State Compiler with verifiable provenance.",
                 },
                 "instructions": (
@@ -1331,7 +1333,7 @@ def diagnostics_payload(request: Request, project_root: Path) -> dict:
 
     return {
         "service": "morpheus",
-        "version": "0.2.0b1",
+        "version": MORPHEUS_VERSION,
         "api_base": api_base,
         "project_root": str(project_root),
         "cwd": str(Path.cwd()),
@@ -1458,7 +1460,7 @@ def agent_handoff_payload(request: Request, project_root: Path) -> dict:
     }
     payload = {
         "service": "morpheus",
-        "version": "0.2.0b1",
+        "version": MORPHEUS_VERSION,
         "api_base": api_base,
         "project_root": str(project_root),
         "manifest": agent_connect_payload(request, project_root),
@@ -1554,7 +1556,7 @@ def agent_prepare_payload(request: Request, project_root: Path) -> dict:
 
     return {
         "service": "morpheus",
-        "version": "0.2.0b1",
+        "version": MORPHEUS_VERSION,
         "api_base": api_base_url(request),
         "project_root": project_root_text,
         "steps": steps,
@@ -1661,7 +1663,7 @@ def write_agent_bootstrap(request: Request, project_root: Path) -> AgentBootstra
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "0.2.0b1"}
+    return {"status": "ok", "version": MORPHEUS_VERSION}
 
 
 @app.get("/.well-known/morpheus.json")
@@ -1670,7 +1672,7 @@ def well_known_morpheus(request: Request):
     api_base = api_base_url(request)
     return {
         "service": "morpheus",
-        "version": "0.2.0b1",
+        "version": MORPHEUS_VERSION,
         "description": "Agent State Compiler with verifiable provenance",
         "connect_url": f"{api_base}/agent/connect",
         "handoff_url": f"{api_base}/agent/handoff",

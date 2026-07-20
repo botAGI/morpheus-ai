@@ -3,6 +3,7 @@ Machine-readable integration manifest for CLI, API, UI, and agents.
 """
 from pathlib import Path
 
+from morpheus import __version__ as MORPHEUS_VERSION
 from morpheus.core.safe_io import reject_symlink_components
 
 
@@ -97,7 +98,7 @@ def integration_manifest(home: Path | None = None) -> dict:
     ]
     return {
         "service": "morpheus",
-        "version": "0.2.0b1",
+        "version": MORPHEUS_VERSION,
         "home": str(morpheus_home),
         "services": services,
     }

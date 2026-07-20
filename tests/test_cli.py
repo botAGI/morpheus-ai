@@ -23,6 +23,7 @@ from morpheus.core.command_contract import (
 from morpheus.core.provenance import build_receipt, compute_sha256_file, receipt_file_name
 from morpheus.core.semantic.review import ReviewStore
 from tests.test_learning_dataset import copy_learning_project
+from tests.test_release_scaffolding import RELEASE_VERSION
 from tests.test_team_learning import accepted_review_candidate, six_source_items
 
 
@@ -136,7 +137,7 @@ def test_package_module_entrypoint_runs_cli_version():
     )
 
     assert result.returncode == 0, result.stderr
-    assert "Morpheus AI v0.2.0b1" in result.stdout
+    assert f"Morpheus AI v{RELEASE_VERSION}" in result.stdout
 
 
 def test_version_json_outputs_machine_readable_payload():
@@ -145,7 +146,7 @@ def test_version_json_outputs_machine_readable_payload():
     assert result.exit_code == 0, result.output
     assert json.loads(result.output) == {
         "service": "morpheus",
-        "version": "0.2.0b1",
+        "version": RELEASE_VERSION,
     }
 
 
@@ -153,7 +154,7 @@ def test_root_version_option_outputs_version():
     result = CliRunner().invoke(app, ["--version"])
 
     assert result.exit_code == 0, result.output
-    assert "Morpheus AI v0.2.0b1" in result.output
+    assert f"Morpheus AI v{RELEASE_VERSION}" in result.output
 
 
 def write_out_of_filename_order_receipt_chain(morpheus_dir: Path):

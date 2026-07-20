@@ -22,6 +22,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 
+from morpheus import __version__ as MORPHEUS_VERSION
 from morpheus.core.config import MorpheusConfig
 from morpheus.core.compiler import DEFAULT_EXCLUDE_PATTERNS, compile_project
 from morpheus.core.check import (
@@ -188,9 +189,7 @@ def root(
 ):
     """Run morpheus commands."""
     if version_option:
-        from morpheus import __version__
-
-        console.print(f"Morpheus AI v{__version__}")
+        console.print(f"Morpheus AI v{MORPHEUS_VERSION}")
         raise typer.Exit()
     if ctx.invoked_subcommand is None:
         console.print(ctx.get_help())
@@ -2007,7 +2006,7 @@ def check(
 
     if semantic:
         console.print(
-            "[red]Semantic check provider is not available in v0.2.0b1.[/red] "
+            "[red]Semantic check provider is not available in this release.[/red] "
             "Use local default or --local."
         )
         raise typer.Exit(2)
@@ -2379,13 +2378,11 @@ def version(
     json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON"),
 ):
     """Show morpheus version."""
-    from morpheus import __version__
-
     if json_output:
-        console.print(json.dumps({"service": "morpheus", "version": __version__}))
+        console.print(json.dumps({"service": "morpheus", "version": MORPHEUS_VERSION}))
         return
 
-    console.print(f"Morpheus AI v{__version__}")
+    console.print(f"Morpheus AI v{MORPHEUS_VERSION}")
 
 
 def main() -> None:

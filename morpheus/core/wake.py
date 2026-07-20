@@ -3,6 +3,7 @@ WAKE.md generator.
 """
 from datetime import datetime, timezone
 
+from morpheus import __version__ as MORPHEUS_VERSION
 from morpheus.core.models import ProjectState
 
 
@@ -25,7 +26,7 @@ def generate_wake_md(state: ProjectState, receipt_id: str) -> str:
         "",
         f"**Compiled:** {compiled_at}",
         f"**Receipt:** {receipt_id}",
-        "**Morpheus:** v0.2.0b1",
+        f"**Morpheus:** v{MORPHEUS_VERSION}",
         "",
         "---",
         "",

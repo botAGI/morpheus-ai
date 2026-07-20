@@ -2,7 +2,14 @@ from pathlib import Path
 import os
 
 
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
+    import tomli as tomllib
+
+
 ROOT = Path(__file__).resolve().parents[1]
+RELEASE_VERSION = "0.2.0b2"
 
 
 def read_project_file(relative_path: str) -> str:
@@ -14,6 +21,14 @@ def read_project_file(relative_path: str) -> str:
 def assert_contains_all(content: str, snippets: list[str]) -> None:
     missing = [snippet for snippet in snippets if snippet not in content]
     assert not missing, f"Missing expected snippets: {missing}"
+
+
+def test_package_and_runtime_versions_match_release_contract():
+    from morpheus import __version__
+
+    project = tomllib.loads(read_project_file("pyproject.toml"))
+    assert project["project"]["version"] == RELEASE_VERSION
+    assert __version__ == RELEASE_VERSION
 
 
 def test_ci_workflow_runs_lint_tests_and_package_build():
@@ -60,11 +75,33 @@ def test_release_workflow_uses_trusted_publishing_without_pypi_token():
     assert "password:" not in workflow
 
 
+def test_release_workflow_verifies_tag_and_quality_before_publishing():
+    workflow = read_project_file(".github/workflows/release.yml")
+
+    required_steps = [
+        "name: Install package and release tooling",
+        'python -m pip install -e ".[dev]" build twine',
+        "name: Verify tag matches package version",
+        "github.ref_type == 'tag'",
+        "github.ref_name",
+        "import tomllib",
+        "ruff check .",
+        "pytest tests/ -q",
+        "python -m build",
+        "python -m twine check dist/*",
+    ]
+    assert_contains_all(workflow, required_steps)
+
+    publish_job = workflow.index("publish-pypi:")
+    for snippet in required_steps:
+        assert workflow.index(snippet) < publish_job
+
+
 def test_distribution_name_avoids_existing_pypi_project():
     pyproject = read_project_file("pyproject.toml")
 
     assert 'name = "morpheus-wake"' in pyproject
-    assert 'version = "0.2.0b1"' in pyproject
+    assert f'version = "{RELEASE_VERSION}"' in pyproject
     assert 'name = "morpheus-ai"' not in pyproject
     assert 'morpheus = "morpheus.cli:app"' in pyproject
     assert '"typer>=0.12.0,<0.26"' in pyproject
