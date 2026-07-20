@@ -112,3 +112,43 @@ without publishing from a dirty or unreviewed tree. If PyPI has accepted any
 `0.2.0b2` artifact, that version is immutable; a corrected package uses the next
 beta version instead of replacing files. A GitHub Release creation failure may
 be retried for the same immutable tag after the PyPI state is verified.
+
+## Local Release Gate Evidence
+
+The gated pre-evidence source commit was
+`27b45ae643793f71b03b041b18ddfd1a1ec98b40`. The tracked tree and
+`git diff --check` were clean before the gate. The following commands completed
+successfully against that source tree on 2026-07-20:
+
+- `.venv/bin/ruff check .`;
+- `.venv/bin/pytest tests/ -q`: 1391 passed and 1 skipped;
+- `.venv/bin/morpheus stale .`: no stale launch-positioning claims;
+- `.venv/bin/morpheus compile`: 512 claims from 223 sources, receipt
+  `rcpt_20260720T162445Z_30b5dd34`;
+- `.venv/bin/morpheus diagnostics --json`: version `0.2.0b2`, initialized and
+  compiled state, and all six diagnostic checks reported `ok: true`;
+- `.venv/bin/morpheus agent-connect --json`: version `0.2.0b2`, initialized and
+  compiled state, and `next_action.id` equal to `handoff`;
+- `.venv/bin/morpheus wake . --private`: receipt
+  `rcpt_20260720T162500Z_3cb29b5b`;
+- `.venv/bin/morpheus verify --all`: the 217-receipt chain was valid and all
+  signatures were verified;
+- `make verify`: Ruff passed and the nested suite reported 1391 passed and 1
+  skipped;
+- `make build` and `.venv/bin/python -m twine check dist/*`: both distributions
+  built and passed Twine validation.
+
+The exact local artifact filenames were
+`morpheus_wake-0.2.0b2-py3-none-any.whl` and
+`morpheus_wake-0.2.0b2.tar.gz`. The wheel `METADATA` and sdist `PKG-INFO` both
+reported package name `morpheus-wake` and version `0.2.0b2`. Installing the
+wheel and its dependencies into a disposable `mktemp`-based virtual environment
+and invoking `morpheus --version` produced exactly `Morpheus AI v0.2.0b2`.
+
+A tracked Git commit cannot self-embed its own content-addressed SHA: adding the
+SHA changes the commit contents and therefore changes that SHA. For that reason,
+this tracked evidence records the gated pre-evidence source commit. The final
+release commit is instead identified after this evidence commit is created and
+must be verified by exact-SHA local gates, GitHub `main` CI, and the eventual tag
+target. This section does not claim that GitHub CI has passed, that a tag exists,
+or that any artifact has been published.
