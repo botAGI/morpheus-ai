@@ -30,7 +30,7 @@ It can compile state, check agent claims, expose MCP truth tools, generate
 source-backed datasets, run local MLX adapter experiments, and report whether
 learning helped or hurt. Adapter activation remains explicit and eval-gated.
 
-## v0.3: Semantic Classifier As Product Core
+## v0.3: Semantic Classifier As Product Core — Complete In Current Code
 
 Goal: turn source-backed extraction into a useful project-knowledge classifier.
 
@@ -47,14 +47,15 @@ Claim classes:
 - open tasks
 - temporary facts
 
-Acceptance criteria:
+Verified acceptance criteria:
 
-- every candidate has a class, source span, confidence, and trainability status,
-- classifier output is deterministic enough for review diffs,
-- stale and temporary facts are never promoted as stable training facts,
-- `morpheus check` can report class-specific results.
+- [x] every candidate has a class, source span, confidence, and trainability
+  status,
+- [x] classifier output is deterministic enough for review diffs,
+- [x] stale and temporary facts are never promoted as stable training facts,
+- [x] `morpheus check` can report class-specific results.
 
-## v0.4: Dataset Quality Dashboard
+## v0.4: Dataset Quality Dashboard — Complete In Current Code
 
 Goal: show what Morpheus believes is trainable, retrievable, stale, unsafe, or
 review-blocked.
@@ -70,11 +71,11 @@ Dashboard surfaces:
 - eval-only examples
 - source coverage and missing evidence
 
-Acceptance criteria:
+Verified acceptance criteria:
 
-- CLI and UI expose the same quality categories,
-- dashboard can explain why a claim is not trainable,
-- dataset manifests include category counts and top blockers.
+- [x] CLI and UI expose the same quality categories,
+- [x] dashboard can explain why a claim is not trainable,
+- [x] dataset manifests include category counts and top blockers.
 
 ## v0.5: Adapter Memory Benchmark — Complete In Current Code
 
@@ -118,7 +119,7 @@ and exact dataset authority. A legacy or mismatched manifest, eval, or category
 schema requires rebuilding the dataset and rerunning base and adapter evals.
 Editing old artifacts cannot create activation authority.
 
-## v0.6: Agent Memory Routing — Complete in Current Code
+## v0.6: Agent Memory Routing — Complete In Current Code
 
 Goal: route each fact to the right memory channel.
 
@@ -172,6 +173,10 @@ Verified acceptance criteria:
   span, projection integrity, and an optional digest without automatic apply,
 - [x] receipts, candidate artifacts, the shared candidate store, and reports
   commit as one recoverable transition before any other shared review mutation.
+
+The completion labels above describe the current beta implementation and its
+repository tests, not stable maturity or broad proof across real repositories.
+No milestone after v0.7 is currently defined.
 
 ## Non-Goals
 

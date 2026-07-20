@@ -463,10 +463,10 @@ Local tokens and caches should stay outside the repository by default.
 Morpheus should not evolve into another generic review bot. The product core is
 a verified classification-to-training pipeline:
 
-- **v0.3 Semantic classifier**: classify source-backed claims as architecture,
+- **v0.3 Semantic classifier (complete in current code)**: classify source-backed claims as architecture,
   implementation, product identity, security, command facts, integration facts,
   stale claims, team conventions, open tasks, or temporary facts.
-- **v0.4 Dataset quality dashboard**: expose trainable, retrievable, stale,
+- **v0.4 Dataset quality dashboard (complete in current code)**: expose trainable, retrievable, stale,
   unsafe, needs-review, negative, and eval-only state.
 - **v0.5 Adapter memory benchmark (complete in current code)**: evaluate product
   identity, commands, architecture, safety rules, team conventions, stale
@@ -483,6 +483,10 @@ a verified classification-to-training pipeline:
   corrections. It reconciles existing review authority or creates pending
   correction candidates without automatic training, acceptance, apply, or
   adapter activation.
+
+These completion labels describe the current beta implementation and its
+repository tests, not stable maturity or broad proof across real repositories.
+No milestone after v0.7 is currently defined.
 
 The public claim is not "fine-tune an AI model on your codebase." The claim is:
 Morpheus builds a verified learning layer for agents, classifies project

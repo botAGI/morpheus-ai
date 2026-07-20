@@ -53,19 +53,26 @@ morpheus wake . --private
 
 The same primitive works in both cases.
 
-## What Comes Next
+## Current Beta Pipeline
 
 `v0.2.0b2` documents the current source-grounded loop: compile state, check agent
 claims, build a strict learning dataset, and run a local adapter lab without
 automatic activation.
 
-The next step is not another review bot. It is a verified
-classification-to-training pipeline:
+The current beta implements the verified classification-to-training pipeline:
 
-- classify project knowledge by kind and safety,
-- decide what is trainable, retrievable, stale, unsafe, or eval-only,
-- benchmark adapter memory by category,
-- route each accepted fact to prompt, retrieval, training, eval, or review,
-- turn team corrections into continual learning candidates.
+- **v0.3 — complete in the current code**: classify project knowledge by kind
+  and safety.
+- **v0.4 — complete in the current code**: decide what is trainable,
+  retrievable, stale, unsafe, or eval-only.
+- **v0.5 — complete in the current code**: benchmark adapter memory by category.
+- **v0.6 — complete in the current code**: route each accepted fact to prompt,
+  retrieval, training, eval, or review.
+- **v0.7 — complete in the current code**: turn team corrections into reviewed
+  continual-learning candidates without automatic activation.
+
+These completion labels describe the current beta implementation and repository
+tests, not stable maturity or broad proof across real repositories.
+No milestone after v0.7 is currently defined.
 
 The invariant stays the same: agents can continue, and humans can verify.

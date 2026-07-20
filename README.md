@@ -61,13 +61,15 @@ Private projects can keep `WAKE.md` inside `.morpheus/`.
 
 ## Roadmap
 
-Morpheus is not trying to become another review bot. The next product axis is a
-verified classification-to-training pipeline:
+Morpheus is not trying to become another review bot. The current beta implements
+the verified classification-to-training pipeline in the current code:
 
-- **v0.3**: semantic classifier for architecture, implementation, product,
-  security, command, integration, stale, convention, task, and temporary facts.
-- **v0.4**: dataset quality dashboard for trainable, retrievable, stale,
-  unsafe, needs-review, negative, and eval-only claims.
+- **v0.3 (complete in the current code)**: semantic classifier for architecture,
+  implementation, product, security, command, integration, stale, convention,
+  task, and temporary facts.
+- **v0.4 (complete in the current code)**: dataset quality dashboard for
+  trainable, retrievable, stale, unsafe, needs-review, negative, and eval-only
+  claims.
 - **v0.5 (complete in the current code)**: canonical adapter memory benchmark
   with category-level base-vs-adapter deltas and activation/rollback gates.
 - **v0.6 (complete in the current code)**: audited routing
@@ -82,6 +84,10 @@ verified classification-to-training pipeline:
   by the local ingestion policy receives a content-addressed local receipt;
   new correction candidates are created pending and the loop never auto-trains or
   activates an adapter.
+
+These completion labels describe the current beta implementation and repository
+tests, not stable maturity or broad proof across real repositories.
+No milestone after v0.7 is currently defined.
 
 See [docs/ROADMAP.md](docs/ROADMAP.md). The invariant stays strict: no accepted
 source span means no training example, no eval pass means no adapter activation,

@@ -39,6 +39,9 @@ All notable changes to Morpheus will be documented in this file.
 
 ### Fixed
 
+- Made `docs/RELEASE.md` the canonical strict release protocol and aligned
+  public roadmap status with the completed-in-current-code v0.3-v0.7 beta
+  implementation.
 - Made `make verify` run Ruff and Pytest through the project Python so it no
   longer depends on globally installed tools.
 - Made each team-input batch failure-atomic across receipts, evidence artifacts,

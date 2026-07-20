@@ -62,13 +62,14 @@ adapter memory.
 
 ## Roadmap
 
-Morpheus не пытается стать ещё одним review bot. Следующая продуктовая ось -
-verified classification-to-training pipeline:
+Morpheus не пытается стать ещё одним review bot. Текущая beta реализует
+verified classification-to-training pipeline в текущем коде:
 
-- **v0.3**: semantic classifier для architecture, implementation, product,
-  security, command, integration, stale, convention, task и temporary facts.
-- **v0.4**: dataset quality dashboard для trainable, retrievable, stale, unsafe,
-  needs-review, negative и eval-only claims.
+- **v0.3 (завершён в текущем коде)**: semantic classifier для architecture,
+  implementation, product, security, command, integration, stale, convention,
+  task и temporary facts.
+- **v0.4 (завершён в текущем коде)**: dataset quality dashboard для trainable,
+  retrievable, stale, unsafe, needs-review, negative и eval-only claims.
 - **v0.5 (завершён в текущем коде)**: canonical adapter memory benchmark с
   category-level base-vs-adapter deltas и activation/rollback gates.
 - **v0.6 (завершён в текущем коде)**: audited
@@ -84,6 +85,10 @@ verified classification-to-training pipeline:
   принятый local ingestion policy, получает content-addressed local receipt;
   новые correction candidates создаются со статусом pending, а loop никогда
   автоматически не обучает и не активирует adapter.
+
+Эти отметки о завершении описывают текущую beta-реализацию и тесты репозитория,
+а не stable maturity или широкую проверку на реальных репозиториях.
+После v0.7 следующий milestone пока не определён.
 
 См. [docs/ROADMAP.md](docs/ROADMAP.md). Инвариант строгий: нет accepted source
 span - нет training example, нет успешного eval - нет adapter activation, а

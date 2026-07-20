@@ -5,8 +5,8 @@ Private projects can keep generated `WAKE.md` inside `.morpheus/`.
 
 ## Current State
 
-Morpheus is a `v0.2.0b2` beta and is moving toward a verified
-classification-to-training pipeline.
+Morpheus is a `v0.2.0b2` beta with the verified classification-to-training
+pipeline implemented in the current code.
 
 It compiles `WAKE.md`, checks coding-agent claims against local source-backed
 state, and can run a local experiment that turns strictly accepted claims into a
@@ -87,14 +87,17 @@ category deltas, and all/critical regression counts or lists.
 
 ## Roadmap Launch Order
 
-1. v0.3 semantic classifier as product core.
-2. v0.4 dataset quality dashboard.
+1. v0.3 semantic classifier as product core — complete in current code.
+2. v0.4 dataset quality dashboard — complete in current code.
 3. v0.5 adapter memory benchmark — complete in the current code.
 4. v0.6 agent memory routing — complete in the current code; signed review-apply
    receipts bind exact candidate-to-claim/evidence authority, while ordinary
    compile/wake receipts remain integrity-only.
 5. v0.7 team learning loop — complete in the current code with one idempotent,
    receipt-backed path for all six reviewed team input types.
+
+These completion labels describe the current beta implementation and repository
+tests, not stable maturity or broad proof across real repositories.
 
 ## Next Product Work
 

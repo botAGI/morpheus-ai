@@ -92,19 +92,44 @@ Open `http://127.0.0.1:5173/ui/index.html` and check:
 
 ## Package Gate
 
-Run before tags and releases:
+Run this complete local gate before tags and releases. The
+[canonical release sequence](RELEASE.md) defines the ordering, artifact checks,
+exact-SHA CI gate, and immutable publish protocol:
 
 ```bash
+.venv/bin/ruff check .
+.venv/bin/pytest tests/ -q
+.venv/bin/morpheus stale .
+.venv/bin/morpheus compile
+sed -n '1,240p' WAKE.md
+.venv/bin/morpheus diagnostics --json
+.venv/bin/morpheus agent-connect --json
+.venv/bin/morpheus wake . --private
+.venv/bin/morpheus verify --all
 make verify
 make build
+.venv/bin/python -m twine check dist/*
 ```
 
 Expected result:
 
 - lint passes,
 - all tests pass,
+- stale reports no stale launch-positioning claims,
+- compile succeeds and the curated `WAKE.md` has been read,
+- diagnostics and agent-connect return healthy machine-readable state,
+- private wake succeeds and receipt verification passes,
 - source distribution and wheel build,
-- `twine check dist/*` passes.
+- standalone `twine check dist/*` passes,
+- wheel `morpheus_wake-*.dist-info/METADATA` and sdist `PKG-INFO` both report
+  `morpheus-wake==0.2.0b2`,
+- an isolated wheel install prints exactly `Morpheus AI v0.2.0b2`.
+
+Use the artifact-inspection and isolated-wheel commands from the canonical
+guide. Push the verified release commit to `main`; GitHub CI must be green for
+the exact commit SHA. The required jobs are Python 3.10, Python 3.11,
+Python 3.12, and Package build. All must pass before an annotated tag is created
+or pushed.
 
 ## Published Package Smoke
 

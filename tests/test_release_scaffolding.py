@@ -23,6 +23,18 @@ def assert_contains_all(content: str, snippets: list[str]) -> None:
     assert not missing, f"Missing expected snippets: {missing}"
 
 
+def workflow_job_section(workflow: str, job_name: str) -> str:
+    marker = f"  {job_name}:\n"
+    lines = workflow.splitlines(keepends=True)
+    start = lines.index(marker)
+    end = len(lines)
+    for index, line in enumerate(lines[start + 1:], start + 1):
+        if line.startswith("  ") and not line.startswith("    "):
+            end = index
+            break
+    return "".join(lines[start:end])
+
+
 def test_package_and_runtime_versions_match_release_contract():
     from morpheus import __version__
 
@@ -55,6 +67,7 @@ def test_ci_workflow_runs_lint_tests_and_package_build():
 
 def test_release_workflow_uses_trusted_publishing_without_pypi_token():
     workflow = read_project_file(".github/workflows/release.yml")
+    publish_job = workflow_job_section(workflow, "publish-pypi")
 
     assert_contains_all(
         workflow,
@@ -73,6 +86,12 @@ def test_release_workflow_uses_trusted_publishing_without_pypi_token():
     assert "morpheus-ai" not in workflow
     assert "PYPI_TOKEN" not in workflow
     assert "password:" not in workflow
+    assert "needs: build" in publish_job
+    assert (
+        "if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')"
+        in publish_job
+    )
+    assert "pypa/gh-action-pypi-publish@release/v1" in publish_job
 
 
 def test_release_workflow_verifies_tag_and_quality_before_publishing():
@@ -95,6 +114,162 @@ def test_release_workflow_verifies_tag_and_quality_before_publishing():
     publish_job = workflow.index("publish-pypi:")
     for snippet in required_steps:
         assert workflow.index(snippet) < publish_job
+
+
+def test_release_docs_define_canonical_strict_pre_tag_and_publish_protocol():
+    release = read_project_file("docs/RELEASE.md")
+    testing = read_project_file("docs/TESTING.md")
+
+    assert_contains_all(
+        release,
+        [
+            ".venv/bin/ruff check .",
+            ".venv/bin/pytest tests/ -q",
+            ".venv/bin/morpheus stale .",
+            ".venv/bin/morpheus compile",
+            "sed -n '1,240p' WAKE.md",
+            ".venv/bin/morpheus diagnostics --json",
+            ".venv/bin/morpheus agent-connect --json",
+            ".venv/bin/morpheus wake . --private",
+            ".venv/bin/morpheus verify --all",
+            "make verify",
+            "make build",
+            ".venv/bin/python -m twine check dist/*",
+            "morpheus_wake-*.dist-info/METADATA",
+            f"Morpheus AI v{RELEASE_VERSION}",
+            "Push the verified release commit to `main`",
+            "exact commit SHA",
+            "Python 3.10",
+            "Python 3.11",
+            "Python 3.12",
+            "Package build",
+            "before creating or pushing an annotated tag",
+            "tag -> tag workflow -> verify PyPI wheel and sdist -> "
+            "GitHub Release -> pinned post-publish smoke",
+            "Never reuse a public tag",
+            "Never replace an artifact accepted by PyPI",
+        ],
+    )
+    assert_contains_all(
+        testing,
+        [
+            "[canonical release sequence](RELEASE.md)",
+            ".venv/bin/ruff check .",
+            ".venv/bin/pytest tests/ -q",
+            ".venv/bin/morpheus stale .",
+            ".venv/bin/morpheus compile",
+            "sed -n '1,240p' WAKE.md",
+            ".venv/bin/morpheus diagnostics --json",
+            ".venv/bin/morpheus agent-connect --json",
+            ".venv/bin/morpheus wake . --private",
+            ".venv/bin/morpheus verify --all",
+            "make verify",
+            "make build",
+            ".venv/bin/python -m twine check dist/*",
+            "morpheus_wake-*.dist-info/METADATA",
+            f"Morpheus AI v{RELEASE_VERSION}",
+            "Push the verified release commit to `main`",
+            "exact commit SHA",
+            "Python 3.10",
+            "Python 3.11",
+            "Python 3.12",
+            "Package build",
+        ],
+    )
+
+
+def test_public_roadmap_surfaces_mark_v03_through_v07_complete():
+    expected_markers = {
+        "README.md": [
+            f"**v0.{minor} (complete in the current code)**"
+            for minor in range(3, 8)
+        ],
+        "README.ru.md": [
+            f"**v0.{minor} (завершён в текущем коде)**"
+            for minor in range(3, 8)
+        ],
+        "SPEC.md": [
+            "**v0.3 Semantic classifier (complete in current code)**",
+            "**v0.4 Dataset quality dashboard (complete in current code)**",
+            "**v0.5 Adapter memory benchmark (complete in current code)**",
+            "**v0.6 Agent memory routing (complete in current code)**",
+            "**v0.7 Team learning loop (complete in current code)**",
+        ],
+        "docs/ROADMAP.md": [
+            "## v0.3: Semantic Classifier As Product Core — Complete In Current Code",
+            "## v0.4: Dataset Quality Dashboard — Complete In Current Code",
+            "## v0.5: Adapter Memory Benchmark — Complete In Current Code",
+            "## v0.6: Agent Memory Routing — Complete In Current Code",
+            "## v0.7: Team Learning Loop — Complete In Current Code",
+        ],
+        "docs/WHY_WAKE.md": [
+            f"**v0.{minor} — complete in the current code**"
+            for minor in range(3, 8)
+        ],
+        "WAKE.md": [
+            f"v0.{minor}" for minor in range(3, 8)
+        ] + [
+            "1. v0.3 semantic classifier as product core — complete in current code.",
+            "2. v0.4 dataset quality dashboard — complete in current code.",
+        ],
+    }
+
+    for relative_path, markers in expected_markers.items():
+        content = read_project_file(relative_path)
+        assert_contains_all(content, markers)
+
+    roadmap = read_project_file("docs/ROADMAP.md")
+    v03 = roadmap.split("## v0.3:", 1)[1].split("## v0.4:", 1)[0]
+    v04 = roadmap.split("## v0.4:", 1)[1].split("## v0.5:", 1)[0]
+    for section in [v03, v04]:
+        assert "Verified acceptance criteria:" in section
+        criteria = section.split("Verified acceptance criteria:", 1)[1]
+        assert "- [x]" in criteria
+        assert all(
+            line.startswith("- [x]")
+            for line in criteria.splitlines()
+            if line.startswith("- ")
+        )
+
+    english_surfaces = [
+        read_project_file(path)
+        for path in [
+            "README.md",
+            "SPEC.md",
+            "docs/ROADMAP.md",
+            "docs/WHY_WAKE.md",
+            "WAKE.md",
+        ]
+    ]
+    for content in english_surfaces:
+        assert "No milestone after v0.7 is currently defined." in content
+
+    assert "После v0.7 следующий milestone пока не определён." in read_project_file(
+        "README.ru.md"
+    )
+
+
+def test_public_roadmap_surfaces_do_not_call_implemented_pipeline_the_next_step():
+    surfaces = [
+        read_project_file(path).casefold()
+        for path in [
+            "README.md",
+            "README.ru.md",
+            "SPEC.md",
+            "docs/ROADMAP.md",
+            "docs/WHY_WAKE.md",
+            "WAKE.md",
+        ]
+    ]
+
+    for content in surfaces:
+        assert "next product axis" not in content
+        assert "the next step is" not in content
+        assert (
+            "moving toward a verified classification-to-training pipeline"
+            not in content
+        )
+        assert "следующая продуктовая ось" not in content
 
 
 def test_distribution_name_avoids_existing_pypi_project():
