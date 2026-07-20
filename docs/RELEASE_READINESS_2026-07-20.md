@@ -9,8 +9,8 @@ still requires broader real-repository and no-regression evidence before a
 stable `v0.2.0` release. Roadmap labels v0.3 through v0.7 describe product
 milestones and do not determine the Python package version.
 
-The release contains the 17 commits after `v0.2.0b1`, including the semantic
-quality and benchmark work, guarded adapter activation and rollback authority,
+The release contains the work since `v0.2.0b1`, including the semantic quality
+and benchmark work, guarded adapter activation and rollback authority,
 canonical memory routing, signed active-state review authority, and the unified
 six-source reviewed team-learning input path.
 

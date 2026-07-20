@@ -135,6 +135,20 @@ def test_quickstart_uses_distribution_name_and_morpheus_command():
         assert "python -m pip install -e \".[dev]\"" in content
 
 
+def test_current_docs_distinguish_package_version_from_release_tag():
+    readme = read_project_file("README.md")
+    readme_ru = read_project_file("README.ru.md")
+    beta_exit = read_project_file("docs/BETA_EXIT_PLAN.md")
+    readiness = read_project_file("docs/RELEASE_READINESS_2026-07-20.md")
+
+    for content in [readme, readme_ru]:
+        assert f"Current beta package: {RELEASE_VERSION}." in content
+        assert f"Current beta package: v{RELEASE_VERSION}." not in content
+    assert beta_exit.count(f"current beta package `{RELEASE_VERSION}`") == 2
+    assert f"current beta package `v{RELEASE_VERSION}`" not in beta_exit
+    assert f"package version is `{RELEASE_VERSION}` and the Git tag is `v{RELEASE_VERSION}`" in readiness
+
+
 def test_dependabot_tracks_actions_and_python_dependencies():
     config = read_project_file(".github/dependabot.yml")
 
@@ -264,7 +278,7 @@ def test_v020b2_release_notes_state_beta_boundaries_and_local_gates():
             "`morpheus-team-learning/2`",
             "No accepted source span means no training example.",
             "No eval pass means no adapter activation.",
-            "No rollback means no production use.",
+            "No rollback means no production activation.",
             "Cloud integrations remain opt-in.",
             "uvx --from 'morpheus-wake==0.2.0b2' morpheus wake . --private",
             "ruff check .",
@@ -273,6 +287,21 @@ def test_v020b2_release_notes_state_beta_boundaries_and_local_gates():
             "morpheus verify --all",
         ],
     )
+
+
+def test_current_docs_use_exact_production_activation_invariant():
+    for relative_path in [
+        "README.md",
+        "docs/LEARNING_CORE.md",
+        "docs/ROADMAP.md",
+        "docs/release-notes/v0.2.0b2.md",
+        "morpheus/training/README.md",
+    ]:
+        content = read_project_file(relative_path)
+        assert "No rollback means no production activation." in content
+
+    readme_ru = read_project_file("README.ru.md")
+    assert "Нет rollback - нет production activation." in readme_ru
 
 
 def test_v010_release_notes_cover_launch_highlights():

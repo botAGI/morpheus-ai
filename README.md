@@ -14,7 +14,7 @@ distilled into local model weights.
 
 [Русская версия](https://github.com/botAGI/morpheus-ai/blob/main/README.ru.md)
 
-> Status: beta release. Current beta package: v0.2.0b2. The
+> Status: beta release. Current beta package: 0.2.0b2. The
 > deterministic compiler, local claim checker, receipts, CLI, API, UI
 > launchpad, MCP truth tools, A2A-style discovery, cache-backed integrations,
 > and autonomous learning lab are usable. Local adapter learning is
@@ -247,7 +247,7 @@ morpheus learn lab . --no-train
 ```
 
 No accepted source span means no training example. No eval pass means no adapter
-activation. No rollback means no production use.
+activation. No rollback means no production activation.
 
 Built-in truth-gate scenarios without a reviewed candidate are eval-only. Every
 instruction, ShareGPT, and MLX split row carries a non-empty candidate ID,

@@ -16,7 +16,7 @@ The core rule is:
 ```text
 No accepted source span -> no training example.
 No eval pass -> no adapter activation.
-No rollback -> no production use.
+No rollback means no production activation.
 ```
 
 Training input may include only accepted, source-backed candidates whose source

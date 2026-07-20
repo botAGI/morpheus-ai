@@ -198,7 +198,7 @@ and distills stable truth into local model memory.
 - No accepted source span -> no training example.
 - No exact source-authority/artifact match -> no dataset execution.
 - No eval pass -> no adapter activation.
-- No rollback -> no production use.
+- No rollback means no production activation.
 - No cloud calls by default.
 - No raw Markdown training.
 - No adapter output as source of truth.

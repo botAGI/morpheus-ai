@@ -21,7 +21,7 @@ morpheus learn eval .
 ```text
 No accepted source span -> no training example.
 No eval pass -> no adapter activation.
-No rollback -> no production use.
+No rollback means no production activation.
 ```
 
 Do not train on raw Markdown, raw private vaults, raw chat logs, pending review

@@ -35,8 +35,8 @@ memory helped or hurt without automatic activation.
 
 ## Current Status
 
-- Truth-layer CLI: current beta package `v0.2.0b2`.
-- WAKE compile and receipts: current beta package `v0.2.0b2`.
+- Truth-layer CLI: current beta package `0.2.0b2`.
+- WAKE compile and receipts: current beta package `0.2.0b2`.
 - MCP truth tools: beta release after the local live smoke on 2026-05-20.
 - Semantic review: alpha, review-gated.
 - Learning dataset/status/train dry-run: beta release after effective dataset
